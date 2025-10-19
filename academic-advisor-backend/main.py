@@ -3,13 +3,19 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer
 from PyPDF2 import PdfReader
 import firebase_admin
-from firebase_admin import credentials, storage
-import os
 import io
+import os
+from firebase_admin import credentials, initialize_app
 from datetime import datetime
 import logging
 from typing import Optional
+from dotenv import load_dotenv
+load_dotenv()
 
+
+cred_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+cred = credentials.Certificate(cred_path)
+initialize_app(cred)
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
