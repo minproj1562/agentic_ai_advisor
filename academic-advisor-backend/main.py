@@ -27,6 +27,9 @@ from app.models import (
     Conversation
 )
 
+cred_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+cred = credentials.Certificate(cred_path)
+initialize_app(cred)
 # Configure logging
 logging.basicConfig(
     level=getattr(logging, settings.LOG_LEVEL),
