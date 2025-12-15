@@ -1,4 +1,4 @@
-# app/main.py
+# academic-advisor-backend/main.py
 from fastapi import FastAPI, Request, UploadFile, File, HTTPException, Form, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware

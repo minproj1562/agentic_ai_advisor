@@ -1,49 +1,79 @@
-# app/models/elective.py
-class InstructorInfo(BaseModel):
-    id: str
-    name: str
-    rating: float
-    expertise: List[str]
-    total_students: int = 0
-    years_experience: int = 0
+#academic-advisor-backend/app/models/elective.py
+from typing import List, Optional, Dict, Any
+from beanie import Document, Link
+from pydantic import Field, HttpUrl
+from datetime import datetime
+from enum import Enum
+
+class DifficultyLevel(str, Enum):
+    BEGINNER = "Beginner"
+    INTERMEDIATE = "Intermediate"
+    ADVANCED = "Advanced"
+
+class ElectiveCategory(str, Enum):
+    TECHNICAL = "Technical"
+    MANAGEMENT = "Management"
+    RESEARCH = "Research"
+    INTERDISCIPLINARY = "Interdisciplinary"
+
+class InstructorInfo(Document):
+    name: str = Field(..., max_length=100)
+    email: str = Field(..., max_length=100)
+    department: str = Field(..., max_length=100)
+    expertise: List[str] = Field(default_factory=list)
+    rating: float = Field(default=0.0, ge=0, le=5)
+    total_ratings: int = Field(default=0, ge=0)
+    profile_picture: Optional[str] = None
+    office_location: Optional[str] = None
+    office_hours: Optional[str] = None
+    
+    class Settings:
+        name = "instructor_info"
 
 class Elective(Document):
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    title: str
-    code: str
-    prerequisites: List[str] = Field(default_factory=list)
-    difficulty: str  # Beginner, Intermediate, Advanced
-    semester: str
-    credits: int
-    instructor: InstructorInfo
-    tags: List[str] = Field(default_factory=list)
-    career_impact: str
-    industry_relevance: float
-    syllabus: List[str] = Field(default_factory=list)
-    learning_outcomes: List[str] = Field(default_factory=list)
-    enrollment_count: int = 0
-    average_rating: float = 0.0
-    job_market_demand: float = 0.0
-    
-    # For ML matching
+    code: str = Field(..., unique=True)
+    name: str = Field(..., max_length=200)
     description: str
-    skills_required: List[str] = Field(default_factory=list)
-    skills_gained: List[str] = Field(default_factory=list)
-    related_areas: List[str] = Field(default_factory=list)
+    category: ElectiveCategory
+    difficulty: DifficultyLevel
     
-    # Metadata
-    department: str
+    # Academic details
+    credits: int = Field(..., ge=1, le=6)
+    prerequisites: List[str] = Field(default_factory=list)
+    learning_objectives: List[str] = Field(default_factory=list)
+    
+    # Skills and career impact
+    skills_developed: List[str] = Field(default_factory=list)
+    career_impact: List[str] = Field(default_factory=list)
+    tags: List[str] = Field(default_factory=list)
+    
+    # Instructor information
+    instructor: Link[InstructorInfo]
+    
+    # Capacity and scheduling
+    max_students: int = Field(default=60, ge=1)
+    current_enrollment: int = Field(default=0, ge=0)
+    semester_offered: List[int] = Field(default_factory=list)
+    
+    # Resources
+    syllabus_url: Optional[HttpUrl] = None
+    reference_books: List[str] = Field(default_factory=list)
+    
+    # Analytics
+    average_rating: float = Field(default=0.0, ge=0, le=5)
+    success_rate: float = Field(default=0.0, ge=0, le=100)
+    recommendation_score: float = Field(default=0.0, ge=0, le=100)
+    
     is_active: bool = True
-    max_students: int = 60
-    created_at: datetime = Field(default_factory=datetime.now)
-    updated_at: datetime = Field(default_factory=datetime.now)
-    
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
     class Settings:
         name = "electives"
         indexes = [
             "code",
-            "semester",
-            "difficulty",
+            "category",
+            "difficulty", 
             "tags",
             "is_active"
         ]

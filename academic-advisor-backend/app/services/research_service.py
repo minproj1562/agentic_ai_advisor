@@ -1,17 +1,271 @@
+# academic-advisor-backend/app/services/research_service.py
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 from collections import defaultdict
-import numpy as np
+import logging
 
 from app.models.research_area import ResearchArea, ResearchCategory
-from app.models.publication import Publication
 from app.core.cache import cache
-import logging
+from app.services.skill_extractor import SkillExtractor
 
 logger = logging.getLogger(__name__)
 
 class ResearchAreaService:
     
+    def __init__(self):
+        self.skill_extractor = SkillExtractor()
+    
+    async def extract_research_areas_from_cv(self, cv_text: str, user_id: str) -> List[ResearchArea]:
+        """
+        Extract and create research areas from CV text
+        """
+        try:
+            # Use skill extractor to get comprehensive research analysis
+            analysis = await self.skill_extractor.extract_comprehensive(cv_text)
+            
+            research_areas = []
+            
+            for area_data in analysis.get('research_areas', []):
+                # Create research area from extracted data
+                research_area = await self._create_research_area_from_data(area_data, user_id, cv_text)
+                if research_area:
+                    research_areas.append(research_area)
+            
+            return research_areas
+            
+        except Exception as e:
+            logger.error(f"Error extracting research areas from CV: {e}")
+            return []
+    
+    async def _create_research_area_from_data(self, area_data: Dict[str, Any], user_id: str, cv_text: str) -> Optional[ResearchArea]:
+        """
+        Create ResearchArea object from extracted data
+        """
+        try:
+            # Calculate initial metrics based on CV content
+            publications = await self._estimate_publications(area_data, cv_text)
+            citations = await self._estimate_citations(area_data, cv_text)
+            
+            research_area = ResearchArea(
+                user_id=user_id,
+                name=area_data['name'],
+                category=ResearchCategory.PRIMARY if area_data.get('relevance_score', 0) > 70 else ResearchCategory.SECONDARY,
+                description=f"Automatically extracted from CV: {area_data.get('matched_text', '')}",
+                keywords=await self._generate_keywords(area_data, cv_text),
+                publications=publications,
+                citations=citations,
+                grants=await self._estimate_grants(area_data, cv_text),
+                grant_amount=0.0,  # Would need specific extraction
+                collaborators=[],
+                related_areas=[],
+                publication_trend=[],
+                citation_trend=[],
+                technologies=await self._extract_technologies(area_data, cv_text),
+                is_active=True
+            )
+            
+            return research_area
+            
+        except Exception as e:
+            logger.error(f"Error creating research area from data: {e}")
+            return None
+    
+    async def analyze_cv_for_research_potential(self, cv_text: str) -> Dict[str, Any]:
+        """
+        Analyze CV for research potential and compatibility
+        """
+        analysis = await self.skill_extractor.extract_comprehensive(cv_text)
+        research_profile = analysis.get('research_profile', {})
+        
+        return {
+            "research_potential_score": research_profile.get('overall_score', 0),
+            "primary_domains": research_profile.get('primary_domains', []),
+            "technical_competencies": research_profile.get('technical_competencies', []),
+            "research_maturity": research_profile.get('maturity_level', 'emerging'),
+            "skill_gaps": await self._identify_skill_gaps(analysis),
+            "recommendations": await self._generate_research_recommendations(analysis),
+            "compatibility_analysis": await self._analyze_research_compatibility(analysis)
+        }
+    
+    async def _estimate_publications(self, area_data: Dict[str, Any], cv_text: str) -> int:
+        """
+        Estimate publication count based on CV content
+        """
+        # Look for publication indicators
+        publication_indicators = ['published', 'paper', 'journal', 'conference', 'proceedings']
+        indicator_count = sum(1 for indicator in publication_indicators if indicator in cv_text.lower())
+        
+        # Simple estimation based on indicators and expertise
+        base_estimate = indicator_count * 2
+        expertise_boost = area_data.get('relevance_score', 0) / 10
+        
+        return int(base_estimate + expertise_boost)
+    
+    async def _estimate_citations(self, area_data: Dict[str, Any], cv_text: str) -> int:
+        """
+        Estimate citation count (very rough estimate)
+        """
+        publications = await self._estimate_publications(area_data, cv_text)
+        return publications * 5  # Rough average
+    
+    async def _estimate_grants(self, area_data: Dict[str, Any], cv_text: str) -> int:
+        """
+        Estimate grant count
+        """
+        grant_indicators = ['grant', 'funding', 'award', 'fellowship', 'scholarship']
+        indicator_count = sum(1 for indicator in grant_indicators if indicator in cv_text.lower())
+        
+        return indicator_count
+    
+    async def _generate_keywords(self, area_data: Dict[str, Any], cv_text: str) -> List[str]:
+        """
+        Generate relevant keywords for research area
+        """
+        keywords = [area_data['name'].lower()]
+        
+        # Extract additional keywords from context
+        context_keywords = await self._extract_context_keywords(area_data, cv_text)
+        keywords.extend(context_keywords)
+        
+        return list(set(keywords))[:10]  # Limit to 10 keywords
+    
+    async def _extract_context_keywords(self, area_data: Dict[str, Any], cv_text: str) -> List[str]:
+        """
+        Extract additional keywords from context around the research area
+        """
+        # This would be more sophisticated in production
+        area_name = area_data['name'].lower()
+        sentences = cv_text.split('.')
+        
+        keywords = []
+        for sentence in sentences:
+            if area_name in sentence.lower():
+                # Extract nouns and important terms from the sentence
+                words = sentence.split()
+                keywords.extend([w.lower() for w in words if len(w) > 4 and w.isalpha()])
+        
+        return keywords[:5]
+    
+    async def _extract_technologies(self, area_data: Dict[str, Any], cv_text: str) -> List[str]:
+        """
+        Extract relevant technologies for the research area
+        """
+        # This would map research areas to typical technologies
+        technology_mapping = {
+            'machine learning': ['python', 'tensorflow', 'pytorch', 'scikit-learn'],
+            'data science': ['python', 'r', 'sql', 'pandas', 'numpy'],
+            'computer vision': ['python', 'opencv', 'tensorflow', 'pytorch'],
+            'natural language processing': ['python', 'nltk', 'spacy', 'transformers'],
+            'cybersecurity': ['python', 'c++', 'java', 'wireshark', 'metasploit'],
+            'cloud computing': ['aws', 'azure', 'gcp', 'docker', 'kubernetes']
+        }
+        
+        area_name = area_data['name'].lower()
+        for domain, techs in technology_mapping.items():
+            if domain in area_name:
+                return techs
+        
+        return []
+    
+    async def _identify_skill_gaps(self, analysis: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """
+        Identify potential skill gaps for research
+        """
+        gaps = []
+        research_profile = analysis.get('research_profile', {})
+        skills = analysis.get('skills', [])
+        
+        # Check for essential research skills
+        essential_skills = {
+            'Research Design': 'research_methods',
+            'Data Analysis': 'data_science',
+            'Statistical Analysis': 'data_science',
+            'Academic Writing': 'academic_skills'
+        }
+        
+        for skill, category in essential_skills.items():
+            if not any(s['name'].lower() == skill.lower() for s in skills):
+                gaps.append({
+                    'skill': skill,
+                    'category': category,
+                    'importance': 'high',
+                    'reason': 'Essential for academic research'
+                })
+        
+        return gaps
+    
+    async def _generate_research_recommendations(self, analysis: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """
+        Generate research recommendations based on CV analysis
+        """
+        recommendations = []
+        research_profile = analysis.get('research_profile', {})
+        maturity = research_profile.get('maturity_level', 'emerging')
+        
+        if maturity == 'emerging':
+            recommendations.extend([
+                {
+                    'type': 'skill_development',
+                    'priority': 'high',
+                    'recommendation': 'Develop foundational research methodology skills',
+                    'action_items': ['Take research methods courses', 'Participate in research projects']
+                },
+                {
+                    'type': 'networking',
+                    'priority': 'medium',
+                    'recommendation': 'Connect with researchers in your field',
+                    'action_items': ['Attend academic conferences', 'Join research groups']
+                }
+            ])
+        elif maturity == 'developing':
+            recommendations.extend([
+                {
+                    'type': 'publication',
+                    'priority': 'high',
+                    'recommendation': 'Focus on publishing in reputable venues',
+                    'action_items': ['Identify target journals/conferences', 'Develop publication strategy']
+                }
+            ])
+        
+        return recommendations
+    
+    async def _analyze_research_compatibility(self, analysis: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Analyze compatibility with different research domains
+        """
+        research_profile = analysis.get('research_profile', {})
+        skills = analysis.get('skills', [])
+        
+        # Score compatibility with major research domains
+        domains = ['computer_science', 'engineering', 'sciences', 'social_sciences']
+        compatibility_scores = {}
+        
+        for domain in domains:
+            domain_skills = [s for s in skills if self._is_domain_skill(s, domain)]
+            score = len(domain_skills) * 10
+            compatibility_scores[domain] = min(100, score)
+        
+        return {
+            'domain_compatibility': compatibility_scores,
+            'recommended_domains': sorted(compatibility_scores.items(), key=lambda x: x[1], reverse=True)[:2],
+            'overall_fit': sum(compatibility_scores.values()) / len(compatibility_scores) if compatibility_scores else 0
+        }
+    
+    def _is_domain_skill(self, skill: Dict[str, Any], domain: str) -> bool:
+        """
+        Check if skill is relevant to a specific research domain
+        """
+        domain_mapping = {
+            'computer_science': ['programming', 'data_science', 'web', 'cloud', 'database'],
+            'engineering': ['programming', 'data_science'],
+            'sciences': ['data_science', 'research_methods'],
+            'social_sciences': ['research_methods', 'academic_skills']
+        }
+        
+        skill_category = skill.get('category', '')
+        return skill_category in domain_mapping.get(domain, [])
+    
+    # Original methods from your research_area_service.py
     async def get_user_research_areas(
         self,
         user_id: str,
@@ -148,7 +402,7 @@ class ResearchAreaService:
             counts = [t.count for t in area.publication_trend[-5:]]
             
             if len(years) > 1:
-                # Calculate slope
+                # Calculate slope without numpy
                 n = len(years)
                 x_mean = sum(years) / n
                 y_mean = sum(counts) / n
@@ -176,231 +430,6 @@ class ResearchAreaService:
             "declining": declining[:5]
         }
     
-    async def analyze_area_relationships(
-        self,
-        area_id: str,
-        user_id: str
-    ):
-        """Analyze relationships between research areas"""
-        
-        area = await ResearchArea.get(area_id)
-        if not area:
-            return
-        
-        # Find related areas based on keywords
-        if area.keywords:
-            related_areas = await ResearchArea.find({
-                "user_id": user_id,
-                "_id": {"$ne": area_id},
-                "is_active": True,
-                "keywords": {"$in": area.keywords}
-            }).limit(5).to_list()
-            
-            area.related_areas = [str(r.id) for r in related_areas]
-            await area.save()
-    
-    async def get_collaboration_network(
-        self,
-        area: ResearchArea
-    ) -> Dict[str, Any]:
-        """Get collaboration network for a research area"""
-        
-        nodes = []
-        links = []
-        
-        # Add main area as central node
-        nodes.append({
-            "id": str(area.id),
-            "name": area.name,
-            "type": "main",
-            "size": 30
-        })
-        
-        # Add collaborators
-        for collab in area.collaborators[:10]:
-            node_id = f"collab_{collab.get('name', '').replace(' ', '_')}"
-            nodes.append({
-                "id": node_id,
-                "name": collab.get("name", "Unknown"),
-                "type": "collaborator",
-                "size": 15
-            })
-            links.append({
-                "source": str(area.id),
-                "target": node_id,
-                "value": 1
-            })
-        
-        # Add related areas
-        for related_id in area.related_areas[:5]:
-            related = await ResearchArea.get(related_id)
-            if related:
-                nodes.append({
-                    "id": str(related.id),
-                    "name": related.name,
-                    "type": "related",
-                    "size": 20
-                })
-                links.append({
-                    "source": str(area.id),
-                    "target": str(related.id),
-                    "value": 0.5
-                })
-        
-        return {
-            "nodes": nodes,
-            "links": links
-        }
-    
-    async def analyze_trends(
-        self,
-        area_id: str,
-        user_id: str
-    ):
-        """Analyze trends for a research area"""
-        
-        area = await ResearchArea.get(area_id)
-        if not area:
-            return
-        
-        # Get publications for this area
-        publications = await Publication.find({
-            "user_id": user_id,
-            "research_areas": {"$in": [area.name]},
-            "is_active": True
-        }).to_list()
-        
-        # Calculate trends
-        year_data = defaultdict(lambda: {"publications": 0, "citations": 0})
-        for pub in publications:
-            year = pub.publication_date.year
-            year_data[year]["publications"] += 1
-            year_data[year]["citations"] += pub.citations
-        
-        # Update area with trends
-        area.publication_trend = [
-            {"year": year, "count": data["publications"]}
-            for year, data in sorted(year_data.items())
-        ]
-        area.citation_trend = [
-            {"year": year, "count": data["citations"]}
-            for year, data in sorted(year_data.items())
-        ]
-        
-        # Update metrics
-        area.publications = len(publications)
-        area.citations = sum(p.citations for p in publications)
-        
-        await area.save()
-        
-        # Clear cache
-        await cache.delete(f"research_metrics:{user_id}")
-        
-        logger.info(f"Updated trends for research area {area_id}")
-    
-    async def calculate_expertise_matrix(
-        self,
-        user_id: str
-    ) -> List[Dict[str, Any]]:
-        """Calculate expertise matrix across research areas"""
-        
-        areas = await ResearchArea.find({
-            "user_id": user_id,
-            "is_active": True
-        }).to_list()
-        
-        matrix = []
-        for area in areas:
-            # Calculate scores
-            expertise_score = {
-                "expert": 100,
-                "advanced": 75,
-                "intermediate": 50
-            }.get(area.expertise.level.value, 50)
-            
-            # Impact score
-            impact_score = (
-                area.impact.academic_impact * 0.4 +
-                area.impact.industry_impact * 0.3 +
-                area.impact.societal_impact * 0.3
-            )
-            
-            # Activity score (based on recent publications)
-            current_year = datetime.now().year
-            recent_pubs = sum(
-                t.count for t in area.publication_trend
-                if t.year >= current_year - 2
-            )
-            activity_score = min(100, recent_pubs * 10)
-            
-            matrix.append({
-                "area": area.name,
-                "category": area.category.value,
-                "expertise": expertise_score,
-                "impact": min(100, impact_score),
-                "activity": activity_score,
-                "years_experience": area.expertise.years_of_experience,
-                "publications": area.publications,
-                "citations": area.citations
-            })
-        
-        # Sort by overall score
-        for item in matrix:
-            item["overall_score"] = (
-                item["expertise"] * 0.3 +
-                item["impact"] * 0.3 +
-                item["activity"] * 0.4
-            )
-        
-        matrix.sort(key=lambda x: x["overall_score"], reverse=True)
-        
-        return matrix
-    
-    async def suggest_collaborators(
-        self,
-        area: ResearchArea
-    ) -> List[Dict[str, Any]]:
-        """Suggest potential collaborators for a research area"""
-        
-        # This is a simplified version
-        # In production, you'd use ML models and external APIs
-        
-        suggestions = []
-        
-        # Find other users working in similar areas
-        similar_areas = await ResearchArea.find({
-            "name": {"$regex": area.name, "$options": "i"},
-            "user_id": {"$ne": area.user_id},
-            "is_active": True
-        }).limit(10).to_list()
-        
-        for similar in similar_areas:
-            # Calculate compatibility score
-            keyword_overlap = len(set(area.keywords) & set(similar.keywords))
-            tech_overlap = len(set(area.technologies) & set(similar.technologies))
-            
-            compatibility_score = (
-                keyword_overlap * 10 +
-                tech_overlap * 5 +
-                min(similar.publications / 10, 10)
-            )
-            
-            suggestions.append({
-                "area_id": str(similar.id),
-                "area_name": similar.name,
-                "user_id": similar.user_id,
-                "compatibility_score": round(compatibility_score, 1),
-                "common_keywords": list(set(area.keywords) & set(similar.keywords)),
-                "common_technologies": list(set(area.technologies) & set(similar.technologies)),
-                "publications": similar.publications,
-                "category": similar.category.value
-            })
-        
-        # Sort by compatibility score
-        suggestions.sort(key=lambda x: x["compatibility_score"], reverse=True)
-        
-        return suggestions[:5]
-    
     def _empty_metrics(self) -> Dict[str, Any]:
         """Return empty metrics structure"""
         return {
@@ -420,3 +449,236 @@ class ResearchAreaService:
                 "declining": []
             }
         }
+    
+    # New methods to add
+    async def analyze_area_relationships(self, area_id: str, user_id: str):
+        """Analyze relationships between research areas"""
+        try:
+            # Get the current area
+            current_area = await ResearchArea.get(area_id)
+            if not current_area:
+                return
+            
+            # Get all other active areas for the user
+            other_areas = await ResearchArea.find({
+                "user_id": user_id,
+                "is_active": True,
+                "_id": {"$ne": area_id}
+            }).to_list()
+            
+            # Analyze relationships based on keywords and descriptions
+            relationships = []
+            for area in other_areas:
+                similarity_score = self._calculate_similarity(current_area, area)
+                if similarity_score > 0.3:  # Threshold for meaningful relationship
+                    relationships.append({
+                        "area_id": str(area.id),
+                        "area_name": area.name,
+                        "similarity_score": similarity_score,
+                        "relationship_type": self._determine_relationship_type(similarity_score)
+                    })
+            
+            # Update the current area with related areas
+            current_area.related_areas = [
+                rel["area_name"] for rel in sorted(relationships, key=lambda x: x["similarity_score"], reverse=True)[:5]
+            ]
+            await current_area.save()
+            
+        except Exception as e:
+            logger.error(f"Error analyzing area relationships: {e}")
+
+    def _calculate_similarity(self, area1: ResearchArea, area2: ResearchArea) -> float:
+        """Calculate similarity between two research areas"""
+        # Simple keyword-based similarity
+        keywords1 = set(area1.keywords)
+        keywords2 = set(area2.keywords)
+        
+        if not keywords1 or not keywords2:
+            return 0.0
+        
+        intersection = len(keywords1.intersection(keywords2))
+        union = len(keywords1.union(keywords2))
+        
+        return intersection / union if union > 0 else 0.0
+
+    def _determine_relationship_type(self, similarity_score: float) -> str:
+        """Determine the type of relationship based on similarity score"""
+        if similarity_score >= 0.7:
+            return "strong"
+        elif similarity_score >= 0.5:
+            return "moderate"
+        elif similarity_score >= 0.3:
+            return "weak"
+        else:
+            return "minimal"
+
+    async def get_collaboration_network(self, area: ResearchArea) -> Dict[str, Any]:
+        """Get collaboration network for a research area"""
+        try:
+            network = {
+                "nodes": [],
+                "links": []
+            }
+            
+            # Add the main area as central node
+            network["nodes"].append({
+                "id": str(area.id),
+                "name": area.name,
+                "type": "research_area",
+                "value": area.publications,
+                "group": 1
+            })
+            
+            # Add collaborators as nodes
+            for i, collaborator in enumerate(area.collaborators):
+                network["nodes"].append({
+                    "id": f"collaborator_{i}",
+                    "name": collaborator.get("name", "Unknown"),
+                    "type": "collaborator",
+                    "value": 1,
+                    "group": 2
+                })
+                
+                # Add links between area and collaborator
+                network["links"].append({
+                    "source": str(area.id),
+                    "target": f"collaborator_{i}",
+                    "value": 1
+                })
+            
+            return network
+            
+        except Exception as e:
+            logger.error(f"Error getting collaboration network: {e}")
+            return {"nodes": [], "links": []}
+
+    async def analyze_trends(self, area_id: str, user_id: str):
+        """Analyze trends for a research area"""
+        try:
+            area = await ResearchArea.get(area_id)
+            if not area:
+                return
+            
+            # Simulate trend analysis - in production, this would use real data
+            current_year = datetime.now().year
+            
+            # Publication trend (last 5 years)
+            publication_trend = []
+            for year in range(current_year - 4, current_year + 1):
+                publication_trend.append({
+                    "year": year,
+                    "count": max(0, area.publications - (current_year - year) * 2 + (year % 3))  # Simulated data
+                })
+            
+            # Citation trend
+            citation_trend = []
+            for year in range(current_year - 4, current_year + 1):
+                citation_trend.append({
+                    "year": year,
+                    "count": max(0, area.citations - (current_year - year) * 10 + (year % 5) * 3)  # Simulated data
+                })
+            
+            # Update the area with trends
+            area.publication_trend = publication_trend
+            area.citation_trend = citation_trend
+            await area.save()
+            
+        except Exception as e:
+            logger.error(f"Error analyzing trends: {e}")
+
+    async def calculate_expertise_matrix(self, user_id: str) -> List[Dict[str, Any]]:
+        """Calculate expertise matrix across research areas"""
+        areas = await ResearchArea.find({
+            "user_id": user_id,
+            "is_active": True
+        }).to_list()
+        
+        matrix = []
+        for area in areas:
+            expertise_levels = {
+                "expert": 100,
+                "advanced": 75,
+                "intermediate": 50,
+                "beginner": 25
+            }
+            
+            matrix.append({
+                "area": area.name,
+                "expertise_level": area.expertise.level.value if hasattr(area.expertise, 'level') else "intermediate",
+                "expertise_score": expertise_levels.get(area.expertise.level.value if hasattr(area.expertise, 'level') else "intermediate", 50),
+                "publications": area.publications,
+                "citations": area.citations,
+                "impact_score": (area.impact.academic_impact + area.impact.industry_impact + area.impact.societal_impact) / 3
+            })
+        
+        return matrix
+
+    async def suggest_collaborators(self, area: ResearchArea) -> List[Dict[str, Any]]:
+        """Suggest potential collaborators for a research area"""
+        # This would typically integrate with external APIs or internal database
+        # For now, return mock suggestions based on area keywords
+        suggestions = []
+        
+        keyword_mapping = {
+            "machine learning": ["Dr. AI Researcher", "Prof. Data Scientist", "Dr. Neural Networks"],
+            "data science": ["Dr. Analytics Expert", "Prof. Statistics", "Dr. Big Data"],
+            "computer vision": ["Dr. Image Processing", "Prof. Computer Graphics", "Dr. Pattern Recognition"],
+            "natural language processing": ["Dr. Linguistics", "Prof. Text Mining", "Dr. Chatbot Expert"]
+        }
+        
+        for keyword in area.keywords[:3]:  # Top 3 keywords
+            if keyword.lower() in keyword_mapping:
+                suggestions.extend([
+                    {
+                        "name": name,
+                        "expertise": keyword,
+                        "institution": "University Example",
+                        "match_score": 85,
+                        "reason": f"Expert in {keyword}"
+                    }
+                    for name in keyword_mapping[keyword.lower()]
+                ])
+        
+        return suggestions[:5]  # Return top 5 suggestions
+
+    async def match_opportunities(self, user_id: str, keywords: List[str]) -> List[Dict[str, Any]]:
+        """Match research opportunities based on expertise"""
+        # This would typically integrate with grant databases, conference CFPs, etc.
+        # For now, return mock opportunities
+        opportunities = []
+        
+        opportunity_templates = [
+            {
+                "title": "Research Grant in {field}",
+                "description": "Funding opportunity for innovative research in {field}",
+                "deadline": "2024-12-31",
+                "funding_amount": "50000",
+                "type": "grant"
+            },
+            {
+                "title": "Conference CFP: {field} Symposium",
+                "description": "Call for papers for the annual {field} symposium",
+                "deadline": "2024-08-15",
+                "funding_amount": "0",
+                "type": "conference"
+            },
+            {
+                "title": "{field} Research Fellowship",
+                "description": "Postdoctoral fellowship in {field} research",
+                "deadline": "2024-10-01",
+                "funding_amount": "75000",
+                "type": "fellowship"
+            }
+        ]
+        
+        for keyword in keywords[:2]:  # Use top 2 keywords
+            for template in opportunity_templates:
+                opportunities.append({
+                    **template,
+                    "title": template["title"].format(field=keyword),
+                    "description": template["description"].format(field=keyword),
+                    "match_score": 90 - (len(opportunities) * 5),  # Decreasing score
+                    "keywords": [keyword]
+                })
+        
+        return opportunities[:6]  # Return top 6 opportunities

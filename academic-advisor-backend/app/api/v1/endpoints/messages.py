@@ -1,87 +1,100 @@
-# app/api/v1/endpoints/messages.py
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, HTTPException
-from app.services.websocket_manager import manager
-from app.models.message import Message, Conversation
-from typing import List
-import json
+#academic-advisor-backend/app/api/v1/endpoints/messages.py
+from typing import List, Optional
+from fastapi import APIRouter, Depends, HTTPException, status
+from app.core.security import get_current_user, get_current_faculty, get_current_student
+from app.models.messages import Message, Conversation
+from app.services.messaging_service import MessagingService
 
 router = APIRouter()
+messaging_service = MessagingService()
 
-@router.websocket("/ws/{user_id}")
-async def websocket_endpoint(websocket: WebSocket, user_id: str):
-    """WebSocket endpoint for real-time messaging"""
-    await manager.connect(websocket, user_id)
-    
-    try:
-        while True:
-            # Receive message from client
-            data = await websocket.receive_text()
-            message_data = json.loads(data)
-            
-            # Process message based on type
-            if message_data.get("type") == "chat":
-                # Save message to database
-                message = Message(
-                    sender_id=user_id,
-                    receiver_id=message_data.get("receiver_id"),
-                    content=message_data.get("content"),
-                    message_type="text"
-                )
-                await message.save()
-                
-                # Send to receiver
-                await manager.send_json(
-                    {
-                        "type": "chat",
-                        "sender_id": user_id,
-                        "content": message_data.get("content"),
-                        "timestamp": message.created_at.isoformat()
-                    },
-                    message_data.get("receiver_id")
-                )
-            
-            elif message_data.get("type") == "typing":
-                # Notify receiver that sender is typing
-                await manager.send_json(
-                    {
-                        "type": "typing",
-                        "sender_id": user_id
-                    },
-                    message_data.get("receiver_id")
-                )
-            
-            elif message_data.get("type") == "notification":
-                # Handle notification
-                await manager.send_json(
-                    message_data,
-                    message_data.get("receiver_id")
-                )
-    
-    except WebSocketDisconnect:
-        await manager.disconnect(websocket, user_id)
-    except Exception as e:
-        logger.error(f"WebSocket error for user {user_id}: {e}")
-        await manager.disconnect(websocket, user_id)
-
-@router.get("/conversations/{user_id}")
+@router.get("/conversations")
 async def get_conversations(
-    user_id: str,
-    current_user = Depends(get_current_user)
+    current_user = Depends(get_current_user)  # Now properly imported
 ):
     """Get user's conversations"""
     try:
-        if current_user.uid != user_id:
-            raise HTTPException(status_code=403, detail="Not authorized")
-        
-        conversations = await Conversation.find(
-            {"$or": [
-                {"participant1_id": user_id},
-                {"participant2_id": user_id}
-            ]}
-        ).sort(-Conversation.last_message_at).to_list()
-        
-        return [c.dict() for c in conversations]
-    
+        conversations = await messaging_service.get_user_conversations(current_user.uid)
+        return {"conversations": conversations}
     except Exception as e:
-        logger.error(f"Error fetching conversations: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch conversations: {str(e)}"
+        )
+
+@router.get("/conversations/{conversation_id}/messages")
+async def get_conversation_messages(
+    conversation_id: str,
+    limit: int = 50,
+    offset: int = 0,
+    current_user = Depends(get_current_user)
+):
+    """Get messages for a conversation"""
+    try:
+        messages = await messaging_service.get_conversation_messages(
+            conversation_id, limit, offset
+        )
+        return {"messages": messages}
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch messages: {str(e)}"
+        )
+
+@router.post("/messages")
+async def send_message(
+    receiver_id: str,
+    content: str,
+    current_user = Depends(get_current_user)
+):
+    """Send a message"""
+    try:
+        if not content.strip():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Message content cannot be empty"
+            )
+        
+        message = await messaging_service.save_message(
+            sender_id=current_user.uid,
+            receiver_id=receiver_id,
+            content=content.strip()
+        )
+        return {"message": message}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to send message: {str(e)}"
+        )
+
+@router.put("/messages/{message_id}/read")
+async def mark_message_as_read(
+    message_id: str,
+    current_user = Depends(get_current_user)
+):
+    """Mark a message as read"""
+    try:
+        await messaging_service.mark_as_read(message_id, current_user.uid)
+        return {"status": "success"}
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to mark message as read: {str(e)}"
+        )
+
+@router.delete("/messages/{message_id}")
+async def delete_message(
+    message_id: str,
+    current_user = Depends(get_current_user)
+):
+    """Delete a message"""
+    try:
+        await messaging_service.delete_message(message_id, current_user.uid)
+        return {"status": "success"}
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete message: {str(e)}"
+        )

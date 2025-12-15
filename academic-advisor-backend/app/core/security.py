@@ -1,20 +1,13 @@
-# app/core/security.py
+#academic-advisor-backend/app/core/security.py
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 from jose import jwt
 from passlib.context import CryptContext
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-import firebase_admin
-from firebase_admin import auth, credentials
-from app.config import settings
 
-# Initialize Firebase Admin (singleton - only once)
-try:
-    cred = credentials.Certificate(settings.FIREBASE_CREDENTIALS_PATH)
-    firebase_admin.initialize_app(cred)
-except Exception as e:
-    print(f"Firebase init warning: {e}")  # Graceful fallback
+# Import from the new firebase module
+from app.core.firebase import verify_firebase_token as verify_firebase_token_util
 
 # Security scheme
 security = HTTPBearer()
@@ -40,18 +33,8 @@ class FirebaseUser:
 async def verify_firebase_token(token: str) -> Dict[str, Any]:
     """Verify Firebase ID token with detailed error handling"""
     try:
-        decoded_token = auth.verify_id_token(token)
+        decoded_token = verify_firebase_token_util(token)
         return decoded_token
-    except auth.ExpiredIdTokenError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token has expired"
-        )
-    except auth.InvalidIdTokenError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token"
-        )
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -105,6 +88,8 @@ async def get_current_student(
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     """Create JWT access token for internal use"""
+    from app.core.config import settings
+    
     to_encode = data.copy()
     if expires_delta:
         expire = datetime.utcnow() + expires_delta

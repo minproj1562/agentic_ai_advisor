@@ -1,16 +1,33 @@
+#academic-advisor-backend/app/services/publication_service.py
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timedelta
 from beanie import PydanticObjectId
-import pandas as pd
-import json
 from collections import defaultdict
 
-from app.models.publication import Publication, PublicationType, PublicationStatus
-from app.utils.metrics import calculate_h_index, calculate_i10_index
+from app.models.publications import Publication, PublicationType, PublicationStatus  # Fixed import
 from app.core.cache import cache
 import logging
 
 logger = logging.getLogger(__name__)
+
+# Simple calculation functions (since utils.metrics might not exist)
+def calculate_h_index(citation_counts: List[int]) -> int:
+    """Calculate h-index from citation counts"""
+    if not citation_counts:
+        return 0
+    
+    sorted_citations = sorted(citation_counts, reverse=True)
+    h = 0
+    for i, citations in enumerate(sorted_citations):
+        if citations >= i + 1:
+            h = i + 1
+        else:
+            break
+    return h
+
+def calculate_i10_index(citation_counts: List[int]) -> int:
+    """Calculate i10-index from citation counts"""
+    return sum(1 for citations in citation_counts if citations >= 10)
 
 class PublicationService:
     
@@ -166,17 +183,22 @@ class PublicationService:
         
         q1_publications = sum(1 for p in publications if p.quartile == "Q1")
         open_access_count = sum(1 for p in publications if p.is_open_access)
-        open_access_percentage = round((open_access_count / total_publications) * 100, 1)
+        open_access_percentage = round((open_access_count / total_publications) * 100, 1) if total_publications > 0 else 0
         
         metrics = {
             "total_publications": total_publications,
             "total_citations": total_citations,
             "h_index": h_index,
             "i10_index": i10_index,
-            "avg_citations_per_paper": round(total_citations / total_publications, 1),
+            "avg_citations_per_paper": round(total_citations / total_publications, 1) if total_publications > 0 else 0,
             "publications_this_year": publications_this_year,
             "citations_this_year": citations_this_year,
-            "top_cited_papers": [p.dict() for p in top_cited_papers],
+            "top_cited_papers": [{
+                "id": str(p.id),
+                "title": p.title,
+                "citations": p.citations,
+                "year": p.publication_date.year
+            } for p in top_cited_papers],
             "publications_by_type": publications_by_type,
             "citation_trend": citation_trend,
             "collaboration_network": collaboration_network,
@@ -222,7 +244,7 @@ class PublicationService:
                     user_id=user_id,
                     **pub_data
                 )
-                await publication.create()
+                await publication.insert()
                 success_ids.append(str(publication.id))
                 
             except Exception as e:
@@ -248,6 +270,7 @@ class PublicationService:
         end_date: Optional[datetime] = None
     ) -> str:
         """Export publications to CSV"""
+        import pandas as pd
         
         query = {"user_id": user_id, "is_active": True}
         
@@ -387,9 +410,6 @@ class PublicationService:
         keywords: List[str]
     ) -> List[Dict[str, Any]]:
         """Recommend journals based on paper content"""
-        
-        # This is a simplified version - in production, you'd use ML models
-        # and journal databases for better recommendations
         
         # Get all journals from user's publications
         all_publications = await Publication.find({

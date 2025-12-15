@@ -1,39 +1,64 @@
 # app/models/analytics.py
-class StudentResourceActivity(Document):
-    student_id: str = Field(index=True)
-    resource_id: str = Field(index=True)
-    activity_type: str  # viewed, completed, bookmarked
-    progress: float = 0.0
-    time_spent: int = 0  # in seconds
-    rating: Optional[float] = None
-    feedback: Optional[str] = None
-    is_bookmarked: bool = False
-    last_accessed: datetime = Field(default_factory=datetime.now)
-    created_at: datetime = Field(default_factory=datetime.now)
+from typing import List, Dict, Any, Optional
+from beanie import Document
+from pydantic import Field
+from datetime import datetime
+import uuid
+
+class Analytics(Document):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    student_id: str = Field(..., index=True)
+    analytics_type: str  # 'performance', 'engagement', 'weakness', etc.
+    data: Dict[str, Any]
+    timestamp: datetime = Field(default_factory=datetime.now)
     
     class Settings:
-        name = "student_resource_activity"
+        name = "analytics"
         indexes = [
-            [("student_id", 1), ("resource_id", 1)],
-            "activity_type",
-            "last_accessed"
+            "student_id",
+            "analytics_type",
+            "timestamp"
         ]
 
-class WeaknessAnalysisResult(Document):
-    student_id: str = Field(index=True)
-    subject_code: str
-    subject: str
-    overall_score: float
-    semester: str
-    topics: List[Dict[str, Any]]
-    ai_analysis: Dict[str, Any]
-    generated_at: datetime = Field(default_factory=datetime.now)
-    is_current: bool = True
+class TopicAnalysis(Document):
+    topic_name: str
+    score: float = Field(..., ge=0, le=100)
+    weight: float = Field(..., ge=0, le=1)
+    weakness_level: str = Field(..., description="low, medium, high, critical")
+    improvement_suggestions: List[str] = Field(default_factory=list)
+    recommended_resources: List[str] = Field(default_factory=list)
+    practice_exercises: List[str] = Field(default_factory=list)
     
+    class Settings:
+        name = "topic_analysis"
+
+class WeaknessAnalysisResult(Document):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    student_id: str = Field(..., index=True)
+    subject_code: str = Field(..., index=True)
+    subject_name: str
+    
+    # Analysis data
+    overall_score: float = Field(..., ge=0, le=100)
+    semester: str
+    exam_pattern: Dict[str, float] = Field(default_factory=dict)
+    
+    # AI-generated insights
+    ai_analysis: Dict[str, Any] = Field(default_factory=dict)
+    study_plan: Dict[str, Any] = Field(default_factory=dict)
+    predicted_improvement: Dict[str, Any] = Field(default_factory=dict)
+    
+    # Metadata
+    is_current: bool = True
+    analysis_date: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
     class Settings:
         name = "weakness_analysis"
         indexes = [
-            [("student_id", 1), ("generated_at", -1)],
-            "subject_code",
-            "is_current"
+            "student_id",
+            "subject_code", 
+            "is_current",
+            "analysis_date"
         ]

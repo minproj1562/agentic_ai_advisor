@@ -1,65 +1,39 @@
-# app/api/v1/endpoints/resources.py
-from fastapi import APIRouter, Depends, HTTPException, Query
+#academic-advisor-backend/app/api/v1/endpoints/resources.py
+from fastapi import APIRouter, HTTPException, Query
 from typing import List, Optional
 from app.models.resource import StudyResource
-from app.services.resource_matcher import ResourceMatcher
 
 router = APIRouter()
-resource_matcher = ResourceMatcher()
 
-@router.get("/{student_id}/resources/recommendations")
+# In a real implementation, you would have database operations here
+# For now, we'll return empty lists or raise exceptions for unimplemented features
+
+@router.get("/{student_id}/resources/recommendations", response_model=List[StudyResource])
 async def get_resource_recommendations(
     student_id: str,
     subject: Optional[str] = Query(None),
     topic: Optional[str] = Query(None),
     difficulty: Optional[str] = Query(None),
     resource_type: Optional[str] = Query(None),
-    limit: int = Query(10, ge=1, le=50),
-    current_user = Depends(get_current_user)
+    limit: int = Query(10, ge=1, le=50)
 ):
     """Get personalized study resource recommendations"""
     try:
-        # Verify authorization
-        if current_user.uid != student_id and current_user.role != 'admin':
-            raise HTTPException(status_code=403, detail="Not authorized")
+        # TODO: Implement actual resource recommendation logic
+        # This would typically involve:
+        # 1. Fetching student performance data
+        # 2. Analyzing weak areas
+        # 3. Querying resources database with ML matching
         
-        # Get student performance data
-        performance = await StudentPerformance.find_one(
-            StudentPerformance.student_info.uid == student_id
-        ).sort(-StudentPerformance.updated_at)
-        
-        if not performance:
-            raise HTTPException(status_code=404, detail="Student data not found")
-        
-        # Build query filters
-        query_filters = {"is_active": True}
-        
-        if subject:
-            query_filters["tags"] = {"$in": [subject]}
-        if topic:
-            query_filters["topics_covered"] = {"$in": [topic]}
-        if difficulty:
-            query_filters["difficulty"] = difficulty
-        if resource_type:
-            query_filters["type"] = resource_type
-        
-        # Get resources
-        resources = await StudyResource.find(query_filters).to_list(limit * 2)
-        
-        # Match resources to student
-        matched_resources = resource_matcher.match_resources(
-            student_data=performance.dict(),
-            resources=[r.dict() for r in resources],
-            limit=limit
+        raise HTTPException(
+            status_code=501, 
+            detail="Resource recommendation feature not yet implemented"
         )
         
-        return matched_resources
-    
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error fetching resources: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 @router.post("/{student_id}/resources/{resource_id}/activity")
 async def track_resource_activity(
@@ -68,45 +42,22 @@ async def track_resource_activity(
     activity_type: str,
     progress: float = 0.0,
     rating: Optional[float] = None,
-    feedback: Optional[str] = None,
-    current_user = Depends(get_current_user)
+    feedback: Optional[str] = None
 ):
     """Track student interaction with resources"""
     try:
-        # Verify authorization
-        if current_user.uid != student_id:
-            raise HTTPException(status_code=403, detail="Not authorized")
+        # TODO: Implement actual activity tracking
+        # This would typically involve:
+        # 1. Validating the resource exists
+        # 2. Creating/updating activity record
+        # 3. Updating resource effectiveness metrics
         
-        # Create or update activity record
-        activity = await StudentResourceActivity.find_one(
-            StudentResourceActivity.student_id == student_id,
-            StudentResourceActivity.resource_id == resource_id
+        raise HTTPException(
+            status_code=501,
+            detail="Resource activity tracking not yet implemented"
         )
         
-        if activity:
-            activity.activity_type = activity_type
-            activity.progress = max(activity.progress, progress)
-            activity.time_spent += 60  # Add 1 minute per interaction
-            if rating:
-                activity.rating = rating
-            if feedback:
-                activity.feedback = feedback
-            activity.last_accessed = datetime.now()
-        else:
-            activity = StudentResourceActivity(
-                student_id=student_id,
-                resource_id=resource_id,
-                activity_type=activity_type,
-                progress=progress,
-                rating=rating,
-                feedback=feedback,
-                time_spent=60
-            )
-        
-        await activity.save()
-        
-        return {"status": "success", "activity": activity.dict()}
-    
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Error tracking activity: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")

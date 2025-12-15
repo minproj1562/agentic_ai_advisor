@@ -1,6 +1,7 @@
+# app/models/research_area.py
 from beanie import Document, Indexed
-from pydantic import BaseModel, Field
-from typing import Optional, List, Dict
+from pydantic import BaseModel, Field, HttpUrl
+from typing import Optional, List, Dict, Any
 from datetime import datetime
 from enum import Enum
 
@@ -18,6 +19,13 @@ class ProjectStatus(str, Enum):
     ACTIVE = "active"
     COMPLETED = "completed"
     PLANNED = "planned"
+
+class PublicationType(str, Enum):
+    JOURNAL = "journal"
+    CONFERENCE = "conference"
+    BOOK_CHAPTER = "book-chapter"
+    PREPRINT = "preprint"
+    PATENT = "patent"
 
 class SubArea(BaseModel):
     name: str
@@ -45,6 +53,36 @@ class TrendData(BaseModel):
     year: int
     count: int
 
+class CitationTrend(BaseModel):
+    month: str
+    count: int
+
+class Collaborator(BaseModel):
+    id: Optional[str] = None
+    name: str
+    affiliation: str
+    role: str
+    email: Optional[str] = None
+
+class ResearchPaper(BaseModel):
+    """Research Paper model for analytics service"""
+    id: str
+    faculty_id: str
+    title: str
+    authors: List[str]
+    publication_date: datetime
+    journal: Optional[str] = None
+    conference: Optional[str] = None
+    publication_type: PublicationType
+    citations: int = 0
+    abstract: Optional[str] = None
+    doi: Optional[str] = None
+    url: Optional[str] = None
+    is_open_access: bool = False
+    research_areas: List[str] = Field(default_factory=list)
+    created_at: datetime = Field(default_factory=datetime.now)
+    updated_at: datetime = Field(default_factory=datetime.now)
+
 class ResearchArea(Document):
     user_id: Indexed(str)  # Firebase UID
     
@@ -69,6 +107,9 @@ class ResearchArea(Document):
     
     # Projects
     projects: List[ResearchProject] = Field(default_factory=list)
+    
+    # Papers (for analytics)
+    papers: List[ResearchPaper] = Field(default_factory=list)
     
     # Expertise
     expertise: Expertise = Field(default_factory=Expertise)
@@ -98,5 +139,34 @@ class ResearchArea(Document):
             "user_id",
             "name",
             "category",
-            [("user_id", 1), ("category", 1)]
+            [("user_id", 1), ("category", 1)],
+            [("user_id", 1), ("publications", -1)]
         ]
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "user_id": "firebase_uid_123",
+                "name": "Machine Learning",
+                "description": "Research in machine learning algorithms and applications",
+                "category": "primary",
+                "keywords": ["ai", "neural networks", "deep learning"],
+                "publications": 15,
+                "citations": 120,
+                "grants": 3,
+                "grant_amount": 150000,
+                "papers": [
+                    {
+                        "id": "paper_1",
+                        "faculty_id": "faculty_123",
+                        "title": "Advanced Neural Networks",
+                        "authors": ["John Doe", "Jane Smith"],
+                        "publication_date": "2024-01-15T00:00:00",
+                        "journal": "Journal of AI Research",
+                        "publication_type": "journal",
+                        "citations": 25,
+                        "research_areas": ["Machine Learning", "Neural Networks"]
+                    }
+                ]
+            }
+        }

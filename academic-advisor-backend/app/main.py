@@ -1,4 +1,4 @@
-# app/main.py
+# academic-advisor-backend/app/main.py
 from fastapi import FastAPI, Request, UploadFile, File, HTTPException, Form, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
@@ -14,17 +14,32 @@ from firebase_admin import credentials, storage
 from PyPDF2 import PdfReader
 import io
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List
 from app.config import settings
 from app.api.v1.api import api_router
+from app.api.v1.endpoints import academic
+
+# Import your document models
 from app.models import (
     StudentPerformance,
-    Elective,
+    StudentProject,
+    StudentInterestProfile,
+    StudentProfile,
+    SemesterRecord,
+    SubjectScore,
     StudyResource,
-    WeaknessAnalysisResult,
-    StudentResourceActivity,
+    ResearchArea,
+    Publication,
+    Elective,
+    InstructorInfo,
     Message,
-    Conversation
+    Conversation,
+    WeaknessAnalysisResult,
+    Analytics,
+    MentorshipSlot,
+    MentorshipSession,
+    FacultyMentorshipSettings,
+    MentorshipStatistics
 )
 
 # Configure logging
@@ -37,18 +52,30 @@ logger = logging.getLogger(__name__)
 # Document models for Beanie
 document_models = [
     StudentPerformance,
-    Elective,
+    StudentProject,
+    StudentInterestProfile,
+    StudentProfile,
+    SemesterRecord,
+    SubjectScore,
     StudyResource,
-    WeaknessAnalysisResult,
-    StudentResourceActivity,
+    ResearchArea,
+    Publication,
+    Elective,
+    InstructorInfo,
     Message,
-    Conversation
+    Conversation,
+    WeaknessAnalysisResult,
+    Analytics,
+    MentorshipSlot,
+    MentorshipSession,
+    FacultyMentorshipSettings,
+    MentorshipStatistics
 ]
 
-# OAuth2 scheme (enhanced)
+# OAuth2 scheme
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
-# Initialize Firebase Admin (production-ready)
+# Initialize Firebase Admin
 if not firebase_admin._apps:
     try:
         cred = credentials.Certificate(settings.FIREBASE_CREDENTIALS_PATH)
@@ -61,7 +88,7 @@ if not firebase_admin._apps:
         logger.error(f"Failed to initialize Firebase: {str(e)}")
         raise
 
-MAX_FILE_SIZE = settings.MAX_FILE_SIZE  # 10MB from config
+MAX_FILE_SIZE = settings.MAX_FILE_SIZE
 
 async def get_current_user(token: str = Depends(oauth2_scheme)) -> str:
     """Enhanced user validation integrating Firebase"""
@@ -87,11 +114,16 @@ async def lifespan(app: FastAPI):
     logger.info("MongoDB connected successfully")
     
     # Initialize ML models
-    from app.ml.elective_recommender import ElectiveRecommender
-    from app.ml.weakness_predictor import WeaknessAnalyzer
-    app.state.elective_recommender = ElectiveRecommender()
-    app.state.weakness_analyzer = WeaknessAnalyzer()
-    logger.info("ML models loaded successfully")
+    try:
+        from app.ml.elective_recommender import ElectiveRecommender
+        from app.ml.weakness_predictor import WeaknessAnalyzer
+        app.state.elective_recommender = ElectiveRecommender()
+        app.state.weakness_analyzer = WeaknessAnalyzer()
+        logger.info("ML models loaded successfully")
+    except Exception as e:
+        logger.warning(f"ML models failed to load: {e}")
+        app.state.elective_recommender = None
+        app.state.weakness_analyzer = None
     
     yield
     
@@ -106,14 +138,37 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# Enhanced CORS middleware (merged origins)
+# COMPREHENSIVE CORS Configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.CORS_ORIGINS,
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173", 
+        "http://localhost:3000",
+        "http://localhost:5174",
+        "https://localhost:5173",
+        "https://127.0.0.1:5173"
+    ],
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH", "HEAD"],
+    allow_headers=[
+        "*",
+        "Authorization",
+        "Content-Type",
+        "Access-Control-Allow-Headers",
+        "Access-Control-Allow-Origin",
+        "X-Requested-With"
+    ],
+    expose_headers=["*"],
+    max_age=3600,
 )
+
+app.include_router(academic.router, prefix="/api/v1/academic", tags=["academic"])
+
+# Add OPTIONS handler for preflight requests
+@app.options("/{full_path:path}")
+async def options_handler(full_path: str):
+    return {"message": "OK"}
 
 # Add trusted host middleware
 app.add_middleware(
@@ -130,7 +185,7 @@ async def global_exception_handler(request: Request, exc: Exception):
         content={"detail": "Internal server error"}
     )
 
-# Health check endpoint (enhanced)
+# Health check endpoint
 @app.get("/health")
 async def health_check():
     return {
@@ -141,7 +196,7 @@ async def health_check():
         "timestamp": datetime.utcnow().isoformat()
     }
 
-# Root endpoint (enhanced)
+# Root endpoint
 @app.get("/")
 async def read_root():
     return {
@@ -151,7 +206,7 @@ async def read_root():
         "time": datetime.utcnow().isoformat()
     }
 
-# Enhanced CV Upload Endpoint (production-ready)
+# Enhanced CV Upload Endpoint
 @app.post("/parse-cv")
 async def parse_cv(
     cv: UploadFile = File(...),
@@ -214,7 +269,7 @@ async def parse_cv(
 # Include API router
 app.include_router(api_router, prefix=settings.API_V1_STR)
 
-# Main entry point (production-ready)
+# Main entry point
 if __name__ == "__main__":
     uvicorn.run(
         "app.main:app",

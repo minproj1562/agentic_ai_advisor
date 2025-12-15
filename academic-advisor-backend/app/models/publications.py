@@ -1,4 +1,5 @@
-from beanie import Document, Indexed, PydanticObjectId
+# app/models/publications.py
+from beanie import Document, Indexed
 from pydantic import BaseModel, Field, HttpUrl
 from typing import Optional, List, Dict, Any
 from datetime import datetime
@@ -47,8 +48,8 @@ class Publication(Document):
     publication_date: datetime
     
     # Identifiers
-    doi: Optional[Indexed(str, unique=True)] = None
-    url: Optional[HttpUrl] = None
+    doi: Optional[str] = None  # Removed Indexed from optional field
+    url: Optional[str] = None  # Changed from HttpUrl to str for flexibility
     scopus_id: Optional[str] = None
     wos_id: Optional[str] = None
     google_scholar_id: Optional[str] = None
@@ -114,13 +115,13 @@ class Publication(Document):
         ]
     
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "title": "Machine Learning for Academic Success Prediction",
                 "authors": ["John Doe", "Jane Smith"],
                 "journal": "Journal of Educational Data Mining",
                 "publication_type": "journal",
-                "publication_date": "2024-01-15",
+                "publication_date": "2024-01-15T00:00:00",
                 "abstract": "This paper presents a novel approach...",
                 "keywords": ["machine learning", "education", "prediction"]
             }

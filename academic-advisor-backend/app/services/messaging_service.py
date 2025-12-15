@@ -1,41 +1,46 @@
+#academic-advisor-backend/app/services/messaging_service.py
+from typing import List, Optional, Dict, Any
+from datetime import datetime
+import uuid
+from app.models.messages import Message, Conversation
+
 class MessagingService:
+    
     async def get_user_conversations(self, user_id: str) -> List[dict]:
-        """Get all conversations for a user"""
-        # Query conversations
+        """Get all conversations for a user using MongoDB"""
         conversations = []
         
-        # Get conversations where user is participant
-        conv_query = db.collection('conversations')\
-            .where('participants', 'array_contains', user_id)\
-            .order_by('last_message_time', direction='DESCENDING')\
-            .stream()
+        # Find conversations where user is participant
+        convs = await Conversation.find({
+            "$or": [
+                {"participant1_id": user_id},
+                {"participant2_id": user_id}
+            ]
+        }).sort(-Conversation.last_message_at).to_list()
         
-        for conv in conv_query:
-            data = conv.to_dict()
-            
+        for conv in convs:
             # Get other participant info
-            other_participant_id = [p for p in data['participants'] if p != user_id][0]
-            user_doc = db.collection('users').document(other_participant_id).get()
-            user_data = user_doc.to_dict() if user_doc.exists else {}
+            other_participant_id = (
+                conv.participant2_id if conv.participant1_id == user_id 
+                else conv.participant1_id
+            )
             
-            # Count unread messages
-            unread_query = db.collection('messages')\
-                .where('conversation_id', '==', conv.id)\
-                .where('receiver_id', '==', user_id)\
-                .where('is_read', '==', False)\
-                .stream()
-            
-            unread_count = sum(1 for _ in unread_query)
+            # Count unread messages for this conversation
+            unread_count = await Message.find({
+                "conversation_id": str(conv.id),
+                "receiver_id": user_id,
+                "is_read": False
+            }).count()
             
             conversations.append({
-                'id': conv.id,
+                'id': str(conv.id),
                 'participantId': other_participant_id,
-                'participantName': user_data.get('name', 'Unknown'),
-                'participantRole': user_data.get('role', 'student'),
-                'lastMessage': data.get('last_message', ''),
-                'lastMessageTime': data.get('last_message_time', datetime.now()).isoformat(),
+                'participantName': await self._get_user_display_name(other_participant_id),
+                'participantRole': await self._get_user_role(other_participant_id),
+                'lastMessage': conv.last_message or '',
+                'lastMessageTime': conv.last_message_at.isoformat() if conv.last_message_at else conv.created_at.isoformat(),
                 'unreadCount': unread_count,
-                'isOnline': user_data.get('is_online', False)
+                'isOnline': False  # You'd implement presence tracking
             })
         
         return conversations
@@ -47,28 +52,23 @@ class MessagingService:
         offset: int = 0
     ) -> List[dict]:
         """Get messages for a conversation"""
-        messages_query = db.collection('messages')\
-            .where('conversation_id', '==', conversation_id)\
-            .order_by('timestamp', direction='DESCENDING')\
-            .limit(limit)\
-            .offset(offset)\
-            .stream()
+        messages = await Message.find({
+            "conversation_id": conversation_id
+        }).sort(-Message.created_at).skip(offset).limit(limit).to_list()
         
-        messages = []
-        for msg in messages_query:
-            data = msg.to_dict()
-            messages.append({
-                'id': msg.id,
-                'senderId': data.get('sender_id'),
-                'senderName': data.get('sender_name', ''),
-                'content': data.get('content'),
-                'timestamp': data.get('timestamp', datetime.now()).isoformat(),
-                'isRead': data.get('is_read', False),
-                'isStarred': data.get('is_starred', False),
-                'attachments': data.get('attachments', [])
-            })
-        
-        return messages
+        return [
+            {
+                'id': str(msg.id),
+                'senderId': msg.sender_id,
+                'senderName': await self._get_user_display_name(msg.sender_id),
+                'content': msg.content,
+                'timestamp': msg.created_at.isoformat(),
+                'isRead': msg.is_read,
+                'isStarred': False,
+                'attachments': []
+            }
+            for msg in reversed(messages)  # Reverse to show oldest first
+        ]
     
     async def save_message(
         self,
@@ -81,32 +81,39 @@ class MessagingService:
         # Find or create conversation
         conversation_id = await self.get_or_create_conversation(sender_id, receiver_id)
         
-        # Get sender info
-        sender_doc = db.collection('users').document(sender_id).get()
-        sender_name = sender_doc.to_dict().get('name', 'Unknown') if sender_doc.exists else 'Unknown'
-        
-        message_data = {
-            'conversation_id': conversation_id,
-            'sender_id': sender_id,
-            'sender_name': sender_name,
-            'receiver_id': receiver_id,
-            'content': content,
-            'attachments': attachments or [],
-            'timestamp': datetime.now(),
-            'is_read': False,
-            'is_starred': False
-        }
-        
-        # Save message
-        message_ref = db.collection('messages').add(message_data)
+        # Create message
+        message = Message(
+            conversation_id=conversation_id,
+            sender_id=sender_id,
+            receiver_id=receiver_id,
+            content=content,
+            message_type="text"
+        )
+        await message.insert()
         
         # Update conversation
-        db.collection('conversations').document(conversation_id).update({
-            'last_message': content,
-            'last_message_time': datetime.now()
-        })
+        conversation = await Conversation.get(conversation_id)
+        if conversation:
+            conversation.last_message = content
+            conversation.last_message_at = datetime.now()
+            conversation.updated_at = datetime.now()
+            # Increment unread count for the receiver
+            conversation.unread_count = await Message.find({
+                "conversation_id": conversation_id,
+                "receiver_id": receiver_id,
+                "is_read": False
+            }).count()
+            await conversation.save()
         
-        return {'id': message_ref[1].id, **message_data}
+        return {
+            'id': str(message.id),
+            'conversation_id': conversation_id,
+            'sender_id': sender_id,
+            'receiver_id': receiver_id,
+            'content': content,
+            'timestamp': message.created_at.isoformat(),
+            'is_read': False
+        }
     
     async def get_or_create_conversation(
         self,
@@ -115,32 +122,56 @@ class MessagingService:
     ) -> str:
         """Get existing conversation or create new one"""
         # Check if conversation exists
-        existing = db.collection('conversations')\
-            .where('participants', 'array_contains', user1_id)\
-            .stream()
+        existing = await Conversation.find_one({
+            "$or": [
+                {"participant1_id": user1_id, "participant2_id": user2_id},
+                {"participant1_id": user2_id, "participant2_id": user1_id}
+            ]
+        })
         
-        for conv in existing:
-            if user2_id in conv.to_dict().get('participants', []):
-                return conv.id
+        if existing:
+            return str(existing.id)
         
         # Create new conversation
-        conversation_data = {
-            'participants': [user1_id, user2_id],
-            'created_at': datetime.now(),
-            'last_message': '',
-            'last_message_time': datetime.now()
-        }
+        conversation = Conversation(
+            participant1_id=user1_id,
+            participant2_id=user2_id,
+            last_message="",
+            unread_count=0
+        )
+        await conversation.insert()
         
-        conv_ref = db.collection('conversations').add(conversation_data)
-        return conv_ref[1].id
+        return str(conversation.id)
     
     async def mark_as_read(self, message_id: str, user_id: str):
         """Mark message as read"""
-        db.collection('messages').document(message_id).update({
-            'is_read': True,
-            'read_at': datetime.now()
-        })
+        message = await Message.get(message_id)
+        if message and message.receiver_id == user_id:
+            message.is_read = True
+            await message.save()
+            
+            # Update conversation unread count
+            conversation = await Conversation.get(message.conversation_id)
+            if conversation:
+                conversation.unread_count = await Message.find({
+                    "conversation_id": message.conversation_id,
+                    "receiver_id": user_id,
+                    "is_read": False
+                }).count()
+                await conversation.save()
     
     async def delete_message(self, message_id: str, user_id: str):
         """Delete a message"""
-        db.collection('messages').document(message_id).delete()
+        message = await Message.get(message_id)
+        if message and (message.sender_id == user_id or message.receiver_id == user_id):
+            await message.delete()
+    
+    async def _get_user_display_name(self, user_id: str) -> str:
+        """Get user display name (placeholder - implement with your user service)"""
+        # This would typically call your user service
+        return f"User {user_id[:8]}"
+    
+    async def _get_user_role(self, user_id: str) -> str:
+        """Get user role (placeholder - implement with your user service)"""
+        # This would typically call your user service
+        return "student"

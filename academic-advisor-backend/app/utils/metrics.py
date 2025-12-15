@@ -1,3 +1,4 @@
+#academic-advisor-backend/app/utils/metrics.py
 def calculate_h_index(citations: List[int]) -> int:
     """Calculate h-index from citation counts"""
     if not citations:

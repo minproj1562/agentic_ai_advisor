@@ -1,4 +1,10 @@
-# app/models/resource.py
+#academic-advisor-backend/app/models/resource.py
+from datetime import datetime
+from typing import Optional, List, Dict, Any
+import uuid
+from beanie import Document
+from pydantic import Field
+
 class StudyResource(Document):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     title: str
