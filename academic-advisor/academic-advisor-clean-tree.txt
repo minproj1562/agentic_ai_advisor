@@ -1,0 +1,49 @@
+CLEAN PROJECT TREE STRUCTURE
+Project: /workspaces/agentic_ai_advisor
+Excluded: node_modules build venv public dist __pycache__ .git .next .nuxt .cache logs
+============================================================
+BACKEND (academic-advisor-backend/)
+──────────────────────────────────
+📁 app
+  📁 api
+    📁 v1
+      🐍 achievements.py
+      🐍 analytics.py
+      🐍 appointments.py
+      🐍 cv.py
+      🐍 messages.py
+      🐍 publications.py
+      🐍 research_area.py
+  📁 core
+    🐍 security.py
+  📁 models
+    🐍 achievement.py
+    🐍 cv.py
+    🐍 publications.py
+    🐍 research_area.py
+  📁 schemas
+    🐍 achievement.py
+  📁 services
+    🐍 achievement_service.py
+    🐍 analytics_service.py
+    🐍 appointment_service.py
+    🐍 cv_parser.py
+    🐍 messaging_service.py
+    🐍 nlp_service.py
+    🐍 publication_service.py
+    🐍 research_service.py
+    🐍 skill_extractor.py
+    🐍 websocket_manager.py
+  📁 utils
+    🐍 metrics.py
+  🐍 config.py
+  🐍 main.py
+📄 .env
+📄 .gitignore
+📄 Dockerfile
+📄 docker-compose.yml
+🐍 firebase.py
+🐍 main.py
+📄 requirements.txt
+📋 serviceAccountKey.json
+📋 serviceAccountKey.template.json
