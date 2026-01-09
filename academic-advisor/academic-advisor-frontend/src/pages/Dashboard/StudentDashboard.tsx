@@ -510,7 +510,7 @@ useEffect(() => {
     const handleProjectUploaded = () => {
       console.log('Project uploaded event received');
       fetchProjectCount();
-      setProjectsView('list');
+      //setProjectsView('list');
     };
 
     window.addEventListener('projectUploaded', handleProjectUploaded);

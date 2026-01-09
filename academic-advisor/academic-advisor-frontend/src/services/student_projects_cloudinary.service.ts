@@ -210,7 +210,7 @@ class StudentProjectsCloudinaryService {
       await this.updateUserInterestProfile(user.uid, inferredInterests);
 
       // Dispatch event for dashboard refresh
-      window.dispatchEvent(new Event('projectUploaded'));
+      //window.dispatchEvent(new Event('projectUploaded'));
 
       return {
         success: true,

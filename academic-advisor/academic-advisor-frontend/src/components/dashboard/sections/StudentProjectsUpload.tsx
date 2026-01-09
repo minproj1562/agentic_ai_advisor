@@ -1,14 +1,13 @@
 // src/components/dashboard/sections/StudentProjectsUpload.tsx
 import React, { useState, useCallback, useEffect } from 'react';
+import ReactDOM from 'react-dom';
 import { useDropzone } from 'react-dropzone';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Upload,
   X,
-  Plus,
   Github,
   Globe,
-  Calendar,
   Users,
   Code,
   Package,
@@ -18,25 +17,24 @@ import {
   BookOpen,
   Sparkles,
   FileText,
-  Image,
   File,
   CheckCircle,
   AlertCircle,
   Loader2,
   ChevronRight,
   Brain,
-  TrendingUp,
-  Briefcase,
-  Star,
   Cloud,
   CheckCheck,
   XCircle
 } from 'lucide-react';
 import { studentProjectsService } from '../../../services/student_projects_cloudinary.service';
 import { toast } from 'react-hot-toast';
-import { format } from 'date-fns';
 import { ProjectAnalysisResults } from './ProjectAnalysisResults';
 import { useAuth } from '../../../contexts/AuthContext';
+
+// =============================================
+// INTERFACES
+// =============================================
 
 interface ProjectFormData {
   title: string;
@@ -62,15 +60,6 @@ interface ProjectFormData {
   learnings: string[];
 }
 
-interface InferredInterest {
-  domain: string;
-  confidence: number;
-  keywords: string[];
-  relatedSkills: string[];
-  careerPaths: string[];
-  industryRelevance: number;
-}
-
 interface ProjectFile {
   file: File;
   preview?: string;
@@ -79,52 +68,73 @@ interface ProjectFile {
   error?: string;
 }
 
-export const StudentProjectsUpload: React.FC = () => {
-  const [formData, setFormData] = useState<ProjectFormData>({
-    title: '',
-    description: '',
-    detailedDescription: '',
-    projectType: 'personal',
-    startDate: '',
-    endDate: '',
-    programmingLanguages: [],
-    frameworks: [],
-    tools: [],
-    githubUrl: '',
-    demoUrl: '',
-    isTeamProject: false,
-    teamSize: 1,
-    teamMembers: [],
-    keyAchievements: [],
-    challengesFaced: [],
-    learnings: []
-  });
+// =============================================
+// INITIAL FORM STATE
+// =============================================
 
+const INITIAL_FORM_DATA: ProjectFormData = {
+  title: '',
+  description: '',
+  detailedDescription: '',
+  projectType: 'personal',
+  startDate: '',
+  endDate: '',
+  programmingLanguages: [],
+  frameworks: [],
+  tools: [],
+  githubUrl: '',
+  demoUrl: '',
+  isTeamProject: false,
+  teamSize: 1,
+  teamMembers: [],
+  keyAchievements: [],
+  challengesFaced: [],
+  learnings: []
+};
+
+// =============================================
+// MAIN COMPONENT
+// =============================================
+
+export const StudentProjectsUpload: React.FC = () => {
+  // =============================================
+  // STATE
+  // =============================================
+  
+  const [formData, setFormData] = useState<ProjectFormData>(INITIAL_FORM_DATA);
   const [files, setFiles] = useState<ProjectFile[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [currentStep, setCurrentStep] = useState(1);
-  const [inferredInterests, setInferredInterests] = useState<InferredInterest[]>([]);
-  const [showInterests, setShowInterests] = useState(false);
   const [interestProfile, setInterestProfile] = useState<any>(null);
-  const [uploadedFiles, setUploadedFiles] = useState<any[]>([]);
-  const [showAnalysisResults, setShowAnalysisResults] = useState(false);
-  const [comprehensiveAnalysis, setComprehensiveAnalysis] = useState<any>(null);
+  
+  // Modal state
+  const [showAnalysisModal, setShowAnalysisModal] = useState(false);
+  const [analysisData, setAnalysisData] = useState<any>(null);
+  
   const { user } = useAuth();
 
-  // Helper functions to get user's branch and semester
-  const getUserBranch = () => {
+  // =============================================
+  // HELPER FUNCTIONS
+  // =============================================
+
+  const getUserBranch = (): string => {
     return localStorage.getItem('userBranch') || 'IT';
   };
 
-  const getUserSemester = () => {
+  const getUserSemester = (): number => {
     return parseInt(localStorage.getItem('userSemester') || '5');
   };
 
-  // File upload dropzone
+  // =============================================
+  // FILE HANDLING - DROPZONE
+  // =============================================
+
   const onDrop = useCallback((acceptedFiles: File[]) => {
     const newFiles = acceptedFiles.map(file => ({
       file,
-      preview: file.type.startsWith('image/') ? URL.createObjectURL(file) : undefined,
+      preview: file.type.startsWith('image/') 
+        ? URL.createObjectURL(file) 
+        : undefined,
       progress: 0,
       status: 'pending' as const
     }));
@@ -146,7 +156,7 @@ export const StudentProjectsUpload: React.FC = () => {
     maxSize: 10485760 // 10MB
   });
 
-  // Clean up previews on unmount
+  // Cleanup file previews on unmount
   useEffect(() => {
     return () => {
       files.forEach(file => {
@@ -157,8 +167,7 @@ export const StudentProjectsUpload: React.FC = () => {
     };
   }, [files]);
 
-  // Remove file
-  const removeFile = (index: number) => {
+  const removeFile = (index: number): void => {
     setFiles(prev => {
       const newFiles = [...prev];
       if (newFiles[index].preview) {
@@ -168,125 +177,170 @@ export const StudentProjectsUpload: React.FC = () => {
     });
   };
 
-  // Add tag (languages, frameworks, tools)
-  const addTag = (field: 'programmingLanguages' | 'frameworks' | 'tools', value: string) => {
-    if (value.trim() && !formData[field].includes(value.trim())) {
+  // =============================================
+  // TAG HANDLING (Languages, Frameworks, Tools)
+  // =============================================
+
+  const addTag = (
+    field: 'programmingLanguages' | 'frameworks' | 'tools', 
+    value: string
+  ): void => {
+    const trimmedValue = value.trim();
+    if (trimmedValue && !formData[field].includes(trimmedValue)) {
       setFormData(prev => ({
         ...prev,
-        [field]: [...prev[field], value.trim()]
+        [field]: [...prev[field], trimmedValue]
       }));
     }
   };
 
-  // Remove tag
-  const removeTag = (field: 'programmingLanguages' | 'frameworks' | 'tools', value: string) => {
+  const removeTag = (
+    field: 'programmingLanguages' | 'frameworks' | 'tools', 
+    value: string
+  ): void => {
     setFormData(prev => ({
       ...prev,
       [field]: prev[field].filter(t => t !== value)
     }));
   };
 
-  // Add list item
-  const addListItem = (field: 'keyAchievements' | 'challengesFaced' | 'learnings', value: string) => {
-    if (value.trim()) {
+  // =============================================
+  // LIST ITEM HANDLING (Achievements, Challenges, Learnings)
+  // =============================================
+
+  const addListItem = (
+    field: 'keyAchievements' | 'challengesFaced' | 'learnings', 
+    value: string
+  ): void => {
+    const trimmedValue = value.trim();
+    if (trimmedValue) {
       setFormData(prev => ({
         ...prev,
-        [field]: [...prev[field], value.trim()]
+        [field]: [...prev[field], trimmedValue]
       }));
     }
   };
 
-  // Remove list item
-  const removeListItem = (field: 'keyAchievements' | 'challengesFaced' | 'learnings', index: number) => {
+  const removeListItem = (
+    field: 'keyAchievements' | 'challengesFaced' | 'learnings', 
+    index: number
+  ): void => {
     setFormData(prev => ({
       ...prev,
       [field]: prev[field].filter((_, i) => i !== index)
     }));
   };
 
-  // Submit project
-  const handleSubmit = async () => {
+  // =============================================
+  // FORM RESET
+  // =============================================
+
+  const resetForm = useCallback(() => {
+    setFormData(INITIAL_FORM_DATA);
+    setFiles([]);
+    setCurrentStep(1);
+  }, []);
+
+  // =============================================
+  // MODAL CLOSE HANDLER
+  // =============================================
+
+  const handleCloseModal = useCallback(() => {
+    console.log('User closing modal');
+    setShowAnalysisModal(false);
+    setAnalysisData(null);
+    resetForm();
+    
+    // Dispatch event to refresh dashboard ONLY when user closes modal
+    window.dispatchEvent(new Event('projectUploaded'));
+  }, [resetForm]);
+
+  // =============================================
+  // FORM SUBMISSION
+  // =============================================
+
+  const handleSubmit = async (): Promise<void> => {
+    console.log('Starting project submission...');
     setIsSubmitting(true);
     
     try {
       // Validate required fields
       if (!formData.title || !formData.description) {
         toast.error('Please fill in all required fields');
+        setIsSubmitting(false);
         return;
       }
 
-      // Update file upload status
-      setFiles(prev => prev.map(f => ({ ...f, status: 'uploading' as const, progress: 0 })));
+      // Update file status to uploading
+      setFiles(prev => prev.map(f => ({ 
+        ...f, 
+        status: 'uploading' as const, 
+        progress: 0 
+      })));
 
-      // Prepare form data
+      // Prepare project data
       const projectData = {
         ...formData,
         startDate: new Date(formData.startDate).toISOString(),
-        endDate: formData.endDate ? new Date(formData.endDate).toISOString() : null
+        endDate: formData.endDate 
+          ? new Date(formData.endDate).toISOString() 
+          : null
       };
 
+      // Step 1: Get comprehensive analysis
+      let analysis = null;
+      
       try {
-        // Get comprehensive analysis - NOW WITH ONLY 2 ARGUMENTS
-        const analysis = await studentProjectsService.analyzeProjectComprehensive(
+        console.log('Fetching comprehensive analysis...');
+        analysis = await studentProjectsService.analyzeProjectComprehensive(
           projectData,
           files.map(f => f.file)
         );
-
-        // Store the analysis
-        setComprehensiveAnalysis(analysis);
-        
-        // Show analysis results first
-        if (analysis && analysis.inferred_interests.length > 0) {
-          setShowAnalysisResults(true);
-        }
+        console.log('Analysis received:', analysis);
       } catch (analysisError) {
         console.error('Analysis error:', analysisError);
-        // Continue with regular upload even if analysis fails
+        // Continue with upload even if analysis fails
       }
 
-      // Upload project with files to Cloudinary
-      const response = await studentProjectsService.createProject(
+      // Step 2: Upload project to database
+      console.log('Uploading project...');
+      await studentProjectsService.createProject(
         projectData,
         files.map(f => f.file),
         (fileIndex, progress) => {
-          // Update progress for each file
           setFiles(prev => prev.map((f, idx) => 
             idx === fileIndex 
               ? { 
                   ...f, 
                   progress, 
-                  status: progress === 100 ? 'completed' : 'uploading' as const 
+                  status: progress === 100 ? 'completed' as const : 'uploading' as const 
                 }
               : f
           ));
         }
       );
 
-      // Store uploaded files info
-      if (response.uploadedFiles) {
-        setUploadedFiles(response.uploadedFiles);
-      }
-
-      // If no comprehensive analysis, show basic interests
-      if (!comprehensiveAnalysis && response.inferredInterests) {
-        setInferredInterests(response.inferredInterests);
-        setShowInterests(true);
-      }
-
+      console.log('Project uploaded successfully');
       toast.success('Project uploaded successfully!');
-      
-      // Reset form after analysis is closed
-      if (!showAnalysisResults && !response.inferredInterests) {
-        setTimeout(() => {
-          resetForm();
-        }, 2000);
+
+      // Step 3: Show analysis modal if we have valid data
+      if (analysis && analysis.inferred_interests && analysis.inferred_interests.length > 0) {
+        console.log('Opening analysis modal...');
+        setAnalysisData(analysis);
+        setShowAnalysisModal(true);
+        // DON'T reset form here - let modal close handler do it
+      } else {
+        // No analysis available, just reset and refresh
+        console.log('No analysis data, resetting form');
+        resetForm();
+        window.dispatchEvent(new Event('projectUploaded'));
       }
 
     } catch (error: any) {
-      console.error('Error uploading project:', error);
+      console.error('Submission error:', error);
       toast.error(error.message || 'Failed to upload project');
       
-      // Reset file status on error
+      // Update file status to error
       setFiles(prev => prev.map(f => ({ 
         ...f, 
         status: 'error' as const,
@@ -297,48 +351,27 @@ export const StudentProjectsUpload: React.FC = () => {
     }
   };
 
-  // Reset form
-  const resetForm = () => {
-    setFormData({
-      title: '',
-      description: '',
-      detailedDescription: '',
-      projectType: 'personal',
-      startDate: '',
-      endDate: '',
-      programmingLanguages: [],
-      frameworks: [],
-      tools: [],
-      githubUrl: '',
-      demoUrl: '',
-      isTeamProject: false,
-      teamSize: 1,
-      teamMembers: [],
-      keyAchievements: [],
-      challengesFaced: [],
-      learnings: []
-    });
-    setFiles([]);
-    setCurrentStep(1);
-    setShowInterests(false);
-    setUploadedFiles([]);
-  };
+  // =============================================
+  // FETCH INTEREST PROFILE ON MOUNT
+  // =============================================
 
-  // Fetch interest profile
   useEffect(() => {
+    const fetchInterestProfile = async (): Promise<void> => {
+      try {
+        const profile = await studentProjectsService.getInterestProfile();
+        setInterestProfile(profile);
+      } catch (error) {
+        console.error('Error fetching interest profile:', error);
+      }
+    };
+    
     fetchInterestProfile();
   }, []);
 
-  const fetchInterestProfile = async () => {
-    try {
-      const profile = await studentProjectsService.getInterestProfile();
-      setInterestProfile(profile);
-    } catch (error) {
-      console.error('Error fetching interest profile:', error);
-    }
-  };
+  // =============================================
+  // STEP VALIDATION
+  // =============================================
 
-  // Validate current step before proceeding
   const validateStep = (step: number): boolean => {
     switch (step) {
       case 1:
@@ -357,15 +390,20 @@ export const StudentProjectsUpload: React.FC = () => {
     return true;
   };
 
-  const goToNextStep = () => {
+  const goToNextStep = (): void => {
     if (validateStep(currentStep)) {
       setCurrentStep(prev => prev + 1);
     }
   };
 
+  // =============================================
+  // RENDER
+  // =============================================
+
   return (
     <div className="max-w-7xl mx-auto p-6 space-y-6">
-      {/* Header */}
+      
+      {/* ==================== HEADER ==================== */}
       <div className="bg-gradient-to-r from-purple-600 to-indigo-600 rounded-2xl p-8 text-white">
         <div className="flex items-center justify-between">
           <div>
@@ -384,7 +422,7 @@ export const StudentProjectsUpload: React.FC = () => {
         </div>
       </div>
 
-      {/* Progress Steps */}
+      {/* ==================== PROGRESS STEPS ==================== */}
       <div className="bg-white rounded-xl shadow-sm p-6">
         <div className="flex items-center justify-between">
           {[1, 2, 3, 4].map((step) => (
@@ -394,25 +432,19 @@ export const StudentProjectsUpload: React.FC = () => {
             >
               <div
                 className={`
-                  w-10 h-10 rounded-full flex items-center justify-center font-semibold transition-all
+                  w-10 h-10 rounded-full flex items-center justify-center 
+                  font-semibold transition-all
                   ${currentStep >= step
                     ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white scale-110'
                     : 'bg-gray-200 text-gray-500'
                   }
                 `}
               >
-                {currentStep > step ? (
-                  <CheckCheck className="w-5 h-5" />
-                ) : (
-                  step
-                )}
+                {currentStep > step ? <CheckCheck className="w-5 h-5" /> : step}
               </div>
               {step < 4 && (
                 <div
-                  className={`
-                    flex-1 h-1 mx-2 transition-all
-                    ${currentStep > step ? 'bg-purple-600' : 'bg-gray-200'}
-                  `}
+                  className={`flex-1 h-1 mx-2 transition-all ${currentStep > step ? 'bg-purple-600' : 'bg-gray-200'}`}
                 />
               )}
             </div>
@@ -426,10 +458,11 @@ export const StudentProjectsUpload: React.FC = () => {
         </div>
       </div>
 
-      {/* Form Content */}
+      {/* ==================== FORM CONTENT ==================== */}
       <div className="bg-white rounded-xl shadow-sm p-6">
         <AnimatePresence mode="wait">
-          {/* Step 1: Basic Information */}
+          
+          {/* ==================== STEP 1: Basic Info ==================== */}
           {currentStep === 1 && (
             <motion.div
               key="step1"
@@ -440,6 +473,7 @@ export const StudentProjectsUpload: React.FC = () => {
             >
               <h2 className="text-xl font-semibold mb-4">Basic Information</h2>
               
+              {/* Project Title */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Project Title *
@@ -453,6 +487,7 @@ export const StudentProjectsUpload: React.FC = () => {
                 />
               </div>
 
+              {/* Project Type */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Project Type *
@@ -473,6 +508,7 @@ export const StudentProjectsUpload: React.FC = () => {
                 </select>
               </div>
 
+              {/* Short Description */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Short Description *
@@ -486,6 +522,7 @@ export const StudentProjectsUpload: React.FC = () => {
                 />
               </div>
 
+              {/* Detailed Description */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Detailed Description
@@ -499,6 +536,7 @@ export const StudentProjectsUpload: React.FC = () => {
                 />
               </div>
 
+              {/* Dates */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -524,6 +562,7 @@ export const StudentProjectsUpload: React.FC = () => {
                 </div>
               </div>
 
+              {/* Team Project Toggle */}
               <div className="flex items-center space-x-6">
                 <label className="flex items-center">
                   <input
@@ -558,6 +597,7 @@ export const StudentProjectsUpload: React.FC = () => {
                 )}
               </div>
 
+              {/* Navigation */}
               <div className="flex justify-end">
                 <button
                   onClick={goToNextStep}
@@ -570,7 +610,7 @@ export const StudentProjectsUpload: React.FC = () => {
             </motion.div>
           )}
 
-          {/* Step 2: Technical Details */}
+          {/* ==================== STEP 2: Technical Details ==================== */}
           {currentStep === 2 && (
             <motion.div
               key="step2"
@@ -597,32 +637,32 @@ export const StudentProjectsUpload: React.FC = () => {
                       <button
                         onClick={() => removeTag('programmingLanguages', lang)}
                         className="ml-2 hover:text-purple-900"
+                        type="button"
                       >
                         <X className="w-3 h-3" />
                       </button>
                     </span>
                   ))}
                 </div>
-                <div className="flex space-x-2">
-                  <input
-                    type="text"
-                    placeholder="Add language (e.g., Python, JavaScript)"
-                    onKeyPress={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        addTag('programmingLanguages', e.currentTarget.value);
-                        e.currentTarget.value = '';
-                      }
-                    }}
-                    className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                  />
-                </div>
-                {/* Quick add common languages */}
+                <input
+                  type="text"
+                  placeholder="Add language (e.g., Python, JavaScript) and press Enter"
+                  onKeyPress={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      addTag('programmingLanguages', e.currentTarget.value);
+                      e.currentTarget.value = '';
+                    }
+                  }}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                />
+                {/* Quick Add Buttons */}
                 <div className="mt-2 flex flex-wrap gap-2">
                   {['Python', 'JavaScript', 'TypeScript', 'Java', 'C++', 'React', 'Node.js'].map(lang => (
                     <button
                       key={lang}
                       onClick={() => addTag('programmingLanguages', lang)}
+                      type="button"
                       className="text-xs px-2 py-1 border border-gray-300 rounded hover:bg-gray-50"
                     >
                       + {lang}
@@ -631,7 +671,7 @@ export const StudentProjectsUpload: React.FC = () => {
                 </div>
               </div>
 
-              {/* Frameworks */}
+              {/* Frameworks & Libraries */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   <Package className="inline w-4 h-4 mr-1" />
@@ -647,29 +687,28 @@ export const StudentProjectsUpload: React.FC = () => {
                       <button
                         onClick={() => removeTag('frameworks', framework)}
                         className="ml-2 hover:text-indigo-900"
+                        type="button"
                       >
                         <X className="w-3 h-3" />
                       </button>
                     </span>
                   ))}
                 </div>
-                <div className="flex space-x-2">
-                  <input
-                    type="text"
-                    placeholder="Add framework (e.g., React, TensorFlow)"
-                    onKeyPress={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        addTag('frameworks', e.currentTarget.value);
-                        e.currentTarget.value = '';
-                      }
-                    }}
-                    className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                  />
-                </div>
+                <input
+                  type="text"
+                  placeholder="Add framework (e.g., React, TensorFlow) and press Enter"
+                  onKeyPress={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      addTag('frameworks', e.currentTarget.value);
+                      e.currentTarget.value = '';
+                    }
+                  }}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                />
               </div>
 
-              {/* Tools */}
+              {/* Tools & Technologies */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   <Wrench className="inline w-4 h-4 mr-1" />
@@ -685,26 +724,25 @@ export const StudentProjectsUpload: React.FC = () => {
                       <button
                         onClick={() => removeTag('tools', tool)}
                         className="ml-2 hover:text-green-900"
+                        type="button"
                       >
                         <X className="w-3 h-3" />
                       </button>
                     </span>
                   ))}
                 </div>
-                <div className="flex space-x-2">
-                  <input
-                    type="text"
-                    placeholder="Add tool (e.g., Docker, AWS, Git)"
-                    onKeyPress={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        addTag('tools', e.currentTarget.value);
-                        e.currentTarget.value = '';
-                      }
-                    }}
-                    className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                  />
-                </div>
+                <input
+                  type="text"
+                  placeholder="Add tool (e.g., Docker, AWS, Git) and press Enter"
+                  onKeyPress={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      addTag('tools', e.currentTarget.value);
+                      e.currentTarget.value = '';
+                    }
+                  }}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                />
               </div>
 
               {/* Project Links */}
@@ -738,15 +776,18 @@ export const StudentProjectsUpload: React.FC = () => {
                 </div>
               </div>
 
+              {/* Navigation */}
               <div className="flex justify-between">
                 <button
                   onClick={() => setCurrentStep(1)}
+                  type="button"
                   className="px-6 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
                 >
                   Previous
                 </button>
                 <button
                   onClick={() => setCurrentStep(3)}
+                  type="button"
                   className="px-6 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-lg hover:shadow-lg transition-shadow flex items-center space-x-2"
                 >
                   <span>Next</span>
@@ -756,7 +797,7 @@ export const StudentProjectsUpload: React.FC = () => {
             </motion.div>
           )}
 
-          {/* Step 3: Project Outcomes */}
+          {/* ==================== STEP 3: Outcomes ==================== */}
           {currentStep === 3 && (
             <motion.div
               key="step3"
@@ -782,6 +823,7 @@ export const StudentProjectsUpload: React.FC = () => {
                       </span>
                       <button
                         onClick={() => removeListItem('keyAchievements', index)}
+                        type="button"
                         className="text-red-500 hover:text-red-700"
                       >
                         <X className="w-4 h-4" />
@@ -789,20 +831,18 @@ export const StudentProjectsUpload: React.FC = () => {
                     </div>
                   ))}
                 </div>
-                <div className="flex space-x-2">
-                  <input
-                    type="text"
-                    placeholder="Add achievement (e.g., Reduced processing time by 50%)"
-                    onKeyPress={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        addListItem('keyAchievements', e.currentTarget.value);
-                        e.currentTarget.value = '';
-                      }
-                    }}
-                    className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
-                  />
-                </div>
+                <input
+                  type="text"
+                  placeholder="Add achievement (e.g., Reduced processing time by 50%) and press Enter"
+                  onKeyPress={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      addListItem('keyAchievements', e.currentTarget.value);
+                      e.currentTarget.value = '';
+                    }
+                  }}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
+                />
               </div>
 
               {/* Challenges Faced */}
@@ -820,6 +860,7 @@ export const StudentProjectsUpload: React.FC = () => {
                       </span>
                       <button
                         onClick={() => removeListItem('challengesFaced', index)}
+                        type="button"
                         className="text-red-500 hover:text-red-700"
                       >
                         <X className="w-4 h-4" />
@@ -827,20 +868,18 @@ export const StudentProjectsUpload: React.FC = () => {
                     </div>
                   ))}
                 </div>
-                <div className="flex space-x-2">
-                  <input
-                    type="text"
-                    placeholder="Add challenge (e.g., Optimizing database queries)"
-                    onKeyPress={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        addListItem('challengesFaced', e.currentTarget.value);
-                        e.currentTarget.value = '';
-                      }
-                    }}
-                    className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
-                  />
-                </div>
+                <input
+                  type="text"
+                  placeholder="Add challenge (e.g., Optimizing database queries) and press Enter"
+                  onKeyPress={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      addListItem('challengesFaced', e.currentTarget.value);
+                      e.currentTarget.value = '';
+                    }
+                  }}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
+                />
               </div>
 
               {/* Key Learnings */}
@@ -858,6 +897,7 @@ export const StudentProjectsUpload: React.FC = () => {
                       </span>
                       <button
                         onClick={() => removeListItem('learnings', index)}
+                        type="button"
                         className="text-red-500 hover:text-red-700"
                       >
                         <X className="w-4 h-4" />
@@ -865,31 +905,32 @@ export const StudentProjectsUpload: React.FC = () => {
                     </div>
                   ))}
                 </div>
-                <div className="flex space-x-2">
-                  <input
-                    type="text"
-                    placeholder="Add learning (e.g., Importance of code documentation)"
-                    onKeyPress={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        addListItem('learnings', e.currentTarget.value);
-                        e.currentTarget.value = '';
-                      }
-                    }}
-                    className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
-                  />
-                </div>
+                <input
+                  type="text"
+                  placeholder="Add learning (e.g., Importance of code documentation) and press Enter"
+                  onKeyPress={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      addListItem('learnings', e.currentTarget.value);
+                      e.currentTarget.value = '';
+                    }
+                  }}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
+                />
               </div>
 
+              {/* Navigation */}
               <div className="flex justify-between">
                 <button
                   onClick={() => setCurrentStep(2)}
+                  type="button"
                   className="px-6 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
                 >
                   Previous
                 </button>
                 <button
                   onClick={() => setCurrentStep(4)}
+                  type="button"
                   className="px-6 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-lg hover:shadow-lg transition-shadow flex items-center space-x-2"
                 >
                   <span>Next</span>
@@ -899,7 +940,7 @@ export const StudentProjectsUpload: React.FC = () => {
             </motion.div>
           )}
 
-          {/* Step 4: Files & Submit */}
+          {/* ==================== STEP 4: Files & Submit ==================== */}
           {currentStep === 4 && (
             <motion.div
               key="step4"
@@ -910,7 +951,7 @@ export const StudentProjectsUpload: React.FC = () => {
             >
               <h2 className="text-xl font-semibold mb-4">Upload Project Files</h2>
 
-              {/* Cloudinary Notice */}
+              {/* Cloud Storage Notice */}
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 flex items-start space-x-3">
                 <Cloud className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
                 <div className="flex-1">
@@ -922,7 +963,7 @@ export const StudentProjectsUpload: React.FC = () => {
                 </div>
               </div>
 
-              {/* File Upload Area */}
+              {/* Dropzone */}
               <div
                 {...getRootProps()}
                 className={`
@@ -949,7 +990,7 @@ export const StudentProjectsUpload: React.FC = () => {
                 )}
               </div>
 
-              {/* Uploaded Files */}
+              {/* File List */}
               {files.length > 0 && (
                 <div className="space-y-2">
                   <h3 className="text-sm font-medium text-gray-700">Files to Upload</h3>
@@ -958,10 +999,14 @@ export const StudentProjectsUpload: React.FC = () => {
                       key={index}
                       className={`
                         p-3 rounded-lg transition-all
-                        ${file.status === 'error' ? 'bg-red-50 border border-red-200' : 'bg-gray-50'}
+                        ${file.status === 'error' 
+                          ? 'bg-red-50 border border-red-200' 
+                          : 'bg-gray-50'
+                        }
                       `}
                     >
                       <div className="flex items-center space-x-3">
+                        {/* File Preview/Icon */}
                         {file.preview ? (
                           <img
                             src={file.preview}
@@ -977,6 +1022,8 @@ export const StudentProjectsUpload: React.FC = () => {
                             )}
                           </div>
                         )}
+                        
+                        {/* File Info */}
                         <div className="flex-1">
                           <p className="text-sm font-medium text-gray-900">{file.file.name}</p>
                           <p className="text-xs text-gray-500">
@@ -984,10 +1031,11 @@ export const StudentProjectsUpload: React.FC = () => {
                           </p>
                         </div>
                         
-                        {/* Status indicators */}
+                        {/* Status Indicators */}
                         {file.status === 'pending' && (
                           <button
                             onClick={() => removeFile(index)}
+                            type="button"
                             className="text-red-500 hover:text-red-700"
                           >
                             <X className="w-4 h-4" />
@@ -1013,7 +1061,7 @@ export const StudentProjectsUpload: React.FC = () => {
                         )}
                       </div>
                       
-                      {/* Progress bar */}
+                      {/* Progress Bar */}
                       {file.status === 'uploading' && (
                         <div className="mt-2">
                           <div className="w-full bg-gray-200 rounded-full h-1.5">
@@ -1025,7 +1073,7 @@ export const StudentProjectsUpload: React.FC = () => {
                         </div>
                       )}
                       
-                      {/* Error message */}
+                      {/* Error Message */}
                       {file.status === 'error' && file.error && (
                         <p className="text-xs text-red-600 mt-1">{file.error}</p>
                       )}
@@ -1040,6 +1088,7 @@ export const StudentProjectsUpload: React.FC = () => {
                   <button
                     onClick={() => setCurrentStep(3)}
                     disabled={isSubmitting}
+                    type="button"
                     className="px-6 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     Previous
@@ -1047,6 +1096,7 @@ export const StudentProjectsUpload: React.FC = () => {
                   <button
                     onClick={handleSubmit}
                     disabled={isSubmitting || !formData.title || !formData.description}
+                    type="button"
                     className={`
                       px-8 py-3 rounded-lg font-medium flex items-center space-x-2 transition-all
                       ${isSubmitting || !formData.title || !formData.description
@@ -1074,173 +1124,21 @@ export const StudentProjectsUpload: React.FC = () => {
         </AnimatePresence>
       </div>
 
-      {/* Comprehensive Analysis Results Modal */}
-      {showAnalysisResults && comprehensiveAnalysis && (
+      {/* ==================== ANALYSIS MODAL (Portal) ==================== */}
+      {showAnalysisModal && analysisData && ReactDOM.createPortal(
         <ProjectAnalysisResults
-          analysis={comprehensiveAnalysis}
-          onClose={() => {
-            setShowAnalysisResults(false);
-            setComprehensiveAnalysis(null);
-            resetForm();
-            // Trigger refresh of projects list
-            window.dispatchEvent(new Event('projectUploaded'));
-          }}
+          analysis={analysisData}
+          onClose={handleCloseModal}
           studentBranch={getUserBranch()}
           studentSemester={getUserSemester()}
-        />
+        />,
+        document.body
       )}
 
-      {/* Inferred Interests Modal (Fallback) */}
-      <AnimatePresence>
-        {showInterests && inferredInterests.length > 0 && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-6"
-            onClick={() => setShowInterests(false)}
-          >
-            <motion.div
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              className="bg-white rounded-2xl max-w-3xl w-full max-h-[80vh] overflow-auto"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="p-6 border-b bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-t-2xl">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h2 className="text-2xl font-bold mb-2">AI Interest Analysis Complete!</h2>
-                    <p className="text-purple-100">
-                      Based on your project, we've identified your interests and career paths
-                    </p>
-                  </div>
-                  <Brain className="w-12 h-12" />
-                </div>
-              </div>
-
-              <div className="p-6 space-y-4">
-                {/* Show uploaded files if any */}
-                {uploadedFiles.length > 0 && (
-                  <div className="mb-4 p-4 bg-green-50 rounded-lg">
-                    <div className="flex items-center space-x-2 mb-2">
-                      <CheckCircle className="w-5 h-5 text-green-600" />
-                      <p className="font-medium text-green-800">Files uploaded successfully!</p>
-                    </div>
-                    <div className="space-y-1">
-                      {uploadedFiles.map((file, index) => (
-                        <div key={index} className="flex items-center space-x-2 text-sm text-green-700">
-                          <Cloud className="w-4 h-4" />
-                          <span>{file.name}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {inferredInterests.map((interest, index) => (
-                  <motion.div
-                    key={index}
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: index * 0.1 }}
-                    className="p-4 border rounded-xl hover:shadow-md transition-shadow"
-                  >
-                    <div className="flex items-start justify-between mb-3">
-                      <div className="flex items-center space-x-3">
-                        <div className="w-10 h-10 bg-gradient-to-r from-purple-600 to-indigo-600 rounded-lg flex items-center justify-center text-white font-bold">
-                          {index + 1}
-                        </div>
-                        <div>
-                          <h3 className="font-semibold text-lg">{interest.domain}</h3>
-                          <div className="flex items-center space-x-2 mt-1">
-                            <div className="flex items-center space-x-1">
-                              <TrendingUp className="w-4 h-4 text-green-500" />
-                              <span className="text-sm text-gray-600">
-                                {Math.round(interest.confidence * 100)}% Match
-                              </span>
-                            </div>
-                            <span className="text-gray-400">•</span>
-                            <div className="flex items-center space-x-1">
-                              <Briefcase className="w-4 h-4 text-blue-500" />
-                              <span className="text-sm text-gray-600">
-                                {Math.round(interest.industryRelevance * 100)}% Industry Demand
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="space-y-3">
-                      {/* Keywords */}
-                      <div>
-                        <p className="text-xs font-medium text-gray-500 mb-2">KEY AREAS</p>
-                        <div className="flex flex-wrap gap-2">
-                          {interest.keywords.slice(0, 5).map((keyword, kIndex) => (
-                            <span
-                              key={kIndex}
-                              className="px-2 py-1 bg-purple-100 text-purple-700 rounded-full text-xs"
-                            >
-                              {keyword}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-
-                      {/* Related Skills */}
-                      <div>
-                        <p className="text-xs font-medium text-gray-500 mb-2">SKILLS TO DEVELOP</p>
-                        <div className="flex flex-wrap gap-2">
-                          {interest.relatedSkills.slice(0, 4).map((skill, sIndex) => (
-                            <span
-                              key={sIndex}
-                              className="px-2 py-1 bg-indigo-100 text-indigo-700 rounded-full text-xs"
-                            >
-                              {skill}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-
-                      {/* Career Paths */}
-                      <div>
-                        <p className="text-xs font-medium text-gray-500 mb-2">POTENTIAL CAREERS</p>
-                        <div className="flex flex-wrap gap-2">
-                          {interest.careerPaths.slice(0, 3).map((career, cIndex) => (
-                            <span
-                              key={cIndex}
-                              className="px-2 py-1 bg-green-100 text-green-700 rounded-full text-xs flex items-center"
-                            >
-                              <Star className="w-3 h-3 mr-1" />
-                              {career}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  </motion.div>
-                ))}
-              </div>
-
-              <div className="p-6 border-t bg-gray-50 rounded-b-2xl">
-                <button
-                  onClick={() => {
-                    setShowInterests(false);
-                    resetForm();
-                  }}
-                  className="w-full px-6 py-3 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-lg hover:shadow-lg transition-shadow font-medium"
-                >
-                  Got It, Thanks!
-                </button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Interest Profile Summary */}
-      {interestProfile && interestProfile.topDomains && interestProfile.topDomains.length > 0 && (
+      {/* ==================== INTEREST PROFILE SUMMARY ==================== */}
+      {interestProfile && 
+       interestProfile.topDomains && 
+       interestProfile.topDomains.length > 0 && (
         <div className="bg-white rounded-xl shadow-sm p-6">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-xl font-semibold">Your Interest Profile</h2>
@@ -1263,7 +1161,9 @@ export const StudentProjectsUpload: React.FC = () => {
                     style={{ width: `${domain.strength}%` }}
                   />
                 </div>
-                <p className="text-xs text-gray-600 mt-2">{domain.projectCount} projects</p>
+                <p className="text-xs text-gray-600 mt-2">
+                  {domain.projectCount} projects
+                </p>
               </div>
             ))}
           </div>
