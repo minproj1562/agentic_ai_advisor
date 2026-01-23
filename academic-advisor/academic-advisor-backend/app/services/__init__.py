@@ -1,4 +1,4 @@
-from .academic_service import AcademicService
+import AcademicService
 from .research_service import ResearchAreaService
 from .publication_service import PublicationService
 from .achievement_service import AchievementService
