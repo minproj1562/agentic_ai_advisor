@@ -13,6 +13,7 @@ import firebase_admin
 from firebase_admin import credentials, storage
 from PyPDF2 import PdfReader
 import io
+import os
 from datetime import datetime
 from typing import Optional
 from app.config import settings
@@ -22,7 +23,6 @@ from app.models import (
     Elective,
     StudyResource,
     WeaknessAnalysisResult,
-    StudentResourceActivity,
     Message,
     Conversation
 )
@@ -43,7 +43,6 @@ document_models = [
     Elective,
     StudyResource,
     WeaknessAnalysisResult,
-    StudentResourceActivity,
     Message,
     Conversation
 ]

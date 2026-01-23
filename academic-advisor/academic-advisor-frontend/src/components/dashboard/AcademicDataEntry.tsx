@@ -1,4 +1,3 @@
-// src/components/dashboard/AcademicDataEntry.tsx
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import {
@@ -9,15 +8,13 @@ import {
   CheckCircle,
   Upload,
   FileSpreadsheet,
-  Calendar,
-  TrendingUp,
   BookOpen,
-  X
+  X,
+  Loader2
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../../contexts/AuthContext';
 import { auth } from '../../services/firebase.config';
-import { config } from '../../././config/environment'; // Import the config
 
 interface SubjectEntry {
   subject_code: string;
@@ -35,12 +32,10 @@ interface ProfileData {
   branch: string;
   admission_year: number;
   email: string;
-  current_semester?: number;
-  academic_year?: string;
+  // Removed current_semester and academic_year - they'll be calculated on backend
 }
 
-// Backend base URL configuration
-const BACKEND_URL = config.BACKEND_URL;
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
 
 export const AcademicDataEntry: React.FC = () => {
   const { user } = useAuth();
@@ -49,14 +44,15 @@ export const AcademicDataEntry: React.FC = () => {
   const [currentSemester, setCurrentSemester] = useState(1);
   const [academicYear, setAcademicYear] = useState('');
   const [backendAvailable, setBackendAvailable] = useState(true);
+  const [profileLoading, setProfileLoading] = useState(false);
   
-  // Profile form
+  // Profile form - REMOVED current_semester and academic_year
   const [profileForm, setProfileForm] = useState<ProfileData>({
-    name: '',
+    name: user?.name || '', // Changed from displayName to name
     roll_number: '',
     branch: 'IT',
     admission_year: new Date().getFullYear(),
-    email: ''
+    email: user?.email || ''
   });
   
   // Subjects form
@@ -105,40 +101,33 @@ export const AcademicDataEntry: React.FC = () => {
   // Backend health check
   const isBackendRunning = async (): Promise<boolean> => {
     try {
-      const response = await fetch(`${BACKEND_URL}/health`);
+      const response = await fetch(`${BACKEND_URL}/health`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
       return response.ok;
     } catch (error) {
+      console.error('Backend health check failed:', error);
       return false;
     }
   };
   
   // Check if profile exists
-  useEffect(() => {
-    if (user) {
-      checkProfile();
-      checkBackendHealth();
-    }
-  }, [user]);
-  
-  const checkBackendHealth = async () => {
-    const isRunning = await isBackendRunning();
-    setBackendAvailable(isRunning);
-    if (!isRunning) {
-      console.warn('Backend server is not running. Some features may not work.');
-    }
-  };
-  
   const checkProfile = async () => {
     if (!user) return;
     
     try {
+      setProfileLoading(true);
       const token = await auth.currentUser?.getIdToken();
       if (!token) {
         toast.error('Authentication token not available');
         return;
       }
       
-      const response = await fetch(`${BACKEND_URL}/api/v1/academic/profile`, {
+      const response = await fetch(`${BACKEND_URL}/api/v1/student/profile`, {
+        method: 'GET',
         headers: { 
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
@@ -147,35 +136,23 @@ export const AcademicDataEntry: React.FC = () => {
       
       if (response.ok) {
         const data = await response.json();
-        const profile = data.profile;
-        
         setProfileExists(true);
         
-        // Calculate current academic details based on admission year
-        const academicDetails = calculateAcademicDetails(profile.admission_year);
-        
-        // Update states with fetched and calculated data
-        setCurrentSemester(academicDetails.semester);
-        setAcademicYear(academicDetails.academicYear);
-        setSelectedSemester(academicDetails.semester);
+        // Set current semester and academic year from backend
+        setCurrentSemester(data.current_semester);
+        setAcademicYear(data.current_academic_year);
+        setSelectedSemester(data.current_semester);
         
         // Populate form with existing data
         setProfileForm({
-          name: profile.name,
-          roll_number: profile.roll_number,
-          branch: profile.branch,
-          admission_year: profile.admission_year,
-          email: profile.email || user.email || '',
-          current_semester: academicDetails.semester,
-          academic_year: academicDetails.academicYear
+          name: data.name || user.name || '', // Changed from displayName to name
+          roll_number: data.roll_number || '',
+          branch: data.branch || 'IT',
+          admission_year: data.admission_year || new Date().getFullYear(),
+          email: data.email || user.email || ''
         });
         
-        // Store in localStorage for persistence
-        localStorage.setItem('userBranch', profile.branch);
-        localStorage.setItem('userSemester', academicDetails.semester.toString());
-        localStorage.setItem('academicYear', academicDetails.academicYear);
-        localStorage.setItem('admissionYear', profile.admission_year.toString());
-        
+        toast.success('Profile loaded successfully');
       } else if (response.status === 404) {
         setProfileExists(false);
         // Calculate academic details for new profile
@@ -187,22 +164,43 @@ export const AcademicDataEntry: React.FC = () => {
     } catch (error) {
       console.error('Error checking profile:', error);
       setProfileExists(false);
-      
-      // Try to restore from localStorage if backend is down
-      const storedYear = localStorage.getItem('admissionYear');
-      if (storedYear) {
-        const academicDetails = calculateAcademicDetails(parseInt(storedYear));
-        setCurrentSemester(academicDetails.semester);
-        setAcademicYear(academicDetails.academicYear);
-        setSelectedSemester(academicDetails.semester);
-      }
+    } finally {
+      setProfileLoading(false);
     }
   };
+  
+  // Check backend health and profile on component mount
+  useEffect(() => {
+    const initialize = async () => {
+      if (user) {
+        const isRunning = await isBackendRunning();
+        setBackendAvailable(isRunning);
+        
+        if (isRunning) {
+          await checkProfile();
+        } else {
+          toast.error('Backend server is not running. Please start the backend server.');
+        }
+      }
+    };
+    
+    initialize();
+  }, [user]);
   
   // Save profile
   const saveProfile = async () => {
     if (!user) {
       toast.error('User not authenticated');
+      return;
+    }
+    
+    if (!profileForm.name.trim()) {
+      toast.error('Please enter your name');
+      return;
+    }
+    
+    if (!profileForm.roll_number.trim()) {
+      toast.error('Please enter your roll number');
       return;
     }
     
@@ -215,16 +213,13 @@ export const AcademicDataEntry: React.FC = () => {
         return;
       }
       
-      // Calculate academic details before saving
-      const academicDetails = calculateAcademicDetails(profileForm.admission_year);
-      
+      // Prepare profile data - DON'T include current_semester or academic_year
       const profileData = {
         ...profileForm,
-        current_semester: academicDetails.semester,
-        academic_year: academicDetails.academicYear
+        email: profileForm.email || user.email || ''
       };
       
-      const response = await fetch(`${BACKEND_URL}/api/v1/academic/profile/create`, {
+      const response = await fetch(`${BACKEND_URL}/api/v1/student/profile/create`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -236,15 +231,10 @@ export const AcademicDataEntry: React.FC = () => {
       if (response.ok) {
         const data = await response.json();
         setProfileExists(true);
-        setCurrentSemester(academicDetails.semester);
-        setAcademicYear(academicDetails.academicYear);
-        toast.success('Profile saved successfully!');
+        setCurrentSemester(data.current_semester);
+        setAcademicYear(data.current_academic_year);
         
-        // Store in localStorage for persistence
-        localStorage.setItem('userBranch', profileForm.branch);
-        localStorage.setItem('userSemester', academicDetails.semester.toString());
-        localStorage.setItem('academicYear', academicDetails.academicYear);
-        localStorage.setItem('admissionYear', profileForm.admission_year.toString());
+        toast.success('Profile saved successfully!');
         
         // Trigger dashboard refresh
         window.dispatchEvent(new Event('profileUpdated'));
@@ -254,7 +244,7 @@ export const AcademicDataEntry: React.FC = () => {
       }
     } catch (error) {
       console.error('Error saving profile:', error);
-      toast.error('Backend server not running. Please start the backend server.');
+      toast.error('Failed to save profile. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -276,17 +266,9 @@ export const AcademicDataEntry: React.FC = () => {
   // Remove subject
   const removeSubject = (index: number) => {
     if (subjects.length > 1) {
-      setSubjects(subjects.filter((_, i) => i !== index));
-    } else {
-      setSubjects([{
-        subject_code: '',
-        subject_name: '',
-        credits: 3,
-        internal_marks: 0,
-        external_marks: 0,
-        is_elective: false,
-        is_practical: false
-      }]);
+      const newSubjects = [...subjects];
+      newSubjects.splice(index, 1);
+      setSubjects(newSubjects);
     }
   };
   
@@ -309,7 +291,7 @@ export const AcademicDataEntry: React.FC = () => {
     return { grade: 'F', points: 0, color: 'text-red-600' };
   };
   
-  // Calculate total marks and grade for a subject
+  // Calculate total marks for a subject
   const calculateTotalMarks = (subject: SubjectEntry) => {
     return subject.internal_marks + subject.external_marks;
   };
@@ -321,29 +303,31 @@ export const AcademicDataEntry: React.FC = () => {
       return;
     }
     
-    // Ensure academic year is set
-    if (!academicYear) {
-      const storedYear = localStorage.getItem('admissionYear');
-      if (storedYear) {
-        const academicDetails = calculateAcademicDetails(parseInt(storedYear));
-        setAcademicYear(academicDetails.academicYear);
-      } else {
-        toast.error('Please complete your profile first');
-        return;
-      }
+    if (!profileExists) {
+      toast.error('Please create your profile first');
+      return;
     }
     
     // Validate subjects
     const invalidSubjects = subjects.filter(subject => 
-      !subject.subject_code || 
-      !subject.subject_name || 
-      subject.credits <= 0 ||
-      subject.internal_marks < 0 || 
-      subject.external_marks < 0
+      !subject.subject_code.trim() || 
+      !subject.subject_name.trim() || 
+      subject.credits <= 0
     );
     
     if (invalidSubjects.length > 0) {
       toast.error('Please fill all subject fields with valid data');
+      return;
+    }
+    
+    // Validate marks
+    const invalidMarks = subjects.filter(subject => 
+      subject.internal_marks < 0 || subject.internal_marks > 20 ||
+      subject.external_marks < 0 || subject.external_marks > 80
+    );
+    
+    if (invalidMarks.length > 0) {
+      toast.error('Marks must be within valid ranges (Internal: 0-20, External: 0-80)');
       return;
     }
     
@@ -356,18 +340,16 @@ export const AcademicDataEntry: React.FC = () => {
         return;
       }
       
-      // Use the current academic year or calculate it
-      const currentAcademicYear = academicYear || 
-        localStorage.getItem('academicYear') || 
-        calculateAcademicDetails(parseInt(localStorage.getItem('admissionYear') || new Date().getFullYear().toString())).academicYear;
-      
       const requestData = {
         semester_number: selectedSemester,
-        academic_year: currentAcademicYear,
-        subjects: subjects
+        academic_year: academicYear,
+        subjects: subjects.map(subject => ({
+          ...subject,
+          total_marks: calculateTotalMarks(subject),
+          grade: calculateGrade(calculateTotalMarks(subject)).grade,
+          grade_points: calculateGrade(calculateTotalMarks(subject)).points
+        }))
       };
-      
-      console.log('Saving subjects with data:', requestData);
       
       const response = await fetch(`${BACKEND_URL}/api/v1/academic/scores/add`, {
         method: 'POST',
@@ -380,26 +362,7 @@ export const AcademicDataEntry: React.FC = () => {
       
       if (response.ok) {
         const data = await response.json();
-        toast.success(`Semester ${selectedSemester} data saved! SGPA: ${data.semester_sgpa}`);
-        
-        // Trigger dashboard refresh
-        window.dispatchEvent(new CustomEvent('academicDataUpdated', {
-          detail: {
-            semester: selectedSemester,
-            subjects: subjects,
-            sgpa: data.semester_sgpa,
-            academicYear: currentAcademicYear
-          }
-        }));
-        
-        // Trigger ML analysis
-        window.dispatchEvent(new CustomEvent('triggerMLAnalysis', {
-          detail: {
-            semester: selectedSemester,
-            subjects: subjects,
-            sgpa: data.semester_sgpa
-          }
-        }));
+        toast.success(`Semester ${selectedSemester} data saved! SGPA: ${data.semester_sgpa || 'N/A'}`);
         
         // Clear form
         setSubjects([{
@@ -411,14 +374,16 @@ export const AcademicDataEntry: React.FC = () => {
           is_elective: false,
           is_practical: false
         }]);
+        
+        // Trigger dashboard refresh
+        window.dispatchEvent(new CustomEvent('academicDataUpdated'));
       } else {
         const errorData = await response.json();
-        console.error('Error response:', errorData);
         toast.error(errorData.detail || 'Failed to save subjects');
       }
     } catch (error) {
       console.error('Error saving subjects:', error);
-      toast.error('Backend server not running. Please start the backend server.');
+      toast.error('Failed to save subjects. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -449,9 +414,15 @@ export const AcademicDataEntry: React.FC = () => {
           return;
         }
         
-        const importedSubjects: SubjectEntry[] = rows.slice(1).map(row => {
-          const values = row.split(',').map(v => v.trim());
-          return {
+        const importedSubjects: SubjectEntry[] = [];
+        
+        for (let i = 1; i < rows.length; i++) {
+          const values = rows[i].split(',').map(v => v.trim());
+          
+          // Skip empty rows
+          if (values.every(v => !v)) continue;
+          
+          const subject: SubjectEntry = {
             subject_code: values[headers.indexOf('subject_code')] || '',
             subject_name: values[headers.indexOf('subject_name')] || '',
             credits: parseInt(values[headers.indexOf('credits')]) || 3,
@@ -460,7 +431,12 @@ export const AcademicDataEntry: React.FC = () => {
             is_elective: values[headers.indexOf('is_elective')]?.toLowerCase() === 'true' || false,
             is_practical: values[headers.indexOf('is_practical')]?.toLowerCase() === 'true' || false
           };
-        }).filter(s => s.subject_code && s.subject_name);
+          
+          // Validate subject
+          if (subject.subject_code && subject.subject_name) {
+            importedSubjects.push(subject);
+          }
+        }
         
         if (importedSubjects.length === 0) {
           toast.error('No valid subjects found in CSV file');
@@ -481,7 +457,7 @@ export const AcademicDataEntry: React.FC = () => {
   // Download CSV template
   const downloadCSVTemplate = () => {
     const headers = ['subject_code', 'subject_name', 'credits', 'internal_marks', 'external_marks', 'is_elective', 'is_practical'];
-    const exampleRow = ['CSIT301', 'Data Structures', '3', '18', '65', 'false', 'false'];
+    const exampleRow = ['CSIT301', 'Data Structures and Algorithms', '3', '18', '65', 'false', 'false'];
     
     const csvContent = [headers.join(','), exampleRow.join(',')].join('\n');
     
@@ -495,21 +471,45 @@ export const AcademicDataEntry: React.FC = () => {
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
   };
+  
+  // Refresh profile
+  const refreshProfile = async () => {
+    await checkProfile();
+  };
 
   return (
     <div className="max-w-6xl mx-auto p-6 space-y-6">
       {/* Header */}
       <div className="bg-gradient-to-r from-purple-600 to-blue-600 rounded-lg p-6 text-white">
-        <h1 className="text-2xl font-bold mb-2">Academic Data Entry</h1>
-        <p className="text-purple-100">
-          Add your academic scores to get personalized AI recommendations
-        </p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold mb-2">Academic Data Entry</h1>
+            <p className="text-purple-100">
+              Add your academic scores to get personalized AI recommendations
+            </p>
+          </div>
+          <button
+            onClick={refreshProfile}
+            disabled={profileLoading}
+            className="px-4 py-2 bg-white/20 rounded-lg hover:bg-white/30 flex items-center gap-2"
+          >
+            {profileLoading ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <CheckCircle className="w-4 h-4" />
+            )}
+            {profileLoading ? 'Loading...' : 'Refresh'}
+          </button>
+        </div>
         <div className="mt-4 flex items-center gap-4">
           <span className="px-3 py-1 bg-white/20 rounded-full text-sm">
             Current Semester: {currentSemester}
           </span>
           <span className="px-3 py-1 bg-white/20 rounded-full text-sm">
             Academic Year: {academicYear || 'Not Set'}
+          </span>
+          <span className="px-3 py-1 bg-white/20 rounded-full text-sm">
+            Status: {profileExists ? 'Profile Complete' : 'Profile Pending'}
           </span>
         </div>
       </div>
@@ -538,7 +538,10 @@ export const AcademicDataEntry: React.FC = () => {
         >
           <h2 className="text-lg font-semibold mb-4 flex items-center">
             <GraduationCap className="w-5 h-5 mr-2 text-purple-600" />
-            Student Profile
+            Student Profile Setup
+            {profileLoading && (
+              <Loader2 className="w-4 h-4 ml-2 animate-spin" />
+            )}
           </h2>
           
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -552,6 +555,7 @@ export const AcademicDataEntry: React.FC = () => {
                 onChange={(e) => setProfileForm({...profileForm, name: e.target.value})}
                 className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-purple-500"
                 placeholder="John Doe"
+                required
               />
             </div>
             
@@ -565,6 +569,7 @@ export const AcademicDataEntry: React.FC = () => {
                 onChange={(e) => setProfileForm({...profileForm, roll_number: e.target.value})}
                 className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-purple-500"
                 placeholder="CSIT/2022/045"
+                required
               />
             </div>
             
@@ -576,6 +581,7 @@ export const AcademicDataEntry: React.FC = () => {
                 value={profileForm.branch}
                 onChange={(e) => setProfileForm({...profileForm, branch: e.target.value})}
                 className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-purple-500"
+                required
               >
                 {branches.map(branch => (
                   <option key={branch} value={branch}>{branch}</option>
@@ -591,7 +597,7 @@ export const AcademicDataEntry: React.FC = () => {
                 type="number"
                 value={profileForm.admission_year}
                 onChange={(e) => {
-                  const year = parseInt(e.target.value);
+                  const year = parseInt(e.target.value) || new Date().getFullYear();
                   setProfileForm({...profileForm, admission_year: year});
                   const academicDetails = calculateAcademicDetails(year);
                   setCurrentSemester(academicDetails.semester);
@@ -601,12 +607,13 @@ export const AcademicDataEntry: React.FC = () => {
                 className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-purple-500"
                 min={2018}
                 max={new Date().getFullYear()}
+                required
               />
             </div>
             
             <div className="md:col-span-2">
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Email
+                Email *
               </label>
               <input
                 type="email"
@@ -614,16 +621,41 @@ export const AcademicDataEntry: React.FC = () => {
                 onChange={(e) => setProfileForm({...profileForm, email: e.target.value})}
                 className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-purple-500"
                 placeholder="john@example.com"
+                required
               />
             </div>
           </div>
           
+          <div className="mt-6 p-4 bg-blue-50 rounded-lg">
+            <div className="flex items-center space-x-2 mb-2">
+              <CheckCircle className="w-5 h-5 text-blue-600" />
+              <p className="font-medium text-blue-900">Calculated Academic Details</p>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <span className="text-sm text-gray-600">Current Semester:</span>
+                <p className="font-medium">{currentSemester}</p>
+              </div>
+              <div>
+                <span className="text-sm text-gray-600">Academic Year:</span>
+                <p className="font-medium">{academicYear}</p>
+              </div>
+            </div>
+            <p className="text-xs text-gray-500 mt-2">
+              * These are calculated automatically based on your admission year
+            </p>
+          </div>
+          
           <button
             onClick={saveProfile}
-            disabled={loading || !profileForm.name || !profileForm.roll_number || !backendAvailable}
+            disabled={loading || !profileForm.name.trim() || !profileForm.roll_number.trim() || !profileForm.email.trim()}
             className="mt-4 px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 flex items-center gap-2"
           >
-            <Save className="w-4 h-4" />
+            {loading ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <Save className="w-4 h-4" />
+            )}
             {loading ? 'Saving...' : 'Save Profile'}
           </button>
         </motion.div>
@@ -639,7 +671,7 @@ export const AcademicDataEntry: React.FC = () => {
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold flex items-center">
               <BookOpen className="w-5 h-5 mr-2 text-blue-600" />
-              Add Subject Scores
+              Add Subject Scores - Semester {selectedSemester}
             </h2>
             
             <div className="flex items-center gap-3">
@@ -680,126 +712,135 @@ export const AcademicDataEntry: React.FC = () => {
           
           {/* Subject List */}
           <div className="space-y-4">
-            {subjects.map((subject, index) => (
-              <div key={index} className="p-4 border rounded-lg bg-gray-50">
-                <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
-                  <div>
-                    <label className="block text-xs text-gray-600 mb-1">Subject Code</label>
-                    <input
-                      type="text"
-                      placeholder="CSIT301"
-                      value={subject.subject_code}
-                      onChange={(e) => updateSubject(index, 'subject_code', e.target.value)}
-                      className="w-full px-3 py-2 border rounded-lg text-sm"
-                    />
+            {subjects.map((subject, index) => {
+              const totalMarks = calculateTotalMarks(subject);
+              const gradeInfo = calculateGrade(totalMarks);
+              
+              return (
+                <div key={index} className="p-4 border rounded-lg bg-gray-50">
+                  <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
+                    <div>
+                      <label className="block text-xs text-gray-600 mb-1">Subject Code</label>
+                      <input
+                        type="text"
+                        placeholder="CSIT301"
+                        value={subject.subject_code}
+                        onChange={(e) => updateSubject(index, 'subject_code', e.target.value)}
+                        className="w-full px-3 py-2 border rounded-lg text-sm"
+                      />
+                    </div>
+                    
+                    <div className="md:col-span-2">
+                      <label className="block text-xs text-gray-600 mb-1">Subject Name</label>
+                      <input
+                        type="text"
+                        placeholder="Data Structures and Algorithms"
+                        value={subject.subject_name}
+                        onChange={(e) => updateSubject(index, 'subject_name', e.target.value)}
+                        className="w-full px-3 py-2 border rounded-lg text-sm"
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="block text-xs text-gray-600 mb-1">Credits</label>
+                      <input
+                        type="number"
+                        placeholder="3"
+                        value={subject.credits}
+                        onChange={(e) => updateSubject(index, 'credits', parseInt(e.target.value) || 0)}
+                        className="w-full px-3 py-2 border rounded-lg text-sm"
+                        min={1}
+                        max={6}
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="block text-xs text-gray-600 mb-1">Internal (20)</label>
+                      <input
+                        type="number"
+                        placeholder="0"
+                        value={subject.internal_marks}
+                        onChange={(e) => updateSubject(index, 'internal_marks', parseFloat(e.target.value) || 0)}
+                        className="w-full px-3 py-2 border rounded-lg text-sm"
+                        min={0}
+                        max={20}
+                        step="0.5"
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="block text-xs text-gray-600 mb-1">External (80)</label>
+                      <input
+                        type="number"
+                        placeholder="0"
+                        value={subject.external_marks}
+                        onChange={(e) => updateSubject(index, 'external_marks', parseFloat(e.target.value) || 0)}
+                        className="w-full px-3 py-2 border rounded-lg text-sm"
+                        min={0}
+                        max={80}
+                        step="0.5"
+                      />
+                    </div>
                   </div>
                   
-                  <div className="md:col-span-2">
-                    <label className="block text-xs text-gray-600 mb-1">Subject Name</label>
-                    <input
-                      type="text"
-                      placeholder="Data Structures and Algorithms"
-                      value={subject.subject_name}
-                      onChange={(e) => updateSubject(index, 'subject_name', e.target.value)}
-                      className="w-full px-3 py-2 border rounded-lg text-sm"
-                    />
-                  </div>
-                  
-                  <div>
-                    <label className="block text-xs text-gray-600 mb-1">Credits</label>
-                    <input
-                      type="number"
-                      placeholder="3"
-                      value={subject.credits}
-                      onChange={(e) => updateSubject(index, 'credits', parseInt(e.target.value) || 0)}
-                      className="w-full px-3 py-2 border rounded-lg text-sm"
-                      min={1}
-                      max={6}
-                    />
-                  </div>
-                  
-                  <div>
-                    <label className="block text-xs text-gray-600 mb-1">Internal (20)</label>
-                    <input
-                      type="number"
-                      placeholder="0"
-                      value={subject.internal_marks}
-                      onChange={(e) => updateSubject(index, 'internal_marks', parseFloat(e.target.value) || 0)}
-                      className="w-full px-3 py-2 border rounded-lg text-sm"
-                      min={0}
-                      max={20}
-                      step="0.5"
-                    />
-                  </div>
-                  
-                  <div>
-                    <label className="block text-xs text-gray-600 mb-1">External (80)</label>
-                    <input
-                      type="number"
-                      placeholder="0"
-                      value={subject.external_marks}
-                      onChange={(e) => updateSubject(index, 'external_marks', parseFloat(e.target.value) || 0)}
-                      className="w-full px-3 py-2 border rounded-lg text-sm"
-                      min={0}
-                      max={80}
-                      step="0.5"
-                    />
+                  <div className="mt-3 flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                      <label className="flex items-center gap-2 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={subject.is_elective}
+                          onChange={(e) => updateSubject(index, 'is_elective', e.target.checked)}
+                          className="rounded"
+                        />
+                        Elective
+                      </label>
+                      
+                      <label className="flex items-center gap-2 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={subject.is_practical}
+                          onChange={(e) => updateSubject(index, 'is_practical', e.target.checked)}
+                          className="rounded"
+                        />
+                        Practical
+                      </label>
+                      
+                      {/* Show calculated grade and total marks */}
+                      {totalMarks > 0 && (
+                        <div className="flex items-center gap-3">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm text-gray-600">Total:</span>
+                            <span className="font-bold text-gray-800">
+                              {totalMarks}/100
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm text-gray-600">Grade:</span>
+                            <span className={`font-bold ${gradeInfo.color}`}>
+                              {gradeInfo.grade}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm text-gray-600">Points:</span>
+                            <span className="font-bold">
+                              {gradeInfo.points}
+                            </span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    
+                    <button
+                      onClick={() => removeSubject(index)}
+                      className="p-1 text-red-500 hover:text-red-700"
+                      disabled={subjects.length === 1}
+                    >
+                      <X className="w-5 h-5" />
+                    </button>
                   </div>
                 </div>
-                
-                <div className="mt-3 flex items-center justify-between">
-                  <div className="flex items-center gap-4">
-                    <label className="flex items-center gap-2 text-sm">
-                      <input
-                        type="checkbox"
-                        checked={subject.is_elective}
-                        onChange={(e) => updateSubject(index, 'is_elective', e.target.checked)}
-                        className="rounded"
-                      />
-                      Elective
-                    </label>
-                    
-                    <label className="flex items-center gap-2 text-sm">
-                      <input
-                        type="checkbox"
-                        checked={subject.is_practical}
-                        onChange={(e) => updateSubject(index, 'is_practical', e.target.checked)}
-                        className="rounded"
-                      />
-                      Practical
-                    </label>
-                    
-                    {/* Show calculated grade and total marks */}
-                    {calculateTotalMarks(subject) > 0 && (
-                      <div className="flex items-center gap-3">
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm text-gray-600">Total:</span>
-                          <span className="font-bold text-gray-800">
-                            {calculateTotalMarks(subject)}/100
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm text-gray-600">Grade:</span>
-                          <span className={`font-bold ${
-                            calculateGrade(calculateTotalMarks(subject)).color
-                          }`}>
-                            {calculateGrade(calculateTotalMarks(subject)).grade}
-                          </span>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                  
-                  <button
-                    onClick={() => removeSubject(index)}
-                    className="p-1 text-red-500 hover:text-red-700"
-                    disabled={subjects.length === 1}
-                  >
-                    <X className="w-5 h-5" />
-                  </button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
           
           {/* Actions */}
@@ -818,10 +859,14 @@ export const AcademicDataEntry: React.FC = () => {
               </span>
               <button
                 onClick={saveSubjects}
-                disabled={loading || subjects.length === 0 || subjects.some(s => !s.subject_code || !s.subject_name) || !backendAvailable}
+                disabled={loading || subjects.length === 0 || subjects.some(s => !s.subject_code.trim() || !s.subject_name.trim()) || !backendAvailable}
                 className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2"
               >
-                <Save className="w-4 h-4" />
+                {loading ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Save className="w-4 h-4" />
+                )}
                 {loading ? 'Saving...' : 'Save Semester Data'}
               </button>
             </div>

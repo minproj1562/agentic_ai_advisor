@@ -1,7 +1,13 @@
 # app/models/__init__.py
 from .student import StudentPerformance, StudentInfo, Subject, TrendEnum
 from .student_projects import StudentProject, StudentInterestProfile, ProjectType, TeamMember, ProjectFile, InferredInterest
-from .student_profile import StudentProfile, SemesterRecord, SubjectScore, Branch, Grade
+from .student_profile import (
+    StudentProfile,
+    SemesterRecord,
+    SubjectScore,
+    Branch,
+    Grade
+)
 from .resource import StudyResource
 from .research_area import ResearchArea, ResearchCategory, ExpertiseLevel, ProjectStatus, SubArea, ResearchProject, Expertise, Impact, TrendData
 from .publications import Publication, PublicationType, PublicationStatus, CitationTrend, Collaborator, SupplementaryMaterial

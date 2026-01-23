@@ -13,7 +13,8 @@ from app.api.v1.endpoints import (
     publications,
     research_area,
     appointments,
-    student_projects_enhanced
+    student_projects_enhanced,
+    student_profile
 )
 # Import cv directly from the v1 directory
 from app.api.v1 import cv
@@ -34,4 +35,5 @@ api_router.include_router(publications.router, prefix="/publications", tags=["pu
 api_router.include_router(research_area.router, prefix="/research", tags=["research"])
 api_router.include_router(cv.router, prefix="/cv", tags=["cv"])
 api_router.include_router(appointments.router, prefix="/appointments", tags=["appointments"])
+api_router.include_router(student_profile.router, prefix="/student", tags=["student-profile"])
 api_router.include_router(student_projects_enhanced.router, prefix="/enhanced-projects", tags=["enhanced-projects"])
