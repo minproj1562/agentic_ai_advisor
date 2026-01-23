@@ -1,5 +1,6 @@
 // vite-student-analysis.service.ts
 import axios, { AxiosInstance, AxiosResponse, InternalAxiosRequestConfig } from 'axios';
+import { auth } from '../services/firebase.config';
 
 // Types (copied from your existing service to ensure compatibility)
 export interface StudentAnalysisRequest {
@@ -328,27 +329,35 @@ export class StudentAnalysisService extends SimpleEventEmitter {
     this.setupRealtimeListeners();
   }
 
-  private setupInterceptors(): void {
-    // Request interceptor - using InternalAxiosRequestConfig for proper typing
-    this.api.interceptors.request.use(
-      (config: InternalAxiosRequestConfig) => {
-        const token = localStorage.getItem('authToken');
-        if (token && config.headers) {
-          config.headers.Authorization = `Bearer ${token}`;
+private setupInterceptors(): void {
+  // Request interceptor
+  this.api.interceptors.request.use(
+    async (config: InternalAxiosRequestConfig) => {
+      try {
+        // FIXED: Get token from Firebase Auth directly
+        const currentUser = auth.currentUser;
+        if (currentUser) {
+          const token = await currentUser.getIdToken();
+          if (token && config.headers) {
+            config.headers.Authorization = `Bearer ${token}`;
+          }
         }
-        
-        // Add request ID for tracking
-        if (config.headers) {
-          config.headers['X-Request-ID'] = this.generateRequestId();
-        }
-        
-        return config;
-      },
-      (error) => {
-        console.error('Request error:', error);
-        return Promise.reject(error);
+      } catch (error) {
+        console.error('Failed to get auth token:', error);
       }
-    );
+      
+      // Add request ID for tracking
+      if (config.headers) {
+        config.headers['X-Request-ID'] = this.generateRequestId();
+      }
+      
+      return config;
+    },
+    (error) => {
+      console.error('Request error:', error);
+      return Promise.reject(error);
+    }
+  );
 
     // Response interceptor
     this.api.interceptors.response.use(

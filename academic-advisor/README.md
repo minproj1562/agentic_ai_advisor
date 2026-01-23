@@ -244,18 +244,12 @@ cd academic-advisor-frontend
 # 2. Install dependencies
 npm install
 
-# 3. Configure environment variables
-# Copy .env.example to .env and update values
-cp .env.example .env
+
 
 # 4. Start development server
 npm run dev
 
-# 5. Build for production
-npm run build
 
-# 6. Run tests
-npm test
 ```
 
 ### **Docker Setup**
@@ -682,3 +676,21 @@ npm run dev
 # Clean virtual environment
 Remove-Item -Recurse -Force .\venv
 ```
+
+function Clean-Tree($path, $indent = "") {
+    $exclude = @(
+        "venv","node_modules","__pycache__",".git",
+        "site-packages","pip","dist","build",".cache","logs"
+    )
+
+    Get-ChildItem $path | Where-Object {
+        $exclude -notcontains $_.Name
+    } | ForEach-Object {
+        Write-Output "$indent$($_.Name)"
+        if ($_.PSIsContainer) {
+            Clean-Tree $_.FullName "$indent  "
+        }
+    }
+}
+
+Clean-Tree .

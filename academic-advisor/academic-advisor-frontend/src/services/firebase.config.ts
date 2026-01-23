@@ -1,3 +1,4 @@
+// academic-advisor/academic-advisor-frontend/src/services/firebase.config.ts
 import { initializeApp } from 'firebase/app';
 import { getAuth, setPersistence, browserLocalPersistence, browserSessionPersistence } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';

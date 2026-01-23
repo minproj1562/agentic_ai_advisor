@@ -1,5 +1,7 @@
+// academic-advisor-frontend/src/components/dashboard/AcademicDataEntry.tsx
+
 import React, { useState, useEffect } from 'react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import {
   GraduationCap,
   Plus,
@@ -10,20 +12,56 @@ import {
   FileSpreadsheet,
   BookOpen,
   X,
-  Loader2
+  Loader2,
+  Book,
+  ChevronDown,
+  Info,
+  TrendingUp,
+  Award,
+  Calendar
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../../contexts/AuthContext';
 import { auth } from '../../services/firebase.config';
 
-interface SubjectEntry {
+interface SubjectDefinition {
   subject_code: string;
   subject_name: string;
   credits: number;
-  internal_marks: number;
-  external_marks: number;
+  course_type: 'PCC' | 'PEC' | 'LBC' | 'SBL' | 'MNP' | 'MJP' | 'INT' | 'BSC' | 'ESC' | 'AEC' | 'OEC';
+  internal_max: number;
+  external_max: number;
   is_elective: boolean;
   is_practical: boolean;
+  elective_group?: string;
+}
+
+interface SubjectEntry extends SubjectDefinition {
+  internal_marks: number;
+  external_marks: number;
+  selected_elective_code?: string;
+  selected_elective_name?: string;
+}
+
+interface ElectiveOption {
+  code: string;
+  name: string;
+}
+
+interface CurriculumData {
+  semester: number;
+  admission_year: number;
+  curriculum_type: 'Pre-Autonomy' | 'Autonomy';
+  theory_subjects: SubjectDefinition[];
+  lab_subjects: SubjectDefinition[];
+  project_subjects: SubjectDefinition[];
+  elective_groups: {
+    [key: string]: {
+      group_name: string;
+      subject_template: SubjectDefinition;
+      options: ElectiveOption[];
+    };
+  };
 }
 
 interface ProfileData {
@@ -32,7 +70,6 @@ interface ProfileData {
   branch: string;
   admission_year: number;
   email: string;
-  // Removed current_semester and academic_year - they'll be calculated on backend
 }
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
@@ -46,27 +83,21 @@ export const AcademicDataEntry: React.FC = () => {
   const [backendAvailable, setBackendAvailable] = useState(true);
   const [profileLoading, setProfileLoading] = useState(false);
   
-  // Profile form - REMOVED current_semester and academic_year
+  // Available subjects from backend
+  const [availableSubjects, setAvailableSubjects] = useState<CurriculumData | null>(null);
+  const [loadingSubjects, setLoadingSubjects] = useState(false);
+  
+  // Profile form
   const [profileForm, setProfileForm] = useState<ProfileData>({
-    name: user?.name || '', // Changed from displayName to name
+    name: user?.name || '',
     roll_number: '',
     branch: 'IT',
     admission_year: new Date().getFullYear(),
     email: user?.email || ''
   });
   
-  // Subjects form
-  const [subjects, setSubjects] = useState<SubjectEntry[]>([
-    {
-      subject_code: '',
-      subject_name: '',
-      credits: 3,
-      internal_marks: 0,
-      external_marks: 0,
-      is_elective: false,
-      is_practical: false
-    }
-  ]);
+  // Subjects form - now dynamically populated
+  const [subjects, setSubjects] = useState<SubjectEntry[]>([]);
   
   const [selectedSemester, setSelectedSemester] = useState(1);
   
@@ -83,16 +114,13 @@ export const AcademicDataEntry: React.FC = () => {
     let calculatedAcademicYear = '';
     
     if (currentMonth >= 7) {
-      // Odd semester (July-Dec)
       calculatedAcademicYear = `${currentYear}-${(currentYear + 1).toString().slice(2)}`;
       semester = (currentYear - admissionYear) * 2 + 1;
     } else {
-      // Even semester (Jan-June)
       calculatedAcademicYear = `${currentYear - 1}-${currentYear.toString().slice(2)}`;
       semester = (currentYear - admissionYear) * 2;
     }
     
-    // Cap at 8 semesters
     semester = Math.min(Math.max(semester, 1), 8);
     
     return { semester, academicYear: calculatedAcademicYear };
@@ -103,9 +131,7 @@ export const AcademicDataEntry: React.FC = () => {
     try {
       const response = await fetch(`${BACKEND_URL}/health`, {
         method: 'GET',
-        headers: {
-          'Content-Type': 'application/json'
-        }
+        headers: { 'Content-Type': 'application/json' }
       });
       return response.ok;
     } catch (error) {
@@ -114,13 +140,21 @@ export const AcademicDataEntry: React.FC = () => {
     }
   };
   
-  // Check if profile exists
+  // Check if profile exists - UPDATED VERSION
   const checkProfile = async () => {
     if (!user) return;
     
     try {
       setProfileLoading(true);
-      const token = await auth.currentUser?.getIdToken();
+      
+      // FIXED: Get token from Firebase Auth directly
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
+        console.log('No authenticated user for profile check');
+        return;
+      }
+      
+      const token = await currentUser.getIdToken();
       if (!token) {
         toast.error('Authentication token not available');
         return;
@@ -137,15 +171,12 @@ export const AcademicDataEntry: React.FC = () => {
       if (response.ok) {
         const data = await response.json();
         setProfileExists(true);
-        
-        // Set current semester and academic year from backend
         setCurrentSemester(data.current_semester);
         setAcademicYear(data.current_academic_year);
         setSelectedSemester(data.current_semester);
         
-        // Populate form with existing data
         setProfileForm({
-          name: data.name || user.name || '', // Changed from displayName to name
+          name: data.name || user.name || '',
           roll_number: data.roll_number || '',
           branch: data.branch || 'IT',
           admission_year: data.admission_year || new Date().getFullYear(),
@@ -155,11 +186,12 @@ export const AcademicDataEntry: React.FC = () => {
         toast.success('Profile loaded successfully');
       } else if (response.status === 404) {
         setProfileExists(false);
-        // Calculate academic details for new profile
         const academicDetails = calculateAcademicDetails(profileForm.admission_year);
         setCurrentSemester(academicDetails.semester);
         setAcademicYear(academicDetails.academicYear);
         setSelectedSemester(academicDetails.semester);
+      } else {
+        console.error('Profile check failed:', response.status);
       }
     } catch (error) {
       console.error('Error checking profile:', error);
@@ -167,6 +199,100 @@ export const AcademicDataEntry: React.FC = () => {
     } finally {
       setProfileLoading(false);
     }
+  };
+  
+  // Fetch available subjects for selected semester
+  const fetchAvailableSubjects = async (semester: number) => {
+    if (!user || !profileExists) return;
+    
+    try {
+      setLoadingSubjects(true);
+      
+      // FIXED: Get token from Firebase Auth directly
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
+        toast.error('Not authenticated. Please login again.');
+        return;
+      }
+      
+      const token = await currentUser.getIdToken(true);
+      if (!token) {
+        toast.error('Authentication token not available');
+        return;
+      }
+      
+      const response = await fetch(
+        `${BACKEND_URL}/api/v1/academic/subjects/available/${semester}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+      
+      if (response.ok) {
+        const data = await response.json();
+        setAvailableSubjects(data);
+        
+        // Initialize subject entries from available subjects
+        initializeSubjectEntries(data);
+        
+        toast.success(`Subjects loaded for Semester ${semester} (${data.curriculum_type})`);
+      } else {
+        toast.error('Failed to load subjects');
+      }
+    } catch (error) {
+      console.error('Error fetching subjects:', error);
+      toast.error('Error loading subjects');
+    } finally {
+      setLoadingSubjects(false);
+    }
+  };
+  
+  // Initialize subject entries from curriculum data
+  const initializeSubjectEntries = (curriculum: CurriculumData) => {
+    const entries: SubjectEntry[] = [];
+    
+    // Add theory subjects
+    curriculum.theory_subjects.forEach(subject => {
+      entries.push({
+        ...subject,
+        internal_marks: 0,
+        external_marks: 0
+      });
+    });
+    
+    // Add lab subjects
+    curriculum.lab_subjects.forEach(subject => {
+      entries.push({
+        ...subject,
+        internal_marks: 0,
+        external_marks: 0
+      });
+    });
+    
+    // Add project subjects
+    curriculum.project_subjects.forEach(subject => {
+      entries.push({
+        ...subject,
+        internal_marks: 0,
+        external_marks: 0
+      });
+    });
+    
+    // Add elective placeholders
+    Object.entries(curriculum.elective_groups).forEach(([groupName, groupData]) => {
+      entries.push({
+        ...groupData.subject_template,
+        internal_marks: 0,
+        external_marks: 0,
+        selected_elective_code: '',
+        selected_elective_name: ''
+      });
+    });
+    
+    setSubjects(entries);
   };
   
   // Check backend health and profile on component mount
@@ -187,7 +313,14 @@ export const AcademicDataEntry: React.FC = () => {
     initialize();
   }, [user]);
   
-  // Save profile
+  // Fetch subjects when semester changes
+  useEffect(() => {
+    if (profileExists && selectedSemester) {
+      fetchAvailableSubjects(selectedSemester);
+    }
+  }, [selectedSemester, profileExists]);
+  
+  // Save profile - UPDATED VERSION
   const saveProfile = async () => {
     if (!user) {
       toast.error('User not authenticated');
@@ -207,17 +340,25 @@ export const AcademicDataEntry: React.FC = () => {
     try {
       setLoading(true);
       
-      const token = await auth.currentUser?.getIdToken();
+      // FIXED: Get token from Firebase Auth directly
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
+        toast.error('Not authenticated. Please login again.');
+        return;
+      }
+      
+      const token = await currentUser.getIdToken(true);
       if (!token) {
         toast.error('Authentication token not available');
         return;
       }
       
-      // Prepare profile data - DON'T include current_semester or academic_year
       const profileData = {
         ...profileForm,
         email: profileForm.email || user.email || ''
       };
+      
+      console.log('Saving profile with token:', token.substring(0, 20) + '...');
       
       const response = await fetch(`${BACKEND_URL}/api/v1/student/profile/create`, {
         method: 'POST',
@@ -236,10 +377,26 @@ export const AcademicDataEntry: React.FC = () => {
         
         toast.success('Profile saved successfully!');
         
-        // Trigger dashboard refresh
+        // Dispatch events for other components
         window.dispatchEvent(new Event('profileUpdated'));
+        window.dispatchEvent(new CustomEvent('profileSaved', { 
+          detail: {
+            name: data.name,
+            branch: data.branch,
+            semester: data.current_semester,
+            cgpa: data.cgpa || 0,
+            admission_year: data.admission_year,
+            academic_year: data.current_academic_year,
+            total_credits: 0,
+            roll_number: data.roll_number
+          }
+        }));
+        
+        // Fetch subjects for current semester
+        await fetchAvailableSubjects(data.current_semester);
       } else {
         const errorData = await response.json();
+        console.error('Profile save failed:', errorData);
         toast.error(errorData.detail || 'Failed to save profile');
       }
     } catch (error) {
@@ -250,32 +407,28 @@ export const AcademicDataEntry: React.FC = () => {
     }
   };
   
-  // Add subject
-  const addSubject = () => {
-    setSubjects([...subjects, {
-      subject_code: '',
-      subject_name: '',
-      credits: 3,
-      internal_marks: 0,
-      external_marks: 0,
-      is_elective: false,
-      is_practical: false
-    }]);
-  };
-  
-  // Remove subject
-  const removeSubject = (index: number) => {
-    if (subjects.length > 1) {
-      const newSubjects = [...subjects];
-      newSubjects.splice(index, 1);
-      setSubjects(newSubjects);
-    }
-  };
-  
-  // Update subject
-  const updateSubject = (index: number, field: keyof SubjectEntry, value: any) => {
+  // Update subject marks
+  const updateSubject = (index: number, field: 'internal_marks' | 'external_marks' | 'selected_elective_code', value: any) => {
     const updated = [...subjects];
-    updated[index] = { ...updated[index], [field]: value };
+    
+    if (field === 'selected_elective_code' && availableSubjects) {
+      // Find elective option and update both code and name
+      const subject = updated[index];
+      const groupData = availableSubjects.elective_groups[subject.elective_group || ''];
+      
+      if (groupData) {
+        const selectedOption = groupData.options.find(opt => opt.code === value);
+        if (selectedOption) {
+          updated[index].selected_elective_code = selectedOption.code;
+          updated[index].selected_elective_name = selectedOption.name;
+          updated[index].subject_code = selectedOption.code;
+          updated[index].subject_name = selectedOption.name;
+        }
+      }
+    } else {
+      updated[index] = { ...updated[index], [field]: value };
+    }
+    
     setSubjects(updated);
   };
   
@@ -296,6 +449,25 @@ export const AcademicDataEntry: React.FC = () => {
     return subject.internal_marks + subject.external_marks;
   };
   
+  // Validate subject entry
+  const validateSubject = (subject: SubjectEntry): boolean => {
+    // Check if elective is selected
+    if (subject.is_elective && !subject.selected_elective_code) {
+      return false;
+    }
+    
+    // Check marks validity
+    if (subject.internal_marks < 0 || subject.internal_marks > subject.internal_max) {
+      return false;
+    }
+    
+    if (subject.external_marks < 0 || subject.external_marks > subject.external_max) {
+      return false;
+    }
+    
+    return true;
+  };
+  
   // Save subjects
   const saveSubjects = async () => {
     if (!user) {
@@ -308,33 +480,35 @@ export const AcademicDataEntry: React.FC = () => {
       return;
     }
     
-    // Validate subjects
-    const invalidSubjects = subjects.filter(subject => 
-      !subject.subject_code.trim() || 
-      !subject.subject_name.trim() || 
-      subject.credits <= 0
-    );
+    // Validate all subjects
+    const invalidSubjects = subjects.filter(subject => !validateSubject(subject));
     
     if (invalidSubjects.length > 0) {
-      toast.error('Please fill all subject fields with valid data');
+      toast.error('Please complete all subject entries with valid data');
       return;
     }
     
-    // Validate marks
-    const invalidMarks = subjects.filter(subject => 
-      subject.internal_marks < 0 || subject.internal_marks > 20 ||
-      subject.external_marks < 0 || subject.external_marks > 80
+    // Check if all electives are selected
+    const unselectedElectives = subjects.filter(
+      subject => subject.is_elective && !subject.selected_elective_code
     );
     
-    if (invalidMarks.length > 0) {
-      toast.error('Marks must be within valid ranges (Internal: 0-20, External: 0-80)');
+    if (unselectedElectives.length > 0) {
+      toast.error('Please select all elective courses');
       return;
     }
     
     try {
       setLoading(true);
       
-      const token = await auth.currentUser?.getIdToken();
+      // FIXED: Get token from Firebase Auth directly
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
+        toast.error('Not authenticated. Please login again.');
+        return;
+      }
+      
+      const token = await currentUser.getIdToken(true);
       if (!token) {
         toast.error('Authentication token not available');
         return;
@@ -344,10 +518,16 @@ export const AcademicDataEntry: React.FC = () => {
         semester_number: selectedSemester,
         academic_year: academicYear,
         subjects: subjects.map(subject => ({
-          ...subject,
+          subject_code: subject.selected_elective_code || subject.subject_code,
+          subject_name: subject.selected_elective_name || subject.subject_name,
+          credits: subject.credits,
+          internal_marks: subject.internal_marks,
+          external_marks: subject.external_marks,
           total_marks: calculateTotalMarks(subject),
           grade: calculateGrade(calculateTotalMarks(subject)).grade,
-          grade_points: calculateGrade(calculateTotalMarks(subject)).points
+          grade_points: calculateGrade(calculateTotalMarks(subject)).points,
+          is_elective: subject.is_elective,
+          is_practical: subject.is_practical
         }))
       };
       
@@ -364,18 +544,11 @@ export const AcademicDataEntry: React.FC = () => {
         const data = await response.json();
         toast.success(`Semester ${selectedSemester} data saved! SGPA: ${data.semester_sgpa || 'N/A'}`);
         
-        // Clear form
-        setSubjects([{
-          subject_code: '',
-          subject_name: '',
-          credits: 3,
-          internal_marks: 0,
-          external_marks: 0,
-          is_elective: false,
-          is_practical: false
-        }]);
+        // Clear form - reset to curriculum subjects
+        if (availableSubjects) {
+          initializeSubjectEntries(availableSubjects);
+        }
         
-        // Trigger dashboard refresh
         window.dispatchEvent(new CustomEvent('academicDataUpdated'));
       } else {
         const errorData = await response.json();
@@ -389,92 +562,34 @@ export const AcademicDataEntry: React.FC = () => {
     }
   };
   
-  // Import from CSV
-  const handleCSVImport = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      try {
-        const text = e.target?.result as string;
-        const rows = text.split('\n').filter(row => row.trim());
-        
-        if (rows.length < 2) {
-          toast.error('CSV file is empty or has no data rows');
-          return;
-        }
-        
-        const headers = rows[0].split(',').map(h => h.trim().toLowerCase());
-        const requiredHeaders = ['subject_code', 'subject_name', 'credits', 'internal_marks', 'external_marks'];
-        
-        const missingHeaders = requiredHeaders.filter(h => !headers.includes(h));
-        if (missingHeaders.length > 0) {
-          toast.error(`Missing required columns: ${missingHeaders.join(', ')}`);
-          return;
-        }
-        
-        const importedSubjects: SubjectEntry[] = [];
-        
-        for (let i = 1; i < rows.length; i++) {
-          const values = rows[i].split(',').map(v => v.trim());
-          
-          // Skip empty rows
-          if (values.every(v => !v)) continue;
-          
-          const subject: SubjectEntry = {
-            subject_code: values[headers.indexOf('subject_code')] || '',
-            subject_name: values[headers.indexOf('subject_name')] || '',
-            credits: parseInt(values[headers.indexOf('credits')]) || 3,
-            internal_marks: parseFloat(values[headers.indexOf('internal_marks')]) || 0,
-            external_marks: parseFloat(values[headers.indexOf('external_marks')]) || 0,
-            is_elective: values[headers.indexOf('is_elective')]?.toLowerCase() === 'true' || false,
-            is_practical: values[headers.indexOf('is_practical')]?.toLowerCase() === 'true' || false
-          };
-          
-          // Validate subject
-          if (subject.subject_code && subject.subject_name) {
-            importedSubjects.push(subject);
-          }
-        }
-        
-        if (importedSubjects.length === 0) {
-          toast.error('No valid subjects found in CSV file');
-          return;
-        }
-        
-        setSubjects(importedSubjects);
-        toast.success(`Imported ${importedSubjects.length} subjects`);
-      } catch (error) {
-        console.error('CSV import error:', error);
-        toast.error('Failed to parse CSV file. Please check the format.');
-      }
-    };
-    reader.readAsText(file);
-    event.target.value = '';
-  };
-  
-  // Download CSV template
-  const downloadCSVTemplate = () => {
-    const headers = ['subject_code', 'subject_name', 'credits', 'internal_marks', 'external_marks', 'is_elective', 'is_practical'];
-    const exampleRow = ['CSIT301', 'Data Structures and Algorithms', '3', '18', '65', 'false', 'false'];
-    
-    const csvContent = [headers.join(','), exampleRow.join(',')].join('\n');
-    
-    const blob = new Blob([csvContent], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'academic_scores_template.csv';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  };
-  
   // Refresh profile
   const refreshProfile = async () => {
     await checkProfile();
+  };
+  
+  // Get course type badge color
+  const getCourseTypeBadge = (courseType: string) => {
+    const badges: Record<string, { bg: string; text: string; label: string }> = {
+      'PCC': { bg: 'bg-blue-100', text: 'text-blue-700', label: 'Core' },
+      'PEC': { bg: 'bg-purple-100', text: 'text-purple-700', label: 'Elective' },
+      'LBC': { bg: 'bg-green-100', text: 'text-green-700', label: 'Lab' },
+      'SBL': { bg: 'bg-yellow-100', text: 'text-yellow-700', label: 'Skill Lab' },
+      'MNP': { bg: 'bg-pink-100', text: 'text-pink-700', label: 'Mini Project' },
+      'MJP': { bg: 'bg-red-100', text: 'text-red-700', label: 'Major Project' },
+      'INT': { bg: 'bg-indigo-100', text: 'text-indigo-700', label: 'Internship' },
+      'BSC': { bg: 'bg-gray-100', text: 'text-gray-700', label: 'Basic Science' },
+      'ESC': { bg: 'bg-teal-100', text: 'text-teal-700', label: 'Engg Science' },
+      'AEC': { bg: 'bg-orange-100', text: 'text-orange-700', label: 'Ability' },
+      'OEC': { bg: 'bg-cyan-100', text: 'text-cyan-700', label: 'Open Elective' }
+    };
+    
+    const badge = badges[courseType] || { bg: 'bg-gray-100', text: 'text-gray-700', label: courseType };
+    
+    return (
+      <span className={`px-2 py-1 rounded-full text-xs font-medium ${badge.bg} ${badge.text}`}>
+        {badge.label}
+      </span>
+    );
   };
 
   return (
@@ -511,6 +626,11 @@ export const AcademicDataEntry: React.FC = () => {
           <span className="px-3 py-1 bg-white/20 rounded-full text-sm">
             Status: {profileExists ? 'Profile Complete' : 'Profile Pending'}
           </span>
+          {availableSubjects && (
+            <span className="px-3 py-1 bg-white/20 rounded-full text-sm">
+              Curriculum: {availableSubjects.curriculum_type}
+            </span>
+          )}
         </div>
       </div>
 
@@ -672,194 +792,162 @@ export const AcademicDataEntry: React.FC = () => {
             <h2 className="text-lg font-semibold flex items-center">
               <BookOpen className="w-5 h-5 mr-2 text-blue-600" />
               Add Subject Scores - Semester {selectedSemester}
+              {availableSubjects && (
+                <span className="ml-3 text-sm text-gray-500">
+                  ({availableSubjects.curriculum_type})
+                </span>
+              )}
             </h2>
             
-            <div className="flex items-center gap-3">
-              <select
-                value={selectedSemester}
-                onChange={(e) => setSelectedSemester(parseInt(e.target.value))}
-                className="px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
-              >
-                {[...Array(8)].map((_, i) => (
-                  <option key={i+1} value={i+1}>
-                    Semester {i+1}
-                  </option>
-                ))}
-              </select>
-              
-              <div className="flex gap-2">
-                <button
-                  onClick={downloadCSVTemplate}
-                  className="px-3 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 flex items-center gap-2 text-sm"
-                >
-                  <FileSpreadsheet className="w-4 h-4" />
-                  Template
-                </button>
-                
-                <label className="px-3 py-2 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 cursor-pointer flex items-center gap-2 text-sm">
-                  <Upload className="w-4 h-4" />
-                  Import CSV
-                  <input
-                    type="file"
-                    accept=".csv"
-                    onChange={handleCSVImport}
-                    className="hidden"
-                  />
-                </label>
-              </div>
-            </div>
+            <select
+              value={selectedSemester}
+              onChange={(e) => setSelectedSemester(parseInt(e.target.value))}
+              className="px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+            >
+              {[...Array(8)].map((_, i) => (
+                <option key={i+1} value={i+1}>
+                  Semester {i+1}
+                </option>
+              ))}
+            </select>
           </div>
           
-          {/* Subject List */}
-          <div className="space-y-4">
-            {subjects.map((subject, index) => {
-              const totalMarks = calculateTotalMarks(subject);
-              const gradeInfo = calculateGrade(totalMarks);
-              
-              return (
-                <div key={index} className="p-4 border rounded-lg bg-gray-50">
-                  <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
-                    <div>
-                      <label className="block text-xs text-gray-600 mb-1">Subject Code</label>
-                      <input
-                        type="text"
-                        placeholder="CSIT301"
-                        value={subject.subject_code}
-                        onChange={(e) => updateSubject(index, 'subject_code', e.target.value)}
-                        className="w-full px-3 py-2 border rounded-lg text-sm"
-                      />
+          {loadingSubjects ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+              <span className="ml-3 text-gray-600">Loading curriculum subjects...</span>
+            </div>
+          ) : availableSubjects ? (
+            <div className="space-y-4">
+              {subjects.map((subject, index) => {
+                const totalMarks = calculateTotalMarks(subject);
+                const gradeInfo = calculateGrade(totalMarks);
+                const maxMarks = subject.internal_max + subject.external_max;
+                
+                return (
+                  <div key={index} className="p-4 border rounded-lg bg-gray-50">
+                    {/* Subject Header */}
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-3">
+                        {getCourseTypeBadge(subject.course_type)}
+                        <span className="text-sm font-medium text-gray-700">
+                          {subject.credits} Credits
+                        </span>
+                        {subject.is_elective && (
+                          <span className="px-2 py-1 bg-purple-50 text-purple-700 text-xs rounded-full">
+                            Elective
+                          </span>
+                        )}
+                      </div>
                     </div>
                     
-                    <div className="md:col-span-2">
-                      <label className="block text-xs text-gray-600 mb-1">Subject Name</label>
-                      <input
-                        type="text"
-                        placeholder="Data Structures and Algorithms"
-                        value={subject.subject_name}
-                        onChange={(e) => updateSubject(index, 'subject_name', e.target.value)}
-                        className="w-full px-3 py-2 border rounded-lg text-sm"
-                      />
-                    </div>
+                    {/* Elective Selection */}
+                    {subject.is_elective && subject.elective_group && availableSubjects.elective_groups[subject.elective_group] ? (
+                      <div className="mb-3">
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Select {subject.elective_group} *
+                        </label>
+                        <select
+                          value={subject.selected_elective_code || ''}
+                          onChange={(e) => updateSubject(index, 'selected_elective_code', e.target.value)}
+                          className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-purple-500"
+                          required
+                        >
+                          <option value="">-- Select Elective --</option>
+                          {availableSubjects.elective_groups[subject.elective_group].options.map(option => (
+                            <option key={option.code} value={option.code}>
+                              {option.code} - {option.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    ) : (
+                      <div className="mb-3">
+                        <p className="font-medium text-gray-800">
+                          {subject.subject_code} - {subject.subject_name}
+                        </p>
+                      </div>
+                    )}
                     
-                    <div>
-                      <label className="block text-xs text-gray-600 mb-1">Credits</label>
-                      <input
-                        type="number"
-                        placeholder="3"
-                        value={subject.credits}
-                        onChange={(e) => updateSubject(index, 'credits', parseInt(e.target.value) || 0)}
-                        className="w-full px-3 py-2 border rounded-lg text-sm"
-                        min={1}
-                        max={6}
-                      />
-                    </div>
-                    
-                    <div>
-                      <label className="block text-xs text-gray-600 mb-1">Internal (20)</label>
-                      <input
-                        type="number"
-                        placeholder="0"
-                        value={subject.internal_marks}
-                        onChange={(e) => updateSubject(index, 'internal_marks', parseFloat(e.target.value) || 0)}
-                        className="w-full px-3 py-2 border rounded-lg text-sm"
-                        min={0}
-                        max={20}
-                        step="0.5"
-                      />
-                    </div>
-                    
-                    <div>
-                      <label className="block text-xs text-gray-600 mb-1">External (80)</label>
-                      <input
-                        type="number"
-                        placeholder="0"
-                        value={subject.external_marks}
-                        onChange={(e) => updateSubject(index, 'external_marks', parseFloat(e.target.value) || 0)}
-                        className="w-full px-3 py-2 border rounded-lg text-sm"
-                        min={0}
-                        max={80}
-                        step="0.5"
-                      />
-                    </div>
-                  </div>
-                  
-                  <div className="mt-3 flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                      <label className="flex items-center gap-2 text-sm">
+                    {/* Marks Entry */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                      <div>
+                        <label className="block text-xs text-gray-600 mb-1">
+                          Internal Marks ({subject.internal_max})
+                        </label>
                         <input
-                          type="checkbox"
-                          checked={subject.is_elective}
-                          onChange={(e) => updateSubject(index, 'is_elective', e.target.checked)}
-                          className="rounded"
+                          type="number"
+                          value={subject.internal_marks}
+                          onChange={(e) => updateSubject(index, 'internal_marks', parseFloat(e.target.value) || 0)}
+                          className="w-full px-3 py-2 border rounded-lg text-sm"
+                          min={0}
+                          max={subject.internal_max}
+                          step="0.5"
                         />
-                        Elective
-                      </label>
+                      </div>
                       
-                      <label className="flex items-center gap-2 text-sm">
+                      <div>
+                        <label className="block text-xs text-gray-600 mb-1">
+                          External Marks ({subject.external_max})
+                        </label>
                         <input
-                          type="checkbox"
-                          checked={subject.is_practical}
-                          onChange={(e) => updateSubject(index, 'is_practical', e.target.checked)}
-                          className="rounded"
+                          type="number"
+                          value={subject.external_marks}
+                          onChange={(e) => updateSubject(index, 'external_marks', parseFloat(e.target.value) || 0)}
+                          className="w-full px-3 py-2 border rounded-lg text-sm"
+                          min={0}
+                          max={subject.external_max}
+                          step="0.5"
                         />
-                        Practical
-                      </label>
+                      </div>
                       
-                      {/* Show calculated grade and total marks */}
+                      {/* Grade Display */}
                       {totalMarks > 0 && (
-                        <div className="flex items-center gap-3">
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm text-gray-600">Total:</span>
-                            <span className="font-bold text-gray-800">
-                              {totalMarks}/100
-                            </span>
+                        <div className="flex items-center gap-4 bg-white rounded-lg p-2">
+                          <div>
+                            <span className="text-xs text-gray-600">Total</span>
+                            <p className="font-bold text-gray-800">
+                              {totalMarks}/{maxMarks}
+                            </p>
                           </div>
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm text-gray-600">Grade:</span>
-                            <span className={`font-bold ${gradeInfo.color}`}>
+                          <div>
+                            <span className="text-xs text-gray-600">Grade</span>
+                            <p className={`font-bold ${gradeInfo.color}`}>
                               {gradeInfo.grade}
-                            </span>
+                            </p>
                           </div>
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm text-gray-600">Points:</span>
-                            <span className="font-bold">
+                          <div>
+                            <span className="text-xs text-gray-600">Points</span>
+                            <p className="font-bold">
                               {gradeInfo.points}
-                            </span>
+                            </p>
                           </div>
                         </div>
                       )}
                     </div>
-                    
-                    <button
-                      onClick={() => removeSubject(index)}
-                      className="p-1 text-red-500 hover:text-red-700"
-                      disabled={subjects.length === 1}
-                    >
-                      <X className="w-5 h-5" />
-                    </button>
                   </div>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="text-center py-12 text-gray-500">
+              <Info className="w-12 h-12 mx-auto mb-3 text-gray-400" />
+              <p>No subjects available. Please select a semester.</p>
+            </div>
+          )}
           
           {/* Actions */}
-          <div className="mt-4 flex items-center justify-between">
-            <button
-              onClick={addSubject}
-              className="px-4 py-2 border border-blue-600 text-blue-600 rounded-lg hover:bg-blue-50 flex items-center gap-2"
-            >
-              <Plus className="w-4 h-4" />
-              Add Subject
-            </button>
-            
-            <div className="flex items-center gap-3">
-              <span className="text-sm text-gray-600">
-                {subjects.length} subject{subjects.length !== 1 ? 's' : ''} added
-              </span>
+          {availableSubjects && subjects.length > 0 && (
+            <div className="mt-4 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <span className="text-sm text-gray-600">
+                  {subjects.length} subject{subjects.length !== 1 ? 's' : ''} • 
+                  Semester {selectedSemester} • {availableSubjects.curriculum_type}
+                </span>
+              </div>
               <button
                 onClick={saveSubjects}
-                disabled={loading || subjects.length === 0 || subjects.some(s => !s.subject_code.trim() || !s.subject_name.trim()) || !backendAvailable}
+                disabled={loading || subjects.length === 0 || !backendAvailable}
                 className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2"
               >
                 {loading ? (
@@ -870,7 +958,7 @@ export const AcademicDataEntry: React.FC = () => {
                 {loading ? 'Saving...' : 'Save Semester Data'}
               </button>
             </div>
-          </div>
+          )}
         </motion.div>
       )}
       
@@ -879,14 +967,14 @@ export const AcademicDataEntry: React.FC = () => {
         <div className="flex items-start space-x-2">
           <AlertCircle className="w-5 h-5 text-blue-600 mt-0.5" />
           <div>
-            <p className="font-medium text-blue-900">How it works:</p>
+            <p className="font-medium text-blue-900">Curriculum-Based Entry System</p>
             <ul className="mt-2 text-sm text-blue-700 space-y-1">
-              <li>• Your semester automatically updates based on your admission year</li>
-              <li>• Enter your subject scores at the end of each semester</li>
-              <li>• AI analyzes your performance to recommend electives and career paths</li>
-              <li>• CGPA is automatically calculated from all your semester records</li>
-              <li>• You can import scores from a CSV file for quick entry</li>
-              <li>• Download the CSV template to ensure proper formatting</li>
+              <li>• Subjects are automatically loaded based on your admission year and semester</li>
+              <li>• Pre-2024 students: Semesters 1-4 use Pre-Autonomy curriculum</li>
+              <li>• 2024+ students: All semesters use new Autonomy curriculum</li>
+              <li>• Electives must be selected from the provided dropdown list</li>
+              <li>• Marks ranges vary by course type (Theory, Lab, Project)</li>
+              <li>• Your CGPA is automatically calculated from all semester records</li>
             </ul>
           </div>
         </div>

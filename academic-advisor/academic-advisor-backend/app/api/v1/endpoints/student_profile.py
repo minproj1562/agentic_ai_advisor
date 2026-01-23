@@ -1,4 +1,4 @@
-# academic-advisor-backend/app/api/v1/endpoints/student_profile.py
+# app/api/v1/endpoints/student_profile.py
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from typing import Optional
@@ -110,19 +110,36 @@ async def get_student_profile(
 ):
     """Get student profile by user ID"""
     try:
-        user_id: str = current_user.uid
-        logger.info(f"Fetching profile for user: {user_id}")
+        # FIXED: Better error handling for uid access
+        if not current_user:
+            logger.error("❌ No current user provided")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="User not authenticated"
+            )
+        
+        if not hasattr(current_user, 'uid'):
+            logger.error(f"❌ Current user object doesn't have uid attribute. Type: {type(current_user)}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Invalid user object structure"
+            )
+        
+        user_id = str(current_user.uid)  # Ensure it's a string
+        logger.info(f"✅ Fetching profile for user: {user_id}")
         
         profile = await StudentProfile.find_one(
-            StudentProfile.user_id == user_id
-        )
+            {"user_id": user_id}
+            )
         
         if not profile:
+            logger.warning(f"⚠️ Profile not found for user: {user_id}")
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Student profile not found. Please create your profile first."
             )
         
+        # Auto-update semester if needed
         academic_details = calculate_academic_details(profile.admission_year)
         
         if profile.current_semester != academic_details["current_semester"]:
@@ -130,16 +147,23 @@ async def get_student_profile(
             profile.current_academic_year = academic_details["current_academic_year"]
             profile.last_updated = datetime.now()
             await profile.save()
+            logger.info(f"✅ Auto-updated semester to {profile.current_semester}")
         
         return profile_to_response(profile)
         
     except HTTPException:
         raise
-    except Exception as e:
-        logger.error(f"Error fetching profile: {str(e)}", exc_info=True)
+    except AttributeError as e:
+        logger.error(f"❌ AttributeError accessing user data: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error fetching profile: {str(e)}"
+            detail=f"Error accessing user data: {str(e)}"
+        )
+    except Exception as e:
+        logger.error(f"❌ Error fetching profile: {type(e).__name__}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error fetching profile: {type(e).__name__}"
         )
 
 
@@ -150,19 +174,26 @@ async def create_student_profile(
 ):
     """Create or update student profile"""
     try:
-        # CRITICAL: Extract uid STRING from FirebaseUser object
-        user_id: str = current_user.uid
-        user_email: str = current_user.email or ""
+        # FIXED: Better error handling
+        if not current_user or not hasattr(current_user, 'uid'):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="User not authenticated properly"
+            )
         
-        logger.info(f"Creating/updating profile for user: {user_id}")
+        user_id = str(current_user.uid)
+        user_email = str(current_user.email) if hasattr(current_user, 'email') else ""
+        
+        logger.info(f"✅ Creating/updating profile for user: {user_id}")
         
         academic_details = calculate_academic_details(profile_data.admission_year)
         
         existing_profile = await StudentProfile.find_one(
-            StudentProfile.user_id == user_id
-        )
+            {"user_id": user_id}
+    )
         
         if existing_profile:
+            # Update existing profile
             existing_profile.name = profile_data.name
             existing_profile.roll_number = profile_data.roll_number
             existing_profile.branch = profile_data.branch
@@ -173,13 +204,13 @@ async def create_student_profile(
             existing_profile.last_updated = datetime.now()
             
             await existing_profile.save()
-            logger.info(f"Updated existing profile for user: {user_id}")
+            logger.info(f"✅ Updated existing profile for user: {user_id}")
             
             return profile_to_response(existing_profile)
         
-        # Create new profile with STRING user_id
+        # Create new profile
         new_profile = StudentProfile(
-            user_id=user_id,  # STRING, not FirebaseUser object!
+            user_id=user_id,
             name=profile_data.name,
             roll_number=profile_data.roll_number,
             branch=profile_data.branch,
@@ -199,17 +230,17 @@ async def create_student_profile(
         )
         
         await new_profile.insert()
-        logger.info(f"Created new profile for user: {user_id}")
+        logger.info(f"✅ Created new profile for user: {user_id}")
         
         return profile_to_response(new_profile)
         
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error creating profile: {str(e)}", exc_info=True)
+        logger.error(f"❌ Error creating profile: {type(e).__name__}: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error creating profile: {str(e)}"
+            detail=f"Error creating profile: {type(e).__name__}"
         )
 
 
@@ -220,11 +251,11 @@ async def update_student_profile(
 ):
     """Update student profile"""
     try:
-        user_id: str = current_user.uid
-        logger.info(f"Updating profile for user: {user_id}")
+        user_id = str(current_user.uid)
+        logger.info(f"✅ Updating profile for user: {user_id}")
         
         profile = await StudentProfile.find_one(
-            StudentProfile.user_id == user_id
+            {"user_id": user_id}
         )
         
         if not profile:
@@ -251,10 +282,10 @@ async def update_student_profile(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error updating profile: {str(e)}")
+        logger.error(f"❌ Error updating profile: {type(e).__name__}: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error updating profile: {str(e)}"
+            detail=f"Error updating profile: {type(e).__name__}"
         )
 
 
@@ -264,11 +295,11 @@ async def delete_student_profile(
 ):
     """Delete student profile"""
     try:
-        user_id: str = current_user.uid
-        logger.info(f"Deleting profile for user: {user_id}")
+        user_id = str(current_user.uid)
+        logger.info(f"✅ Deleting profile for user: {user_id}")
         
         profile = await StudentProfile.find_one(
-            StudentProfile.user_id == user_id
+            {"user_id": user_id}
         )
         
         if not profile:
@@ -284,10 +315,10 @@ async def delete_student_profile(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error deleting profile: {str(e)}")
+        logger.error(f"❌ Error deleting profile: {type(e).__name__}: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error deleting profile: {str(e)}"
+            detail=f"Error deleting profile: {type(e).__name__}"
         )
 
 
@@ -297,10 +328,10 @@ async def get_academic_details(
 ):
     """Get calculated academic details for current user"""
     try:
-        user_id: str = current_user.uid
+        user_id = str(current_user.uid)
         
         profile = await StudentProfile.find_one(
-            StudentProfile.user_id == user_id
+            {"user_id": user_id}
         )
         
         if not profile:
@@ -325,10 +356,10 @@ async def get_academic_details(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error getting academic details: {str(e)}")
+        logger.error(f"❌ Error getting academic details: {type(e).__name__}: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error getting academic details: {str(e)}"
+            detail=f"Error getting academic details: {type(e).__name__}"
         )
 
 
@@ -338,10 +369,10 @@ async def check_profile_exists(
 ):
     """Check if profile exists for current user"""
     try:
-        user_id: str = current_user.uid
+        user_id = str(current_user.uid)
         
         profile = await StudentProfile.find_one(
-            StudentProfile.user_id == user_id
+            {"user_id": user_id}
         )
         
         return {
@@ -351,9 +382,9 @@ async def check_profile_exists(
         }
         
     except Exception as e:
-        logger.error(f"Error checking profile: {str(e)}")
+        logger.error(f"❌ Error checking profile: {type(e).__name__}: {e}", exc_info=True)
         return {
             "exists": False,
-            "user_id": current_user.uid,
+            "user_id": str(current_user.uid) if current_user else "unknown",
             "error": str(e)
         }

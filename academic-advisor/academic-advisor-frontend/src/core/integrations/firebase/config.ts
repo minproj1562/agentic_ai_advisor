@@ -18,16 +18,17 @@ interface FirebaseConfig {
   databaseURL: string;
 }
 
-// COMPLETE FIREBASE CONFIG WITH FALLBACKS - VITE COMPATIBLE
+/// src/core/integrations/firebase/config.ts - Make it match firebase.config.ts
+
 const firebaseConfig: FirebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyAUCRDKS6Jx5KFD9TfMjI0udahetrrxT0U",
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "smart-academic-advisor-system.firebaseapp.com",
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "smart-academic-advisor-system",
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "smart-academic-advisor-system.firebasestorage.app",
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "610305303830",
-  appId: import.meta.env.VITE_FIREBASE_APP_ID || "1:610305303830:web:9fa62286265fe64cd1dc37",
-  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID,
-  databaseURL: import.meta.env.VITE_FIREBASE_DATABASE_URL || "https://smart-academic-advisor-system-default-rtdb.asia-southeast1.firebasedatabase.app"
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyDC4gI0K6lHI64QvkuPhLvj7RwPb-C5Bo8",
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "academic-advisor-6ed1a.firebaseapp.com",
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "academic-advisor-6ed1a",
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "academic-advisor-6ed1a.appspot.com",
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "495055909288",
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || "1:495055909288:web:9decbf9c8cd56d6975ad9d",
+  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || "G-TT1278L4X4",
+  databaseURL: import.meta.env.VITE_FIREBASE_DATABASE_URL || "https://academic-advisor-6ed1a-default-rtdb.firebaseio.com"
 };
 
 class FirebaseService {
