@@ -694,3 +694,12 @@ function Clean-Tree($path, $indent = "") {
 }
 
 Clean-Tree .
+
+# For .gitignore merge conflict problem:
+git checkout --ours ../.gitignore
+git add ../.gitignore
+git status
+git commit
+
+# show the true repo
+git rev-parse --show-toplevel
