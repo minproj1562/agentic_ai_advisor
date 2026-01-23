@@ -244,18 +244,12 @@ cd academic-advisor-frontend
 # 2. Install dependencies
 npm install
 
-# 3. Configure environment variables
-# Copy .env.example to .env and update values
-cp .env.example .env
+
 
 # 4. Start development server
 npm run dev
 
-# 5. Build for production
-npm run build
 
-# 6. Run tests
-npm test
 ```
 
 ### **Docker Setup**
