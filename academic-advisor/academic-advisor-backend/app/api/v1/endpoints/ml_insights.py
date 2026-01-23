@@ -1,27 +1,31 @@
-# app/api/v1/endpoints/ml_insights.py
+# academic-advisor-backend/app/api/v1/endpoints/ml_insights.py
+
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel, Field
-from datetime import datetime, timedelta
-import asyncio
-from app.services.ml_service import EnhancedMLService
-from app.models.student import Student
-from app.models.faculty import Faculty
-from app.core.security import get_current_user, get_current_faculty
+from datetime import datetime
 import logging
 
+from app.services.ml_service import enhanced_ml_service
+from app.services.ml_performance_analysis import ml_analyzer
+from app.models.student_profile import StudentProfile
+from app.models.faculty import Faculty
+from app.core.security import get_current_user, FirebaseUser
+from app.core.curriculum import get_semester_subjects
+
 logger = logging.getLogger(__name__)
-
 router = APIRouter()
-ml_service = EnhancedMLService()
 
-# Pydantic models for request/response
+
+# ==================== REQUEST/RESPONSE MODELS ====================
+
 class PerformancePredictionRequest(BaseModel):
     currentGrades: Dict[str, float]
     attendance: float
     projectCount: int
     studyHours: Optional[float] = None
     extracurricular: Optional[List[str]] = None
+
 
 class CareerPathAnalysisRequest(BaseModel):
     skills: List[str]
@@ -30,674 +34,489 @@ class CareerPathAnalysisRequest(BaseModel):
     personalityTraits: Optional[List[str]] = None
     careerGoals: Optional[List[str]] = None
 
-class FacultyRecommendationRequest(BaseModel):
-    courseId: str
-    learningStyle: str
-    pastPerformance: Dict[str, float]
-    preferredTeachingMethods: Optional[List[str]] = None
 
-class CourseRecommendationRequest(BaseModel):
-    studentProfile: Dict[str, Any]
-    careerGoals: List[str]
-    currentSemester: int
-    completedCourses: Optional[List[str]] = None
+class InterestUpdateRequest(BaseModel):
+    interests: List[str] = Field(..., description="List of student interests")
+    career_goals: Optional[List[str]] = Field(None, description="Career goals")
+    skills: Optional[List[str]] = Field(None, description="Current skills")
 
-class StudyPlanRequest(BaseModel):
-    weakSubjects: List[str]
-    availableHours: float
-    examDate: str
-    learningPace: Optional[str] = "moderate"
 
-class MentorshipInsightsRequest(BaseModel):
-    facultyId: str
-    timeRange: Optional[str] = "last_6_months"
+# ==================== COMPREHENSIVE ANALYSIS ====================
 
-class StudentClusterRequest(BaseModel):
-    branch: str
-    semester: int
-    clusteringType: str = "academic_performance"
-
-class RiskAssessmentRequest(BaseModel):
-    studentId: str
-    assessmentType: str = "comprehensive"
-
-class StudyPeerRecommendationRequest(BaseModel):
-    student_id: str
-    subject: str
-    study_objective: str
-
-class InterviewPreparationRequest(BaseModel):
-    student_id: str
-    company_type: str
-    role: str
-
-class AdaptiveLearningPathRequest(BaseModel):
-    student_id: str
-    learning_goals: List[str]
-
-class BatchAnalysisRequest(BaseModel):
-    student_ids: List[str]
-    analysis_type: str = "comprehensive"
-
-@router.get("/comprehensive-analysis/{student_id}")
+@router.get("/comprehensive-analysis")
 async def get_comprehensive_analysis(
-    student_id: str,
     include_trends: bool = True,
     include_comparisons: bool = True,
-    current_user: Student = Depends(get_current_user)
+    include_interests: bool = True,
+    current_user: FirebaseUser = Depends(get_current_user)
 ):
-    """Get comprehensive AI-powered analysis for a student"""
+    """
+    Get comprehensive AI-powered analysis for current student
+    Includes performance, interests, and curriculum recommendations
+    """
     try:
-        analysis = await ml_service.generate_comprehensive_analysis(
-            student_id, 
+        analysis = await enhanced_ml_service.generate_comprehensive_analysis(
+            student_id=current_user.uid,
             include_trends=include_trends,
-            include_comparisons=include_comparisons
+            include_comparisons=include_comparisons,
+            include_interests=include_interests
         )
+        
         return {
             "status": "success",
             "data": analysis,
             "generated_at": datetime.utcnow().isoformat()
         }
+        
     except Exception as e:
         logger.error(f"Comprehensive analysis error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
+# ==================== ACADEMIC DATA ANALYSIS ====================
+
+@router.get("/academic-recommendations")
+async def get_academic_recommendations(
+    current_user: FirebaseUser = Depends(get_current_user)
+):
+    """
+    Get recommendations triggered by academic data entry
+    Returns elective suggestions, weakness analysis, and improvement plans
+    """
+    try:
+        # Get student profile
+        student = await StudentProfile.find_one(
+            {"user_id": current_user.uid}
+    )
+        
+        if not student:
+            raise HTTPException(
+                status_code=404,
+                detail="Student profile not found. Please create your profile first."
+            )
+        
+        # Get performance history
+        performance_history = await enhanced_ml_service._get_performance_history(
+            current_user.uid
+        )
+        
+        # Get curriculum data
+        curriculum_data = None
+        try:
+            available_subjects = get_semester_subjects(
+                student.current_semester,
+                student.admission_year
+            )
+            
+            curriculum_data = {
+                'semester': student.current_semester,
+                'admission_year': student.admission_year,
+                'curriculum_type': 'Pre-Autonomy' if student.admission_year < 2024 and student.current_semester <= 4 else 'Autonomy',
+                'available_subjects': [
+                    {
+                        'code': s.subject_code,
+                        'name': s.subject_name,
+                        'type': s.course_type
+                    }
+                    for s in available_subjects
+                ]
+            }
+        except Exception as e:
+            logger.warning(f"Could not load curriculum data: {e}")
+        
+        # Get weakness analysis
+        weaknesses = await ml_analyzer.detect_weaknesses(
+            student_data={
+                'id': current_user.uid,
+                'cgpa': student.cgpa,
+                'attendance': 85,
+                'current_semester': student.current_semester,
+                'branch': student.branch
+            },
+            performance_history=performance_history,
+            assessments=[],
+            curriculum_data=curriculum_data
+        )
+        
+        # Get curriculum recommendations
+        curriculum_recs = await enhanced_ml_service._get_curriculum_recommendations(
+            student,
+            weaknesses,
+            performance_history
+        )
+        
+        # Get interest-based recommendations
+        interest_analysis = await enhanced_ml_service._analyze_interests(student)
+        interest_recs = await enhanced_ml_service._recommend_electives_by_interest(
+            student,
+            interest_analysis
+        )
+        
+        return {
+            "status": "success",
+            "data": {
+                "weaknesses": weaknesses,
+                "curriculum_recommendations": curriculum_recs,
+                "interest_based_recommendations": interest_recs,
+                "student_info": {
+                    "name": student.name,
+                    "branch": student.branch,
+                    "semester": student.current_semester,
+                    "cgpa": student.cgpa
+                },
+                "curriculum_info": curriculum_data
+            },
+            "generated_at": datetime.utcnow().isoformat(),
+            "recommendation_type": "academic_data_triggered"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Academic recommendations error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== INTEREST MANAGEMENT ====================
+
+@router.get("/interests")
+async def get_student_interests(
+    current_user: FirebaseUser = Depends(get_current_user)
+):
+    """Get student's current interests and recommendations"""
+    try:
+        student = await StudentProfile.find_one(
+            {"user_id": current_user.uid}
+    )
+        
+        if not student:
+            raise HTTPException(status_code=404, detail="Student not found")
+        
+        interest_analysis = await enhanced_ml_service._analyze_interests(student)
+        
+        return {
+            "status": "success",
+            "data": {
+                "declared_interests": student.interests or [],
+                "career_goals": student.career_goals or [],
+                "skills": student.skills or [],
+                "analysis": interest_analysis
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Get interests error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/interests/update")
+async def update_student_interests(
+    request: InterestUpdateRequest,
+    current_user: FirebaseUser = Depends(get_current_user)
+):
+    """Update student interests manually"""
+    try:
+        student = await StudentProfile.find_one(
+            {"user_id": current_user.uid}
+        )
+        
+        if not student:
+            raise HTTPException(status_code=404, detail="Student not found")
+        
+        # Update interests
+        student.interests = request.interests
+        
+        if request.career_goals:
+            student.career_goals = request.career_goals
+        
+        if request.skills:
+            student.skills = request.skills
+        
+        await student.save()
+        
+        # Generate updated recommendations
+        interest_analysis = await enhanced_ml_service._analyze_interests(student)
+        interest_recs = await enhanced_ml_service._recommend_electives_by_interest(
+            student,
+            interest_analysis
+        )
+        
+        return {
+            "status": "success",
+            "message": "Interests updated successfully",
+            "data": {
+                "interests": student.interests,
+                "career_goals": student.career_goals,
+                "skills": student.skills,
+                "updated_recommendations": interest_recs
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Update interests error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== PERFORMANCE PREDICTION ====================
+
 @router.post("/predict-performance")
 async def predict_performance(
     data: PerformancePredictionRequest,
-    current_user: Student = Depends(get_current_user)
+    current_user: FirebaseUser = Depends(get_current_user)
 ):
-    """Predict future academic performance with enhanced features"""
+    """Predict future academic performance"""
     try:
-        prediction = await ml_service.predict_performance(
+        prediction = await enhanced_ml_service.predict_performance(
             data.currentGrades,
             data.attendance,
             data.projectCount,
             data.studyHours,
             data.extracurricular
         )
+        
         return {
             "status": "success",
             "prediction": prediction,
-            "confidence_score": prediction.get("confidence", 0.85)
+            "confidence_score": prediction.get("confidence", 0.75)
         }
+        
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== CAREER PATH ANALYSIS ====================
 
 @router.post("/career-path-analysis")
 async def analyze_career_paths(
     data: CareerPathAnalysisRequest,
-    current_user: Student = Depends(get_current_user)
+    current_user: FirebaseUser = Depends(get_current_user)
 ):
-    """Analyze and recommend career paths with personality matching"""
+    """Analyze and recommend career paths"""
     try:
-        career_insights = await ml_service.analyze_career_paths(
+        career_insights = await enhanced_ml_service.analyze_career_paths(
             data.skills,
             data.interests,
             data.academicPerformance,
             data.personalityTraits,
             data.careerGoals
         )
+        
         return {
             "status": "success",
             "career_insights": career_insights,
             "analysis_type": "comprehensive_career_path"
         }
+        
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/faculty-recommendations")
-async def get_faculty_recommendations(
-    data: FacultyRecommendationRequest,
-    current_user: Student = Depends(get_current_user)
-):
-    """Get AI-powered faculty recommendations with enhanced matching"""
-    try:
-        recommendations = await ml_service.recommend_faculty(
-            data.courseId,
-            data.learningStyle,
-            data.pastPerformance,
-            data.preferredTeachingMethods
-        )
-        return {
-            "status": "success",
-            "recommendations": recommendations,
-            "matching_criteria_used": ["teaching_style", "expertise", "student_feedback"]
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/course-recommendations")
-async def get_course_recommendations(
-    data: CourseRecommendationRequest,
-    current_user: Student = Depends(get_current_user)
-):
-    """Get personalized course recommendations with prerequisite checking"""
-    try:
-        recommendations = await ml_service.recommend_courses(
-            data.studentProfile,
-            data.careerGoals,
-            data.currentSemester,
-            data.completedCourses
-        )
-        return {
-            "status": "success",
-            "recommendations": recommendations,
-            "semester_plan": f"Semester {data.currentSemester + 1}"
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+# ==================== PROJECT-TRIGGERED ANALYSIS ====================
 
-@router.get("/placement-readiness/{student_id}")
-async def check_placement_readiness(
+@router.post("/project-analysis-callback")
+async def project_analysis_callback(
     student_id: str,
-    target_companies: List[str] = Query(None),
-    current_user: Student = Depends(get_current_user)
-):
-    """Check placement readiness and get preparation plan for specific companies"""
-    try:
-        readiness = await ml_service.assess_placement_readiness(
-            student_id, 
-            target_companies
-        )
-        return {
-            "status": "success",
-            "readiness_assessment": readiness,
-            "improvement_areas": readiness.get("improvement_areas", [])
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@router.post("/generate-study-plan")
-async def generate_personalized_study_plan(
-    data: StudyPlanRequest,
+    project_data: Dict[str, Any],
+    inferred_interests: List[Dict[str, Any]],
     background_tasks: BackgroundTasks,
-    current_user: Student = Depends(get_current_user)
+    current_user: FirebaseUser = Depends(get_current_user)
 ):
-    """Generate personalized study plan with adaptive learning pace"""
+    """
+    Callback endpoint for project upload analysis
+    Generates academic recommendations based on project interests
+    """
     try:
-        study_plan = await ml_service.generate_study_plan(
-            data.weakSubjects,
-            data.availableHours,
-            data.examDate,
-            data.learningPace
+        # Verify user authorization
+        if current_user.uid != student_id:
+            raise HTTPException(status_code=403, detail="Unauthorized")
+        
+        # Generate project-based recommendations
+        recommendations = await enhanced_ml_service.analyze_project_for_recommendations(
+            student_id,
+            project_data,
+            inferred_interests
         )
         
-        # Background task to track study plan effectiveness
-        background_tasks.add_task(
-            ml_service.track_study_plan_usage,
-            str(current_user.id),  # Convert to string for Beanie
-            study_plan.get("plan_id")
-        )
+        # Store recommendations for later retrieval
+        # In production, store in database
         
         return {
             "status": "success",
-            "study_plan": study_plan,
-            "estimated_completion_time": study_plan.get("duration")
+            "message": "Project analysis completed",
+            "data": {
+                "inferred_interests": inferred_interests,
+                "recommendations": recommendations,
+                "analysis_type": "project_triggered"
+            },
+            "generated_at": datetime.utcnow().isoformat()
         }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@router.get("/peer-comparison/{student_id}")
-async def get_peer_comparison(
-    student_id: str,
-    branch: str,
-    semester: int,
-    comparison_type: str = Query("comprehensive", regex="^(academic|skills|overall|comprehensive)$"),
-    current_user: Student = Depends(get_current_user)
-):
-    """Compare with peers in the same branch and semester with different comparison types"""
-    try:
-        comparison = await ml_service.compare_with_peers(
-            student_id,
-            branch,
-            semester,
-            comparison_type
-        )
-        return {
-            "status": "success",
-            "comparison_type": comparison_type,
-            "peer_comparison": comparison,
-            "peer_group_size": comparison.get("peer_count", 0)
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-# NEW ENDPOINTS
-
-@router.get("/faculty/mentorship-insights")
-async def get_mentorship_insights(
-    faculty_id: str,
-    time_range: str = Query("last_6_months", regex="^(last_month|last_3_months|last_6_months|last_year)$"),
-    current_faculty: Faculty = Depends(get_current_faculty)
-):
-    """Get AI-powered insights for faculty mentorship effectiveness"""
-    try:
-        insights = await ml_service.analyze_mentorship_effectiveness(
-            faculty_id,
-            time_range
-        )
-        return {
-            "status": "success",
-            "time_range": time_range,
-            "mentorship_insights": insights,
-            "recommendations": insights.get("recommendations", [])
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@router.post("/faculty/student-clustering")
-async def cluster_students(
-    data: StudentClusterRequest,
-    current_faculty: Faculty = Depends(get_current_faculty)
-):
-    """Cluster students based on various criteria for targeted mentorship"""
-    try:
-        clusters = await ml_service.cluster_students(
-            data.branch,
-            data.semester,
-            data.clusteringType
-        )
-        return {
-            "status": "success",
-            "clustering_type": data.clusteringType,
-            "clusters": clusters,
-            "total_students": sum(len(cluster["students"]) for cluster in clusters)
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@router.post("/risk-assessment")
-async def assess_student_risk(
-    data: RiskAssessmentRequest,
-    current_user: Student = Depends(get_current_user)
-):
-    """Assess student academic and placement risk factors"""
-    try:
-        risk_assessment = await ml_service.assess_student_risk(
-            data.studentId,
-            data.assessmentType
-        )
-        return {
-            "status": "success",
-            "risk_assessment": risk_assessment,
-            "intervention_priority": risk_assessment.get("priority_level", "medium")
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@router.get("/skill-gap-analysis/{student_id}")
-async def analyze_skill_gaps(
-    student_id: str,
-    target_role: str = Query(None),
-    industry_trends: bool = Query(True),
-    current_user: Student = Depends(get_current_user)
-):
-    """Analyze skill gaps for specific career roles"""
-    try:
-        gap_analysis = await ml_service.analyze_skill_gaps(
-            student_id,
-            target_role,
-            industry_trends
-        )
-        return {
-            "status": "success",
-            "target_role": target_role,
-            "skill_gap_analysis": gap_analysis,
-            "recommended_learning_path": gap_analysis.get("learning_path", [])
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@router.post("/learning-style-assessment")
-async def assess_learning_style(
-    responses: Dict[str, Any],
-    current_user: Student = Depends(get_current_user)
-):
-    """Assess student learning style through AI analysis"""
-    try:
-        learning_style = await ml_service.assess_learning_style(responses)
-        return {
-            "status": "success",
-            "learning_style_profile": learning_style,
-            "recommended_study_techniques": learning_style.get("recommended_techniques", [])
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@router.get("/personalized-resources/{student_id}")
-async def get_personalized_resources(
-    student_id: str,
-    resource_type: str = Query("all", regex="^(videos|books|courses|projects|all)$"),
-    difficulty: str = Query("intermediate", regex="^(beginner|intermediate|advanced)$"),
-    current_user: Student = Depends(get_current_user)
-):
-    """Get personalized learning resources based on student profile"""
-    try:
-        resources = await ml_service.recommend_learning_resources(
-            student_id,
-            resource_type,
-            difficulty
-        )
-        return {
-            "status": "success",
-            "resource_type": resource_type,
-            "difficulty_level": difficulty,
-            "recommended_resources": resources,
-            "total_resources": len(resources)
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@router.post("/collaborative-filtering/recommend-peers")
-async def recommend_study_peers(
-    data: StudyPeerRecommendationRequest,
-    current_user: Student = Depends(get_current_user)
-):
-    """Recommend study peers using collaborative filtering"""
-    try:
-        peer_recommendations = await ml_service.recommend_study_peers(
-            data.student_id,
-            data.subject,
-            data.study_objective
-        )
-        return {
-            "status": "success",
-            "subject": data.subject,
-            "study_objective": data.study_objective,
-            "recommended_peers": peer_recommendations,
-            "matching_reason": "complementary_skills_and_schedule"
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@router.get("/progress-tracking/{student_id}")
-async def track_student_progress(
-    student_id: str,
-    metric: str = Query("overall", regex="^(academic|skills|attendance|overall)$"),
-    timeframe: str = Query("semester", regex="^(week|month|semester|year)$"),
-    current_user: Student = Depends(get_current_user)
-):
-    """Track and analyze student progress over time"""
-    try:
-        progress_data = await ml_service.track_student_progress(
-            student_id,
-            metric,
-            timeframe
-        )
-        return {
-            "status": "success",
-            "metric": metric,
-            "timeframe": timeframe,
-            "progress_data": progress_data,
-            "trend_direction": progress_data.get("trend", "stable")
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@router.post("/interview-preparation")
-async def generate_interview_preparation(
-    data: InterviewPreparationRequest,
-    current_user: Student = Depends(get_current_user)
-):
-    """Generate personalized interview preparation plan"""
-    try:
-        preparation_plan = await ml_service.generate_interview_preparation(
-            data.student_id,
-            data.company_type,
-            data.role
-        )
-        return {
-            "status": "success",
-            "company_type": data.company_type,
-            "target_role": data.role,
-            "preparation_plan": preparation_plan,
-            "estimated_preparation_time": preparation_plan.get("duration_weeks")
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@router.get("/faculty/teaching-effectiveness")
-async def analyze_teaching_effectiveness(
-    faculty_id: str,
-    course_id: str = Query(None),
-    semester: str = Query(None),
-    current_faculty: Faculty = Depends(get_current_faculty)
-):
-    """Analyze teaching effectiveness using student performance data"""
-    try:
-        effectiveness = await ml_service.analyze_teaching_effectiveness(
-            faculty_id,
-            course_id,
-            semester
-        )
-        return {
-            "status": "success",
-            "teaching_effectiveness": effectiveness,
-            "improvement_suggestions": effectiveness.get("suggestions", [])
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@router.post("/adaptive-learning-path")
-async def generate_adaptive_learning_path(
-    data: AdaptiveLearningPathRequest,
-    current_user: Student = Depends(get_current_user)
-):
-    """Generate adaptive learning path based on continuous assessment"""
-    try:
-        learning_path = await ml_service.generate_adaptive_learning_path(
-            data.student_id,
-            data.learning_goals
-        )
-        return {
-            "status": "success",
-            "learning_goals": data.learning_goals,
-            "adaptive_learning_path": learning_path,
-            "estimated_completion": learning_path.get("estimated_completion")
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-# Batch Processing Endpoints
-@router.post("/batch-analysis/students")
-async def batch_student_analysis(
-    data: BatchAnalysisRequest,
-    background_tasks: BackgroundTasks,
-    current_faculty: Faculty = Depends(get_current_faculty)
-):
-    """Perform batch analysis for multiple students"""
-    try:
-        # Start batch processing in background
-        task_id = await ml_service.start_batch_analysis(
-            data.student_ids,
-            data.analysis_type
-        )
         
-        return {
-            "status": "processing",
-            "task_id": task_id,
-            "message": "Batch analysis started",
-            "total_students": len(data.student_ids),
-            "estimated_completion_time": "5-10 minutes"
-        }
+    except HTTPException:
+        raise
     except Exception as e:
+        logger.error(f"Project analysis callback error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/batch-analysis/status/{task_id}")
-async def get_batch_analysis_status(
-    task_id: str,
-    current_faculty: Faculty = Depends(get_current_faculty)
-):
-    """Check status of batch analysis task"""
-    try:
-        status = await ml_service.get_batch_analysis_status(task_id)
-        return {
-            "status": "success",
-            "task_status": status,
-            "task_id": task_id
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
 
-# Health Check and System Status
-@router.get("/health")
-async def ml_service_health():
-    """Check ML service health and available models"""
-    try:
-        health_status = await ml_service.get_service_health()
-        return {
-            "status": "healthy",
-            "service": "enhanced_ml_service",
-            "available_models": health_status.get("models", []),
-            "last_training": health_status.get("last_training"),
-            "model_versions": health_status.get("versions", {})
-        }
-    except Exception as e:
-        raise HTTPException(status_code=503, detail="ML service unavailable")
+# ==================== ELECTIVE RECOMMENDATIONS ====================
 
-@router.get("/model-info/{model_type}")
-async def get_model_info(
-    model_type: str,
-    current_user: Student = Depends(get_current_user)
+@router.get("/elective-recommendations")
+async def get_elective_recommendations(
+    semester: Optional[int] = Query(None, description="Target semester for electives"),
+    current_user: FirebaseUser = Depends(get_current_user)
 ):
-    """Get information about specific ML models"""
+    """Get personalized elective recommendations"""
     try:
-        model_info = await ml_service.get_model_info(model_type)
-        return {
-            "status": "success",
-            "model_type": model_type,
-            "model_info": model_info,
-            "accuracy_metrics": model_info.get("metrics", {})
-        }
-    except Exception as e:
-        raise HTTPException(status_code=404, detail=f"Model {model_type} not found")
-
-# Additional Beanie-specific endpoints
-@router.get("/student/{student_id}/academic-history")
-async def get_student_academic_history(
-    student_id: str,
-    current_user: Student = Depends(get_current_user)
-):
-    """Get student academic history using Beanie ODM"""
-    try:
-        # Find student by ID using Beanie
-        student = await Student.get(student_id)
+        student = await StudentProfile.find_one(
+            {"user_id": current_user.uid}
+    )
+        
         if not student:
             raise HTTPException(status_code=404, detail="Student not found")
         
-        academic_history = {
-            "student_id": str(student.id),
-            "name": student.name,
-            "branch": student.branch,
-            "semester": student.semester,
-            "grades": student.grades or {},
-            "attendance": student.attendance or {},
-            "projects": student.projects or []
-        }
+        target_semester = semester or student.current_semester + 1
+        
+        # Get interest-based recommendations
+        interest_analysis = await enhanced_ml_service._analyze_interests(student)
+        interest_recs = await enhanced_ml_service._recommend_electives_by_interest(
+            student,
+            interest_analysis
+        )
+        
+        # Get performance-based recommendations
+        performance_history = await enhanced_ml_service._get_performance_history(
+            current_user.uid
+        )
+        
+        # Get available electives for target semester
+        try:
+            available_subjects = get_semester_subjects(
+                target_semester,
+                student.admission_year
+            )
+            
+            available_electives = [
+                {
+                    'code': s.subject_code,
+                    'name': s.subject_name,
+                    'group': s.elective_group,
+                    'credits': s.credits
+                }
+                for s in available_subjects
+                if s.is_elective
+            ]
+        except Exception as e:
+            logger.warning(f"Could not load available electives: {e}")
+            available_electives = []
         
         return {
             "status": "success",
-            "academic_history": academic_history
-        }
-    except Exception as e:
-        logger.error(f"Error fetching academic history: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@router.get("/faculty/{faculty_id}/performance-snapshot")
-async def get_faculty_performance_snapshot(
-    faculty_id: str,
-    current_faculty: Faculty = Depends(get_current_faculty)
-):
-    """Get faculty performance snapshot - Fix for 405 error"""
-    try:
-        # Find faculty by ID using Beanie
-        faculty = await Faculty.get(faculty_id)
-        if not faculty:
-            raise HTTPException(status_code=404, detail="Faculty not found")
-        
-        # Generate performance snapshot
-        snapshot = {
-            "faculty_id": str(faculty.id),
-            "name": faculty.name,
-            "department": faculty.department,
-            "mentorship_stats": {
-                "total_mentees": len(faculty.mentees or []),
-                "active_sessions": faculty.mentorship_sessions or 0,
-                "completion_rate": 85,  # Mock data - replace with actual calculation
-                "student_satisfaction": 4.2  # Mock data
-            },
-            "recent_activity": {
-                "last_session": (datetime.utcnow() - timedelta(days=2)).isoformat(),
-                "upcoming_sessions": 3,
-                "pending_reviews": 2
-            },
-            "performance_metrics": {
-                "engagement_score": 88,
-                "response_time": "2.1 hours",
-                "student_progress": "+12%"
+            "data": {
+                "target_semester": target_semester,
+                "interest_based_recommendations": interest_recs,
+                "available_electives": available_electives,
+                "student_interests": student.interests or []
             }
         }
         
-        return {
-            "status": "success",
-            "data": snapshot,
-            "generated_at": datetime.utcnow().isoformat()
-        }
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Performance snapshot error: {str(e)}")
+        logger.error(f"Elective recommendations error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/faculty/{faculty_id}/mentorship-stats")
-async def get_faculty_mentorship_stats(
-    faculty_id: str,
-    current_faculty: Faculty = Depends(get_current_faculty)
-):
-    """Get faculty mentorship statistics using Beanie ODM"""
-    try:
-        # Find faculty by ID using Beanie
-        faculty = await Faculty.get(faculty_id)
-        if not faculty:
-            raise HTTPException(status_code=404, detail="Faculty not found")
-        
-        mentorship_stats = {
-            "faculty_id": str(faculty.id),
-            "name": faculty.name,
-            "department": faculty.department,
-            "total_mentees": len(faculty.mentees or []),
-            "expertise_areas": faculty.expertise or [],
-            "mentorship_sessions": faculty.mentorship_sessions or 0
-        }
-        
-        return {
-            "status": "success",
-            "mentorship_stats": mentorship_stats
-        }
-    except Exception as e:
-        logger.error(f"Error fetching mentorship stats: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+# ==================== HONOURS/MINOR RECOMMENDATIONS ====================
 
-@router.post("/student/{student_id}/update-learning-preferences")
-async def update_learning_preferences(
-    student_id: str,
-    preferences: Dict[str, Any],
-    current_user: Student = Depends(get_current_user)
+@router.get("/honours-minor-eligibility")
+async def check_honours_minor_eligibility(
+    current_user: FirebaseUser = Depends(get_current_user)
 ):
-    """Update student learning preferences using Beanie"""
+    """Check eligibility for Honours/Minor programs"""
     try:
-        student = await Student.get(student_id)
+        student = await StudentProfile.find_one(
+            {"user_id": current_user.uid}
+    )
+        
         if not student:
             raise HTTPException(status_code=404, detail="Student not found")
         
-        # Update learning preferences
-        await student.set({"learning_preferences": preferences})
+        # Check eligibility
+        eligible = student.current_semester >= 4 and student.cgpa >= 7.5
+        
+        response = {
+            "eligible": eligible,
+            "current_semester": student.current_semester,
+            "current_cgpa": student.cgpa,
+            "required_cgpa": 7.5,
+            "required_semester": 4
+        }
+        
+        if eligible:
+            # Get eligible programs
+            eligible_programs = await enhanced_ml_service._get_eligible_honours_programs(student)
+            
+            # Get interest-based recommendations
+            interest_analysis = await enhanced_ml_service._analyze_interests(student)
+            student_interests = set(student.interests or [])
+            
+            # Rank programs by interest match
+            for program in eligible_programs:
+                program_keywords = set(program['program'].lower().split())
+                interest_match = len(student_interests.intersection(program_keywords))
+                program['interest_match_score'] = interest_match * 30
+            
+            eligible_programs.sort(key=lambda x: x.get('interest_match_score', 0), reverse=True)
+            
+            response["eligible_programs"] = eligible_programs
+            response["message"] = "Congratulations! You are eligible for Honours/Minor programs"
+            response["application_deadline"] = "Before Semester 5 registration"
+        else:
+            if student.current_semester < 4:
+                response["message"] = f"You can apply after completing Semester 3"
+            else:
+                gap = 7.5 - student.cgpa
+                response["cgpa_gap"] = gap
+                response["message"] = f"Improve CGPA by {gap:.2f} to become eligible"
         
         return {
             "status": "success",
-            "message": "Learning preferences updated successfully",
-            "updated_preferences": preferences
+            "data": response
         }
+        
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Error updating learning preferences: {str(e)}")
+        logger.error(f"Honours eligibility check error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== HEALTH CHECK ====================
+
+@router.get("/health")
+async def ml_service_health():
+    """Check ML service health"""
+    try:
+        health_status = {
+            'status': 'healthy',
+            'service': 'enhanced_ml_service',
+            'available_endpoints': [
+                'comprehensive-analysis',
+                'academic-recommendations',
+                'interests',
+                'predict-performance',
+                'career-path-analysis',
+                'elective-recommendations',
+                'honours-minor-eligibility'
+            ],
+            'timestamp': datetime.utcnow().isoformat()
+        }
+        
+        return health_status
+        
+    except Exception as e:
+        raise HTTPException(status_code=503, detail="ML service unavailable")

@@ -6,18 +6,13 @@ import logging
 
 from app.models.student_profile import StudentProfile, SemesterRecord, SubjectScore
 from app.core.security import FirebaseUser
+from app.core.curriculum import get_semester_subjects, get_elective_options
 
 logger = logging.getLogger(__name__)
 
 
 class AcademicService:
-    """
-    Academic Service - handles all academic operations.
-    
-    IMPORTANT: SemesterRecord and SubjectScore are EMBEDDED models (BaseModel),
-    NOT Documents. They are stored INSIDE StudentProfile.semester_records list.
-    You CANNOT call find_one() or find() on them!
-    """
+    """Academic Service with curriculum-aware subject handling"""
     
     def _calculate_current_semester(self, admission_year: int) -> tuple:
         """Calculate current semester and academic year"""
@@ -55,8 +50,59 @@ class AcademicService:
             return {"grade": "F", "points": 0.0}
     
     async def get_student_profile(self, user: FirebaseUser) -> Optional[StudentProfile]:
-        """Get student profile - this is the ONLY Document we work with"""
+        """Get student profile"""
         return await StudentProfile.find_one(StudentProfile.user_id == user.uid)
+    
+    async def get_available_subjects(self, user: FirebaseUser, semester: int) -> Dict[str, Any]:
+        """Get available subjects for a semester based on student's admission year"""
+        profile = await self.get_student_profile(user)
+        
+        if not profile:
+            raise ValueError("Student profile not found")
+        
+        subjects = get_semester_subjects(semester, profile.admission_year)
+        
+        # Group subjects by type
+        theory_subjects = []
+        lab_subjects = []
+        project_subjects = []
+        elective_groups = {}
+        
+        for subject in subjects:
+            subject_dict = {
+                "subject_code": subject.subject_code,
+                "subject_name": subject.subject_name,
+                "credits": subject.credits,
+                "course_type": subject.course_type,
+                "internal_max": subject.internal_max,
+                "external_max": subject.external_max,
+                "is_elective": subject.is_elective,
+                "is_practical": subject.is_practical
+            }
+            
+            if subject.is_elective and subject.elective_group:
+                if subject.elective_group not in elective_groups:
+                    elective_groups[subject.elective_group] = {
+                        "group_name": subject.elective_group,
+                        "subject_template": subject_dict,
+                        "options": get_elective_options(subject.elective_group)
+                    }
+            elif subject.is_practical or subject.course_type in ["LBC", "SBL"]:
+                lab_subjects.append(subject_dict)
+            elif subject.course_type in ["MNP", "MJP", "INT"]:
+                project_subjects.append(subject_dict)
+            else:
+                theory_subjects.append(subject_dict)
+        
+        return {
+            "semester": semester,
+            "admission_year": profile.admission_year,
+            "curriculum_type": "Pre-Autonomy" if profile.admission_year < 2024 and semester <= 4 else "Autonomy",
+            "theory_subjects": theory_subjects,
+            "lab_subjects": lab_subjects,
+            "project_subjects": project_subjects,
+            "elective_groups": elective_groups
+        }
     
     async def create_or_update_profile(
         self, 
@@ -72,11 +118,9 @@ class AcademicService:
         admission_year = profile_data.get("admission_year", datetime.now().year)
         current_semester, academic_year = self._calculate_current_semester(admission_year)
         
-        # Check if profile exists
         existing_profile = await StudentProfile.find_one(StudentProfile.user_id == user_id)
         
         if existing_profile:
-            # Update existing profile
             existing_profile.name = profile_data.get("name", existing_profile.name)
             existing_profile.roll_number = profile_data.get("roll_number", existing_profile.roll_number)
             existing_profile.branch = profile_data.get("branch", existing_profile.branch)
@@ -90,7 +134,6 @@ class AcademicService:
             logger.info(f"Updated profile for user: {user_id}")
             return existing_profile
         
-        # Create new profile
         new_profile = StudentProfile(
             user_id=user_id,
             name=profile_data.get("name", ""),
@@ -103,7 +146,7 @@ class AcademicService:
             cgpa=0.0,
             total_credits_earned=0,
             total_credits_required=160,
-            semester_records=[],  # Empty list of embedded SemesterRecord
+            semester_records=[],
             skills=[],
             interests=[],
             career_goals=[],
@@ -122,29 +165,19 @@ class AcademicService:
         academic_year: str,
         subjects: List[Dict[str, Any]]
     ) -> Dict[str, Any]:
-        """
-        Add subject scores for a semester.
-        
-        IMPORTANT: SemesterRecord is EMBEDDED in StudentProfile.semester_records
-        We DO NOT use SemesterRecord.find_one() - that doesn't work!
-        Instead, we modify the list in StudentProfile and save the profile.
-        """
+        """Add subject scores for a semester"""
         user_id = user.uid
         logger.info(f"Adding scores for user: {user_id}, semester: {semester_number}")
         
-        # Get the student profile - THIS IS THE ONLY DOCUMENT
         profile = await StudentProfile.find_one(StudentProfile.user_id == user_id)
         
         if not profile:
             raise ValueError("Student profile not found. Please create your profile first.")
         
-        # Process subjects - create EMBEDDED SubjectScore objects
         processed_subjects = []
         total_grade_points = 0.0
         total_credits = 0
         credits_earned = 0
-        passed_subjects = 0
-        failed_subjects = 0
         
         for subject_data in subjects:
             internal_marks = float(subject_data.get("internal_marks", 0))
@@ -154,7 +187,6 @@ class AcademicService:
             grade_info = self._calculate_grade(total_marks)
             credits = int(subject_data.get("credits", 3))
             
-            # Create EMBEDDED SubjectScore (this is a BaseModel, not a Document!)
             subject_score = SubjectScore(
                 subject_code=subject_data.get("subject_code", ""),
                 subject_name=subject_data.get("subject_name", ""),
@@ -170,19 +202,13 @@ class AcademicService:
             
             processed_subjects.append(subject_score)
             
-            # Calculate statistics
             total_credits += credits
             if grade_info["grade"] != "F":
                 total_grade_points += grade_info["points"] * credits
                 credits_earned += credits
-                passed_subjects += 1
-            else:
-                failed_subjects += 1
         
-        # Calculate SGPA for this semester
         sgpa = round(total_grade_points / total_credits, 2) if total_credits > 0 else 0.0
         
-        # Create EMBEDDED SemesterRecord (this is a BaseModel, not a Document!)
         semester_record = SemesterRecord(
             semester_number=semester_number,
             academic_year=academic_year,
@@ -194,23 +220,19 @@ class AcademicService:
             created_at=datetime.now()
         )
         
-        # Find if this semester already exists in the profile's semester_records list
         existing_index = None
         for i, existing_sem in enumerate(profile.semester_records):
             if existing_sem.semester_number == semester_number:
                 existing_index = i
                 break
         
-        # Update or add the semester record in the list
         if existing_index is not None:
             profile.semester_records[existing_index] = semester_record
-            logger.info(f"Updated semester {semester_number} in profile")
         else:
             profile.semester_records.append(semester_record)
             profile.semester_records.sort(key=lambda x: x.semester_number)
-            logger.info(f"Added semester {semester_number} to profile")
         
-        # Recalculate overall CGPA from all semesters
+        # Recalculate CGPA
         all_grade_points = 0.0
         all_credits = 0
         all_credits_earned = 0
@@ -225,10 +247,7 @@ class AcademicService:
         profile.total_credits_earned = all_credits_earned
         profile.last_updated = datetime.now()
         
-        # Save the profile - this saves all embedded records automatically!
         await profile.save()
-        
-        logger.info(f"Saved profile with CGPA: {profile.cgpa}")
         
         return {
             "semester_number": semester_number,
@@ -237,8 +256,6 @@ class AcademicService:
             "credits_earned": credits_earned,
             "total_credits": total_credits,
             "subjects_added": len(processed_subjects),
-            "passed_subjects": passed_subjects,
-            "failed_subjects": failed_subjects,
             "updated_cgpa": profile.cgpa,
             "total_credits_earned": profile.total_credits_earned
         }
@@ -248,23 +265,18 @@ class AcademicService:
         user: FirebaseUser, 
         semester_number: Optional[int] = None
     ) -> List[SubjectScore]:
-        """
-        Get subject scores from EMBEDDED records in StudentProfile.
-        We do NOT query SubjectScore directly - it's not a Document!
-        """
+        """Get subject scores"""
         profile = await self.get_student_profile(user)
         
         if not profile:
             return []
         
         if semester_number is not None:
-            # Get subjects for specific semester
             for sem in profile.semester_records:
                 if sem.semester_number == semester_number:
                     return sem.subjects
             return []
         
-        # Return all subjects from all semesters
         all_subjects = []
         for sem in profile.semester_records:
             all_subjects.extend(sem.subjects)
@@ -272,10 +284,7 @@ class AcademicService:
         return all_subjects
     
     async def get_semester_records(self, user: FirebaseUser) -> List[SemesterRecord]:
-        """
-        Get all semester records from EMBEDDED list in StudentProfile.
-        We do NOT query SemesterRecord directly - it's not a Document!
-        """
+        """Get all semester records"""
         profile = await self.get_student_profile(user)
         
         if not profile:

@@ -39,7 +39,8 @@ import {
   Code,
   FolderOpen,
   ChevronLeft,
-  Loader2
+  Loader2,
+  Heart
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import PerformanceChart from '../../components/dashboard/PerformanceChart';
@@ -57,13 +58,45 @@ import SubjectPerformance from '../../modules/agent1/performance-analytics/compo
 import { ElectiveRecommender, WeaknessAnalyzer, StudyResources } from '../../components/dashboard/EngineeringGuidance';
 import toast from 'react-hot-toast';
 import { AcademicDataEntry } from '../../components/dashboard/AcademicDataEntry';
+import { InterestManagement } from '../../components/dashboard/InterestManagement';
+import { AcademicInsights } from '../../components/dashboard/AcademicInsights';
+import { auth } from '../../services/firebase.config';
+
+const BACKEND_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+
+// Add localStorage persistence for user profile data
+const PROFILE_STORAGE_KEY = 'academic_advisor_profile';
+
+const saveProfileToStorage = (profile: any) => {
+  if (profile) {
+    localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify({
+      ...profile,
+      timestamp: Date.now()
+    }));
+  }
+};
+
+const loadProfileFromStorage = (): any => {
+  try {
+    const stored = localStorage.getItem(PROFILE_STORAGE_KEY);
+    if (stored) {
+      const data = JSON.parse(stored);
+      if (Date.now() - data.timestamp < 3600000) { // 1 hour cache
+        return data;
+      }
+    }
+  } catch (error) {
+    console.error('Error loading profile from storage:', error);
+  }
+  return null;
+};
 
 // Define user type for better TypeScript support
 interface AuthUser {
   uid: string;
   displayName?: string;
   email?: string;
-  getIdToken?: () => Promise<string>; // Add getIdToken method
+  getIdToken?: () => Promise<string>;
 }
 
 // Extended types to include missing properties
@@ -105,7 +138,7 @@ interface ExtendedPredictionResult {
   expected_graduation_cgpa?: number;
 }
 
-// Define DashboardStats type - FIXED: rank and totalStudents as string
+// Define DashboardStats type
 interface DashboardStats {
   currentSGPI: number;
   previousSGPI: number;
@@ -113,8 +146,8 @@ interface DashboardStats {
   bestSGPI: number;
   totalCredits: number;
   currentSemester: number;
-  rank: string; // Fixed: explicitly string type
-  totalStudents: string; // Fixed: explicitly string type
+  rank: string;
+  totalStudents: string;
   department: string;
   completedCourses: number;
   trend: string;
@@ -192,8 +225,8 @@ const StudentDashboard: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState<
-  'overview' | 'performance' | 'electives' | 'weaknesses' | 'resources' | 'projects' | 'academic'
-   >('overview');
+    'overview' | 'performance' | 'electives' | 'weaknesses' | 'resources' | 'projects' | 'academic' | 'interests'
+  >('overview');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [projectsView, setProjectsView] = useState<'list' | 'upload'>('list');
@@ -218,80 +251,137 @@ const StudentDashboard: React.FC = () => {
   // Type-safe user display name
   const userDisplayName = (user as AuthUser)?.displayName || 'Student';
 
-  // Add function to fetch user profile with branch and semester
+  // Event listeners for profile and academic data updates
+  useEffect(() => {
+    const handleProfileSaved = (event: CustomEvent) => {
+      console.log('Profile saved event received:', event.detail);
+      setUserProfile(event.detail);
+      saveProfileToStorage(event.detail);
+      updateDashboardWithProfile(event.detail);
+      toast.success('Profile data updated!');
+    };
+
+    const handleProfileUpdated = () => {
+      fetchUserProfile();
+      fetchDashboardData();
+    };
+
+    const handleAcademicDataUpdated = () => {
+      fetchUserProfile();
+      fetchDashboardData();
+      toast.success('Academic data refreshed!');
+    };
+
+    // Add event listeners
+    window.addEventListener('profileSaved', handleProfileSaved as EventListener);
+    window.addEventListener('profileUpdated', handleProfileUpdated);
+    window.addEventListener('academicDataUpdated', handleAcademicDataUpdated);
+
+    return () => {
+      window.removeEventListener('profileSaved', handleProfileSaved as EventListener);
+      window.removeEventListener('profileUpdated', handleProfileUpdated);
+      window.removeEventListener('academicDataUpdated', handleAcademicDataUpdated);
+    };
+  }, [user]);
+
 const fetchUserProfile = async () => {
   if (!user?.uid) return;
   
+  // Try cache first
+  const cachedProfile = loadProfileFromStorage();
+  if (cachedProfile) {
+    setUserProfile(cachedProfile);
+    updateDashboardWithProfile(cachedProfile);
+  }
+  
   try {
-    const token = await (user as AuthUser).getIdToken?.();
+    // FIXED: Get token from Firebase Auth directly
+    const currentUser = auth.currentUser;
+    if (!currentUser) {
+      console.error('No authenticated user found');
+      return;
+    }
     
-    // Fetch academic profile with auto-update
-    const response = await fetch('/api/v1/academic/profile', {
+    const token = await currentUser.getIdToken(true); // force refresh
+    
+    if (!token) {
+      console.error('Failed to get auth token');
+      return;
+    }
+    
+    const response = await fetch(`${BACKEND_URL}/api/v1/student/profile`, {
+      method: 'GET',
       headers: {
-        'Authorization': `Bearer ${token}`
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
       }
     });
     
     if (response.ok) {
       const data = await response.json();
-      const profile = data.profile;
       
-      setUserProfile({
-        name: profile.name,
-        branch: profile.branch,
-        semester: profile.current_semester,
-        cgpa: profile.cgpa,
-        admission_year: profile.admission_year,
-        academic_year: profile.academic_year,
-        total_credits: profile.total_credits,
-        roll_number: profile.roll_number
-      });
+      const profile = {
+        name: data.name,
+        branch: data.branch,
+        semester: data.current_semester,
+        cgpa: data.cgpa,
+        admission_year: data.admission_year,
+        academic_year: data.current_academic_year,
+        total_credits: data.total_credits_earned,
+        roll_number: data.roll_number
+      };
       
-      // Store for other components
+      setUserProfile(profile);
+      saveProfileToStorage(profile);
+      updateDashboardWithProfile(profile);
+      
       localStorage.setItem('userBranch', profile.branch);
-      localStorage.setItem('userSemester', profile.current_semester.toString());
+      localStorage.setItem('userSemester', profile.semester.toString());
       
-      // Update dashboard stats with proper typing
-      setDashboardStats((prev: DashboardStats | null) => ({
-        ...(prev || {
-          currentSGPI: 0,
-          previousSGPI: 0,
-          averageSGPI: 0,
-          bestSGPI: 0,
-          totalCredits: 0,
-          currentSemester: 1,
-          rank: '0/0',
-          totalStudents: '0',
-          department: '',
-          completedCourses: 0,
-          trend: 'stable',
-          percentageChange: 0
-        }),
-        currentSGPI: data.semesters[data.semesters.length - 1]?.sgpa || 0,
-        cgpa: profile.cgpa,
-        totalCredits: profile.total_credits,
-        currentSemester: profile.current_semester,
-        department: profile.branch
-      }));
+      // Notify other components
+      window.dispatchEvent(new CustomEvent('profileLoaded', { detail: profile }));
+      
+    } else if (response.status === 404) {
+      console.log('Profile not found - user needs to create profile');
+      localStorage.removeItem(PROFILE_STORAGE_KEY);
+    } else {
+      const errorData = await response.json().catch(() => ({}));
+      console.error('Failed to fetch profile:', response.status, errorData);
     }
   } catch (error) {
     console.error('Error fetching profile:', error);
+    // If error but we have cached data, still use it
+    if (!userProfile && cachedProfile) {
+      // FIXED: Use toast() instead of toast.info()
+      toast('Using cached profile data');
+    }
   }
 };
 
-// Add event listener for academic data updates
-useEffect(() => {
-  const handleAcademicDataUpdate = () => {
-    fetchUserProfile();
-    fetchDashboardData();
+  // Helper function to update dashboard with profile data
+  const updateDashboardWithProfile = (profile: any) => {
+    setDashboardStats((prev: DashboardStats | null) => ({
+      ...(prev || {
+        currentSGPI: 0,
+        previousSGPI: 0,
+        averageSGPI: 0,
+        bestSGPI: 0,
+        totalCredits: 0,
+        currentSemester: 1,
+        rank: '0/0',
+        totalStudents: '0',
+        department: '',
+        completedCourses: 0,
+        trend: 'stable',
+        percentageChange: 0
+      }),
+      currentSGPI: profile.cgpa || 0,
+      cgpa: profile.cgpa,
+      totalCredits: profile.total_credits,
+      currentSemester: profile.semester,
+      department: profile.branch
+    }));
   };
-  
-  window.addEventListener('academicDataUpdated', handleAcademicDataUpdate);
-  
-  return () => {
-    window.removeEventListener('academicDataUpdated', handleAcademicDataUpdate);
-  };
-}, [user]);
 
   // Helper functions
   const calculatePercentageChange = (studentData: ExtendedDetailedAnalysis): number => {
@@ -778,24 +868,45 @@ useEffect(() => {
                     </button>
                   </li>
                   <li>
-                 <button
-    onClick={() => {
-      setActiveTab('academic');
-      analyticsService.trackEvent('tab_switched', { tab: 'academic' });
-    }}
-    className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-all ${
-      activeTab === 'academic'
-        ? 'bg-gradient-to-r from-blue-50 to-purple-50 text-blue-600 shadow-sm'
-        : 'hover:bg-gray-50 text-gray-700'
-    }`}
-  >
-    <GraduationCap className="h-5 w-5" />
-    <span className="font-medium">Academic Data Entry</span>
-    <span className="ml-auto bg-yellow-100 text-yellow-700 text-xs px-2 py-1 rounded-full">
-      Setup
-    </span>
-  </button>
-                    </li>
+                    <button
+                      onClick={() => {
+                        setActiveTab('academic');
+                        analyticsService.trackEvent('tab_switched', { tab: 'academic' });
+                      }}
+                      className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-all ${
+                        activeTab === 'academic'
+                          ? 'bg-gradient-to-r from-blue-50 to-purple-50 text-blue-600 shadow-sm'
+                          : 'hover:bg-gray-50 text-gray-700'
+                      }`}
+                    >
+                      <GraduationCap className="h-5 w-5" />
+                      <span className="font-medium">Academic Data Entry</span>
+                      <span className="ml-auto bg-yellow-100 text-yellow-700 text-xs px-2 py-1 rounded-full">
+                        Setup
+                      </span>
+                    </button>
+                  </li>
+
+                  {/* INTERESTS TAB - Added */}
+                  <li>
+                    <button
+                      onClick={() => {
+                        setActiveTab('interests');
+                        analyticsService.trackEvent('tab_switched', { tab: 'interests' });
+                      }}
+                      className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-all ${
+                        activeTab === 'interests'
+                          ? 'bg-gradient-to-r from-blue-50 to-purple-50 text-blue-600 shadow-sm'
+                          : 'hover:bg-gray-50 text-gray-700'
+                      }`}
+                    >
+                      <Heart className="h-5 w-5" />
+                      <span className="font-medium">My Interests</span>
+                      <span className="ml-auto bg-pink-100 text-pink-700 text-xs px-2 py-1 rounded-full">
+                        Setup
+                      </span>
+                    </button>
+                  </li>
 
                   {/* Engineering Guidance Tabs */}
                   <li>
@@ -944,15 +1055,15 @@ useEffect(() => {
                   <Menu className="h-6 w-6 text-gray-600" />
                 </button>
                 <h1 className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-  {activeTab === 'overview' && 'Dashboard Overview'}
-  {activeTab === 'performance' && 'Performance Analysis'}
-  {activeTab === 'projects' && 'My Projects & AI Interests'}
-  {activeTab === 'electives' && 'AI Elective Recommendations'}
-  {activeTab === 'weaknesses' && 'Weakness Analysis & Improvement'}
-  {activeTab === 'resources' && 'Smart Study Resources'}
-  {activeTab === 'academic' && 'Academic Data Entry'} {/* Add this line */}
-</h1>
-
+                  {activeTab === 'overview' && 'Dashboard Overview'}
+                  {activeTab === 'performance' && 'Performance Analysis'}
+                  {activeTab === 'projects' && 'My Projects & AI Interests'}
+                  {activeTab === 'academic' && 'Academic Data Entry'}
+                  {activeTab === 'interests' && 'My Interests'}
+                  {activeTab === 'electives' && 'AI Elective Recommendations'}
+                  {activeTab === 'weaknesses' && 'Weakness Analysis & Improvement'}
+                  {activeTab === 'resources' && 'Smart Study Resources'}
+                </h1>
               </div>
 
               <div className="flex items-center space-x-4">
@@ -1101,32 +1212,40 @@ useEffect(() => {
                     </div>
                   </div>
                 </motion.div>
-                {/*Academic Details Setup Alert*/}
-{!userProfile && (
-  <motion.div
-    initial={{ opacity: 0, y: 20 }}
-    animate={{ opacity: 1, y: 0 }}
-    className="bg-gradient-to-r from-yellow-50 to-orange-50 border border-yellow-300 rounded-lg p-4"
-  >
-    <div className="flex items-center justify-between">
-      <div className="flex items-center space-x-3">
-        <AlertCircle className="h-6 w-6 text-yellow-600" />
-        <div>
-          <p className="font-semibold text-yellow-900">Setup Required</p>
-          <p className="text-sm text-yellow-700">
-            Add your academic details to get personalized AI recommendations
-          </p>
-        </div>
-      </div>
-      <button
-        onClick={() => setActiveTab('academic')}
-        className="px-4 py-2 bg-yellow-600 text-white rounded-lg text-sm hover:bg-yellow-700"
-      >
-        Setup Now
-      </button>
-    </div>
-  </motion.div>
-)}
+                
+                {/* Academic Details Setup Alert */}
+                {!userProfile && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="bg-gradient-to-r from-yellow-50 to-orange-50 border border-yellow-300 rounded-lg p-4"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-3">
+                        <AlertCircle className="h-6 w-6 text-yellow-600" />
+                        <div>
+                          <p className="font-semibold text-yellow-900">Setup Required</p>
+                          <p className="text-sm text-yellow-700">
+                            Add your academic details to get personalized AI recommendations
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => setActiveTab('academic')}
+                        className="px-4 py-2 bg-yellow-600 text-white rounded-lg text-sm hover:bg-yellow-700"
+                      >
+                        Setup Now
+                      </button>
+                    </div>
+                  </motion.div>
+                )}
+
+                {/* Academic Insights Component */}
+                <AcademicInsights 
+                  onViewElectives={() => setActiveTab('electives')}
+                  onViewWeaknesses={() => setActiveTab('weaknesses')}
+                />
+
                 {/* Insights Alert */}
                 {insights?.recommendations && insights.recommendations.length > 0 && (
                   <motion.div
@@ -1506,6 +1625,36 @@ useEffect(() => {
               </motion.div>
             )}
 
+            {/* ACADEMIC TAB CONTENT */}
+            {activeTab === 'academic' && (
+              <motion.div
+                key="academic"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+                transition={{ duration: 0.3 }}
+              >
+                <AcademicDataEntry />
+              </motion.div>
+            )}
+
+            {/* INTERESTS TAB CONTENT */}
+            {activeTab === 'interests' && (
+              <motion.div
+                key="interests"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+                transition={{ duration: 0.3 }}
+              >
+                <InterestManagement 
+                  onInterestsUpdated={() => {
+                    fetchDashboardData(false);
+                  }}
+                />
+              </motion.div>
+            )}
+
             {/* Engineering Guidance Tabs */}
             {activeTab === 'electives' && (
               <motion.div
@@ -1542,17 +1691,6 @@ useEffect(() => {
                 <StudyResources />
               </motion.div>
             )}
-            {activeTab === 'academic' && (
-  <motion.div
-    key="academic"
-    initial={{ opacity: 0, y: 20 }}
-    animate={{ opacity: 1, y: 0 }}
-    exit={{ opacity: 0, y: -20 }}
-    transition={{ duration: 0.3 }}
-  >
-    <AcademicDataEntry />
-  </motion.div>
-)}
           </AnimatePresence>
         </main>
       </div>

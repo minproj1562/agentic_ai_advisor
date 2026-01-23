@@ -676,3 +676,21 @@ npm run dev
 # Clean virtual environment
 Remove-Item -Recurse -Force .\venv
 ```
+
+function Clean-Tree($path, $indent = "") {
+    $exclude = @(
+        "venv","node_modules","__pycache__",".git",
+        "site-packages","pip","dist","build",".cache","logs"
+    )
+
+    Get-ChildItem $path | Where-Object {
+        $exclude -notcontains $_.Name
+    } | ForEach-Object {
+        Write-Output "$indent$($_.Name)"
+        if ($_.PSIsContainer) {
+            Clean-Tree $_.FullName "$indent  "
+        }
+    }
+}
+
+Clean-Tree .

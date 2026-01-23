@@ -399,3 +399,29 @@ async def delete_semester(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e)
         )
+    
+@router.get("/subjects/available/{semester}")
+async def get_available_subjects_for_semester(
+    semester: int,
+    current_user: FirebaseUser = Depends(get_current_user)
+):
+    """Get available subjects for a specific semester based on student's curriculum"""
+    try:
+        service = AcademicService()
+        subjects_data = await service.get_available_subjects(current_user, semester)
+        
+        return {
+            "success": True,
+            **subjects_data
+        }
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e)
+        )
+    except Exception as e:
+        logger.error(f"Error getting available subjects: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )

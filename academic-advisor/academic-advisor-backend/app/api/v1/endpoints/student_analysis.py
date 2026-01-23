@@ -1,10 +1,12 @@
-#academic-advisor-backend/app/api/v1/endpoints/student_analysis.py
+# academic-advisor-backend/app/api/v1/endpoints/student_analysis.py
 from fastapi import APIRouter, HTTPException, Depends
 from typing import Dict, Any
-from app.models.student_profile import StudentProfile, SemesterRecord, SubjectScore
-from app.services.academic_service import AcademicService
+from app.models.student_profile import StudentProfile
+from app.core.security import get_current_user, FirebaseUser
+import logging
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 @router.get("/{student_id}")
 async def get_student_analysis(
@@ -12,35 +14,29 @@ async def get_student_analysis(
     include_predictions: bool = True, 
     include_recommendations: bool = True, 
     time_range: str = "all",
-    current_user: Dict[str, Any] = Depends(lambda: {"uid": "test_user"})
+    current_user: FirebaseUser = Depends(get_current_user)
 ):
     """Get comprehensive student analysis"""
     try:
         # Verify the student exists and user has access
-        if student_id != current_user["uid"]:
+        if student_id != current_user.uid:
             raise HTTPException(status_code=403, detail="Access denied")
         
         profile = await StudentProfile.find_one(StudentProfile.user_id == student_id)
         if not profile:
             raise HTTPException(status_code=404, detail="Student profile not found")
         
-        # Get semester records
-        semesters = await SemesterRecord.find(
-            SemesterRecord.student_id == student_id
-        ).sort(SemesterRecord.semester_number).to_list()
+        # Get semester records from profile
+        semesters = profile.semester_records or []
         
-        # Get all subjects
+        # Get all subjects and identify weaknesses
         all_subjects = []
         weaknesses = []
         
         for semester in semesters:
-            subjects = await SubjectScore.find(
-                SubjectScore.semester_id == semester.id
-            ).to_list()
-            
+            subjects = semester.subjects or []
             all_subjects.extend(subjects)
             
-            # Identify weaknesses from failed or low-scoring subjects
             for subject in subjects:
                 if subject.grade == 'F' or subject.total_marks < 40:
                     weaknesses.append({
@@ -53,16 +49,18 @@ async def get_student_analysis(
         # Calculate improvement trend
         improvement_trend = "stable"
         if len(semesters) >= 2:
-            if semesters[-1].sgpa > semesters[-2].sgpa:
+            last_sgpa = semesters[-1].sgpa if semesters[-1].sgpa else 0
+            prev_sgpa = semesters[-2].sgpa if semesters[-2].sgpa else 0
+            if last_sgpa > prev_sgpa:
                 improvement_trend = "improving"
-            elif semesters[-1].sgpa < semesters[-2].sgpa:
+            elif last_sgpa < prev_sgpa:
                 improvement_trend = "declining"
         
         # Prepare performance data
         sgpa_trend = [
             {
                 "semester": sem.semester_number,
-                "sgpa": sem.sgpa,
+                "sgpa": sem.sgpa or 0,
                 "credits": sem.credits_earned or 0
             }
             for sem in semesters if sem.sgpa is not None
@@ -87,4 +85,5 @@ async def get_student_analysis(
     except HTTPException:
         raise
     except Exception as e:
+        logger.error(f"Error in student analysis: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")

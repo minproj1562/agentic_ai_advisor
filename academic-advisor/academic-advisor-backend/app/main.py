@@ -1,5 +1,4 @@
 # academic-advisor-backend/app/main.py
-
 from fastapi import FastAPI, Request, UploadFile, File, HTTPException, Form, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
@@ -14,10 +13,42 @@ import firebase_admin
 from firebase_admin import credentials, storage
 from PyPDF2 import PdfReader
 import io
+import os
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional
 from app.config import settings
 from app.api.v1.api import api_router
+
+# ============== UPDATED IMPORTS - Include ALL Document Models ==============
+from app.models import (
+    # Student models
+    StudentPerformance,
+    StudentProfile,           # ← ADDED
+    StudentProject,           # ← ADDED
+    StudentInterestProfile,   # ← ADDED
+    
+    # Academic models
+    Elective,
+    StudyResource,
+    
+    # Research & Publications
+    ResearchArea,             # ← ADDED
+    Publication,              # ← ADDED
+    
+    # Analysis models
+    WeaknessAnalysisResult,
+    Analytics,                # ← ADDED
+    
+    # Messaging models
+    Message,
+    Conversation,
+    
+    # Mentorship models
+    MentorshipSlot,           # ← ADDED
+    MentorshipSession,        # ← ADDED
+    FacultyMentorshipSettings,# ← ADDED
+    MentorshipStatistics,     # ← ADDED
+)
 
 # Configure logging
 logging.basicConfig(
@@ -26,111 +57,41 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# ==================== IMPORT ONLY DOCUMENT MODELS ====================
-# DO NOT import BaseModel classes (like SemesterRecord, SubjectScore) here
-
-from app.models.student_profile import StudentProfile
-
-# Import other Document models with error handling
-document_models = [StudentProfile]
-
-try:
-    from app.models.student_performance import StudentPerformance
-    document_models.append(StudentPerformance)
-except ImportError as e:
-    logger.warning(f"Could not import StudentPerformance: {e}")
-
-try:
-    from app.models.student_project import StudentProject
-    document_models.append(StudentProject)
-except ImportError as e:
-    logger.warning(f"Could not import StudentProject: {e}")
-
-try:
-    from app.models.student_interest_profile import StudentInterestProfile
-    document_models.append(StudentInterestProfile)
-except ImportError as e:
-    logger.warning(f"Could not import StudentInterestProfile: {e}")
-
-try:
-    from app.models.study_resource import StudyResource
-    document_models.append(StudyResource)
-except ImportError as e:
-    logger.warning(f"Could not import StudyResource: {e}")
-
-try:
-    from app.models.research_area import ResearchArea
-    document_models.append(ResearchArea)
-except ImportError as e:
-    logger.warning(f"Could not import ResearchArea: {e}")
-
-try:
-    from app.models.publication import Publication
-    document_models.append(Publication)
-except ImportError as e:
-    logger.warning(f"Could not import Publication: {e}")
-
-try:
-    from app.models.elective import Elective
-    document_models.append(Elective)
-except ImportError as e:
-    logger.warning(f"Could not import Elective: {e}")
-
-try:
-    from app.models.instructor_info import InstructorInfo
-    document_models.append(InstructorInfo)
-except ImportError as e:
-    logger.warning(f"Could not import InstructorInfo: {e}")
-
-try:
-    from app.models.message import Message
-    document_models.append(Message)
-except ImportError as e:
-    logger.warning(f"Could not import Message: {e}")
-
-try:
-    from app.models.conversation import Conversation
-    document_models.append(Conversation)
-except ImportError as e:
-    logger.warning(f"Could not import Conversation: {e}")
-
-try:
-    from app.models.weakness_analysis import WeaknessAnalysisResult
-    document_models.append(WeaknessAnalysisResult)
-except ImportError as e:
-    logger.warning(f"Could not import WeaknessAnalysisResult: {e}")
-
-try:
-    from app.models.analytics import Analytics
-    document_models.append(Analytics)
-except ImportError as e:
-    logger.warning(f"Could not import Analytics: {e}")
-
-try:
-    from app.models.mentorship import (
-        MentorshipSlot,
-        MentorshipSession,
-        FacultyMentorshipSettings,
-        MentorshipStatistics
-    )
-    document_models.extend([
-        MentorshipSlot,
-        MentorshipSession,
-        FacultyMentorshipSettings,
-        MentorshipStatistics
-    ])
-except ImportError as e:
-    logger.warning(f"Could not import Mentorship models: {e}")
-
-# Filter out None values
-document_models = [m for m in document_models if m is not None]
-
-logger.info(f"Document models to initialize: {[m.__name__ for m in document_models]}")
+# ============== UPDATED: Complete Document Models List for Beanie ==============
+document_models = [
+    # Student models
+    StudentPerformance,
+    StudentProfile,
+    StudentProject,
+    StudentInterestProfile,
+    
+    # Academic models
+    Elective,
+    StudyResource,
+    
+    # Research & Publications
+    ResearchArea,
+    Publication,
+    
+    # Analysis models
+    WeaknessAnalysisResult,
+    Analytics,
+    
+    # Messaging models
+    Message,
+    Conversation,
+    
+    # Mentorship models
+    MentorshipSlot,
+    MentorshipSession,
+    FacultyMentorshipSettings,
+    MentorshipStatistics,
+]
 
 # OAuth2 scheme
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
-# Initialize Firebase Admin
+# Initialize Firebase Admin (only once)
 if not firebase_admin._apps:
     try:
         cred = credentials.Certificate(settings.FIREBASE_CREDENTIALS_PATH)
@@ -143,7 +104,7 @@ if not firebase_admin._apps:
         logger.error(f"Failed to initialize Firebase: {str(e)}")
         raise
 
-MAX_FILE_SIZE = settings.MAX_FILE_SIZE
+MAX_FILE_SIZE = settings.MAX_FILE_SIZE  # 10MB from config
 
 
 async def get_current_user(token: str = Depends(oauth2_scheme)) -> str:
@@ -163,14 +124,24 @@ async def lifespan(app: FastAPI):
     logger.info("Starting up Academic Advisor API...")
     
     # Initialize MongoDB
-    client = AsyncIOMotorClient(settings.MONGODB_URL)
-    
-    # Initialize Beanie with ONLY Document models
-    await init_beanie(
-        database=client[settings.MONGODB_DATABASE],
-        document_models=document_models
-    )
-    logger.info(f"MongoDB connected successfully. Initialized {len(document_models)} document models.")
+    try:
+        client = AsyncIOMotorClient(settings.MONGODB_URL)
+        
+        # ============== ADDED: Test connection before init ==============
+        await client.admin.command('ping')
+        logger.info("MongoDB connection successful")
+        
+        await init_beanie(
+            database=client[settings.MONGODB_DATABASE],
+            document_models=document_models
+        )
+        logger.info(f"Beanie initialized with {len(document_models)} document models:")
+        for model in document_models:
+            logger.info(f"  - {model.__name__}")
+            
+    except Exception as e:
+        logger.error(f"MongoDB/Beanie initialization failed: {e}")
+        raise
     
     # Initialize ML models
     try:
@@ -180,9 +151,7 @@ async def lifespan(app: FastAPI):
         app.state.weakness_analyzer = WeaknessAnalyzer()
         logger.info("ML models loaded successfully")
     except Exception as e:
-        logger.warning(f"ML models failed to load: {e}")
-        app.state.elective_recommender = None
-        app.state.weakness_analyzer = None
+        logger.warning(f"ML models could not be loaded: {e}")
     
     yield
     
@@ -198,23 +167,14 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# CORS Configuration
+# CORS middleware - use settings for origins (includes 5173)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173", 
-        "http://localhost:3000",
-        "http://localhost:5174",
-        "https://localhost:5173",
-        "https://127.0.0.1:5173",
-        "*"
-    ],
+    allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH", "HEAD"],
+    allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=["*"],
-    max_age=3600,
 )
 
 # Add trusted host middleware
@@ -222,12 +182,6 @@ app.add_middleware(
     TrustedHostMiddleware,
     allowed_hosts=settings.ALLOWED_HOSTS
 )
-
-
-# Add OPTIONS handler for preflight requests
-@app.options("/{full_path:path}")
-async def options_handler(full_path: str):
-    return {"message": "OK"}
 
 
 # Enhanced exception handler
@@ -248,8 +202,8 @@ async def health_check():
         "app": settings.APP_NAME,
         "version": settings.APP_VERSION,
         "environment": settings.ENVIRONMENT,
-        "document_models": len(document_models),
-        "timestamp": datetime.utcnow().isoformat()
+        "timestamp": datetime.utcnow().isoformat(),
+        "document_models_loaded": len(document_models)
     }
 
 
@@ -264,7 +218,7 @@ async def read_root():
     }
 
 
-# Enhanced CV Upload Endpoint
+# CV Upload Endpoint
 @app.post("/parse-cv")
 async def parse_cv(
     cv: UploadFile = File(...),
@@ -272,18 +226,22 @@ async def parse_cv(
     authorization: Optional[str] = Header(None),
     current_user: str = Depends(get_current_user)
 ):
-    """Enhanced CV upload with validation and Firebase storage"""
+    """CV upload with validation and Firebase storage"""
+    # Validate file type
     if not cv.content_type == "application/pdf":
         raise HTTPException(status_code=400, detail="Only PDF files are allowed")
 
-    cv_size = await cv.seek(0, io.SEEK_END)
+    # Validate file size
+    content = await cv.read()
     await cv.seek(0)
-    if cv_size > MAX_FILE_SIZE:
+    if len(content) > MAX_FILE_SIZE:
         raise HTTPException(status_code=400, detail=f"File size must be less than {MAX_FILE_SIZE//1024//1024}MB")
 
+    # Validate uid
     if uid != current_user:
         raise HTTPException(status_code=403, detail="Unauthorized: UID mismatch")
 
+    # Read and parse PDF
     try:
         pdf_content = await cv.read()
         pdf = PdfReader(io.BytesIO(pdf_content))
@@ -291,15 +249,18 @@ async def parse_cv(
         for page in pdf.pages:
             text += page.extract_text() or ""
 
+        # Enhanced parsing
         from app.services.cv_parser import parse_cv_text
         expertise = parse_cv_text(text)
 
+        # Upload to Firebase Storage
         bucket = storage.bucket()
         timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
         blob_name = f"cvs/{uid}/{timestamp}_{cv.filename}"
         blob = bucket.blob(blob_name)
         blob.upload_from_string(pdf_content, content_type="application/pdf")
 
+        # Generate signed URL
         url = blob.generate_signed_url(
             expiration=datetime(2025, 12, 31),
             method="GET"
@@ -320,6 +281,101 @@ async def parse_cv(
 
 # Include API router
 app.include_router(api_router, prefix=settings.API_V1_STR)
+
+
+# Debug endpoint to verify Beanie initialization
+@app.get("/debug/beanie-status")
+async def debug_beanie_status():
+    """Debug endpoint to check Beanie document models status"""
+    status = {}
+    for model in document_models:
+        try:
+            # Try to access the collection
+            collection_name = model.Settings.name if hasattr(model, 'Settings') and hasattr(model.Settings, 'name') else model.__name__.lower()
+            count = await model.count()
+            status[model.__name__] = {
+                "collection": collection_name,
+                "initialized": True,
+                "document_count": count
+            }
+        except Exception as e:
+            status[model.__name__] = {
+                "initialized": False,
+                "error": str(e)
+            }
+    
+    return {
+        "total_models": len(document_models),
+        "models_status": status
+    }
+
+
+@app.get("/debug/verify-token")
+async def debug_verify_token(authorization: Optional[str] = Header(None)):
+    """Debug endpoint to test token verification"""
+    from app.core.firebase import verify_firebase_token, get_firebase_app
+    
+    # Check Firebase initialization
+    try:
+        firebase_app = get_firebase_app()
+        firebase_status = "initialized"
+    except Exception as e:
+        firebase_status = f"error: {str(e)}"
+    
+    if not authorization:
+        return {
+            "status": "error",
+            "message": "No Authorization header provided",
+            "firebase_status": firebase_status,
+            "hint": "Send request with header: Authorization: Bearer <your-token>"
+        }
+    
+    # Extract token
+    parts = authorization.split(" ")
+    if len(parts) != 2 or parts[0].lower() != "bearer":
+        return {
+            "status": "error", 
+            "message": "Invalid Authorization header format",
+            "expected": "Bearer <token>",
+            "received": authorization[:50] + "..." if len(authorization) > 50 else authorization
+        }
+    
+    token = parts[1]
+    
+    # Token info
+    token_info = {
+        "length": len(token),
+        "parts": len(token.split(".")),
+        "preview": token[:20] + "..." + token[-20:] if len(token) > 50 else token
+    }
+    
+    # Try to verify
+    try:
+        decoded = verify_firebase_token(token)
+        return {
+            "status": "success",
+            "message": "Token verified successfully",
+            "firebase_status": firebase_status,
+            "token_info": token_info,
+            "decoded": {
+                "uid": decoded.get("uid"),
+                "email": decoded.get("email"),
+                "email_verified": decoded.get("email_verified"),
+                "auth_time": decoded.get("auth_time"),
+                "iat": decoded.get("iat"),
+                "exp": decoded.get("exp")
+            }
+        }
+    except Exception as e:
+        import traceback
+        return {
+            "status": "error",
+            "message": str(e),
+            "error_type": type(e).__name__,
+            "firebase_status": firebase_status,
+            "token_info": token_info,
+            "traceback": traceback.format_exc()
+        }
 
 
 # Main entry point
