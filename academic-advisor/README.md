@@ -225,7 +225,6 @@ cp .env.example .env
 python scripts/initialize_db.py
 
 # 8. Start the development server
-uvicorn main:app --reload --host 0.0.0.0 --port 8000
 uvicorn app.main:app --reload
 
 # 9. Start Celery worker (optional, for background tasks)

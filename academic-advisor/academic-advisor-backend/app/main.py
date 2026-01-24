@@ -23,31 +23,32 @@ from app.api.v1.api import api_router
 from app.models import (
     # Student models
     StudentPerformance,
-    StudentProfile,           # ← ADDED
-    StudentProject,           # ← ADDED
-    StudentInterestProfile,   # ← ADDED
+    StudentProfile,
+    StudentProject,
+    StudentInterestProfile,
     
     # Academic models
     Elective,
     StudyResource,
     
     # Research & Publications
-    ResearchArea,             # ← ADDED
-    Publication,              # ← ADDED
+    ResearchArea,
+    Publication,
     
     # Analysis models
     WeaknessAnalysisResult,
-    Analytics,                # ← ADDED
+    TopicAnalysis,           # ← ADDED for topic analysis
+    Analytics,
     
     # Messaging models
     Message,
     Conversation,
     
     # Mentorship models
-    MentorshipSlot,           # ← ADDED
-    MentorshipSession,        # ← ADDED
-    FacultyMentorshipSettings,# ← ADDED
-    MentorshipStatistics,     # ← ADDED
+    MentorshipSlot,
+    MentorshipSession,
+    FacultyMentorshipSettings,
+    MentorshipStatistics,
 )
 
 # Configure logging
@@ -63,7 +64,7 @@ document_models = [
     StudentPerformance,
     StudentProfile,
     StudentProject,
-    StudentInterestProfile,
+    StudentInterestProfile,  # ← ADDED for interests
     
     # Academic models
     Elective,
@@ -74,7 +75,8 @@ document_models = [
     Publication,
     
     # Analysis models
-    WeaknessAnalysisResult,
+    WeaknessAnalysisResult,  # ← ADDED for weakness analysis
+    TopicAnalysis,           # ← ADDED for topic analysis
     Analytics,
     
     # Messaging models
