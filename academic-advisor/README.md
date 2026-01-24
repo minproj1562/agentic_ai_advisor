@@ -225,6 +225,7 @@ cp .env.example .env
 python scripts/initialize_db.py
 
 # 8. Start the development server
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
 uvicorn app.main:app --reload
 
 # 9. Start Celery worker (optional, for background tasks)
@@ -291,139 +292,485 @@ pip freeze > requirements.txt
 ```
 
 ## 📁 Project Structure
-
-### **Backend Structure**
-```
-academic-advisor-backend/
-├── app/
-│   ├── api/
-│   │   ├── v1/
-│   │   │   ├── endpoints/
-│   │   │   │   ├── academic.py          # Academic record endpoints
-│   │   │   │   ├── achievements.py      # Achievement tracking
-│   │   │   │   ├── analytics.py         # Analytics endpoints
-│   │   │   │   ├── appointments.py      # Appointment scheduling
-│   │   │   │   ├── electives.py         # Elective recommendations
-│   │   │   │   ├── messages.py          # Messaging system
-│   │   │   │   ├── ml_insights.py       # ML insights API
-│   │   │   │   ├── publications.py      # Publication management
-│   │   │   │   ├── research_area.py     # Research area endpoints
-│   │   │   │   ├── resources.py         # Learning resources
-│   │   │   │   ├── students.py          # Student management
-│   │   │   │   ├── student_analysis.py  # Student analysis
-│   │   │   │   ├── student_projects_enhanced.py # Project management
-│   │   │   │   └── weakness.py          # Weakness analysis
-│   │   │   └── __init__.py
-│   │   ├── api.py                       # Main API router
-│   │   ├── cv.py                        # CV processing
-│   │   └── messages.py                  # Message schemas
-│   ├── core/
-│   │   ├── cache.py                     # Redis caching
-│   │   ├── config.py                    # Configuration management
-│   │   ├── exceptions.py                # Custom exceptions
-│   │   ├── firebase.py                  # Firebase integration
-│   │   ├── security.py                  # Security utilities
-│   │   └── __init__.py
-│   ├── ml/
-│   │   ├── elective_recommender.py      # Elective recommendation model
-│   │   ├── ml_service.py                # ML service orchestrator
-│   │   └── weakness_predictor.py        # Weakness prediction model
-│   ├── models/
-│   │   ├── academic_record.py           # Academic record model
-│   │   ├── achievement.py               # Achievement model
-│   │   ├── analytics.py                 # Analytics model
-│   │   ├── appointment.py               # Appointment model
-│   │   ├── cv.py                        # CV model
-│   │   ├── elective.py                  # Elective model
-│   │   ├── mentorship.py                # Mentorship model
-│   │   ├── messages.py                  # Message model
-│   │   ├── publications.py              # Publication model
-│   │   ├── research_area.py             # Research area model
-│   │   ├── resource.py                  # Resource model
-│   │   ├── student.py                   # Student model
-│   │   ├── student_performance.py       # Performance model
-│   │   ├── student_profile.py           # Profile model
-│   │   ├── student_projects.py          # Project model
-│   │   ├── weakness.py                  # Weakness model
-│   │   └── __init__.py
-│   ├── schemas/
-│   │   └── achievement.py               # Pydantic schemas
-│   ├── services/
-│   │   ├── academic_service.py          # Academic service
-│   │   ├── achievement_service.py       # Achievement service
-│   │   ├── analytics_service.py         # Analytics service
-│   │   ├── appointment_service.py       # Appointment service
-│   │   ├── cloudinary_service.py        # Cloudinary integration
-│   │   ├── cv_parser.py                 # CV parsing service
-│   │   ├── enhanced_ml_inference.py     # ML inference service
-│   │   ├── messaging_service.py         # Messaging service
-│   │   ├── nlp_service.py               # NLP processing
-│   │   ├── publication_service.py       # Publication service
-│   │   ├── recommendation_engine.py     # Recommendation engine
-│   │   ├── research_service.py          # Research service
-│   │   ├── resource_matcher.py          # Resource matching
-│   │   ├── skill_extractor.py           # Skill extraction
-│   │   ├── student_projects_service.py  # Project service
-│   │   ├── websocket_manager.py         # WebSocket management
-│   │   └── __init__.py
-│   ├── tasks/
-│   │   └── semester_updater.py          # Background tasks
-│   └── utils/
-│       ├── metrics.py                   # Performance metrics
-│       ├── validators.py                # Data validation
-│       └── __init__.py
-├── config.py                            # Application configuration
-├── database.py                          # Database connection
-├── main.py                              # Application entry point
-├── ml_server.py                         # ML server entry point
-├── requirements.txt                     # Python dependencies
-├── serviceAccountKey.json               # Firebase credentials
-├── .env                                 # Environment variables
-├── docker-compose.yml                   # Docker Compose configuration
-└── Dockerfile                           # Docker configuration
-```
-
-### **Frontend Structure**
-```
-academic-advisor-frontend/
-├── public/                              # Static assets
-├── src/
-│   ├── assets/                          # Images, fonts, animations
-│   ├── components/                      # Reusable components
-│   │   ├── auth/                        # Authentication components
-│   │   ├── common/                      # Common UI components
-│   │   ├── CVUploader/                  # CV upload components
-│   │   ├── dashboard/                   # Dashboard components
-│   │   │   ├── cards/                   # Dashboard cards
-│   │   │   ├── common/                  # Shared dashboard components
-│   │   │   └── sections/                # Dashboard sections
-│   │   ├── ErrorBoundary/               # Error handling
-│   │   └── messaging/                   # Messaging components
-│   ├── contexts/                        # React contexts
-│   ├── core/                            # Core utilities
-│   │   ├── api/                         # API configuration
-│   │   ├── integrations/                # Third-party integrations
-│   │   └── hooks/                       # Custom React hooks
-│   ├── modules/                         # Feature modules
-│   │   ├── agent1/                      # Performance analytics module
-│   │   │   ├── performance-analytics/   # Performance analytics
-│   │   │   ├── student-analysis/        # Student analysis
-│   │   │   └── shared/                  # Shared module components
-│   │   └── shared/                      # Shared utilities
-│   ├── pages/                           # Page components
-│   ├── parsers/                         # File parsers
-│   ├── routes/                          # Routing configuration
-│   ├── security/                        # Security utilities
-│   ├── services/                        # Service layer
-│   ├── styles/                          # Global styles
-│   ├── types/                           # TypeScript definitions
-│   └── utils/                           # Utility functions
-├── .env                                 # Environment variables
-├── package.json                         # Dependencies and scripts
-├── vite.config.ts                       # Vite configuration
-└── tailwind.config.js                   # Tailwind CSS configuration
-```
-
+academic-advisor
+  .venv
+    bin
+      activate
+      activate.csh
+      activate.fish
+      Activate.ps1
+      pip3
+      pip3.12
+      python
+      python3
+      python3.12
+    Include
+    Lib
+      python3.12
+    Scripts
+      activate
+      activate.bat
+      activate.fish
+      Activate.ps1
+      deactivate.bat
+      pip.exe
+      pip3.13.exe
+      pip3.exe
+      python.exe
+      pythonw.exe
+      uvicorn.exe
+    .gitignore
+    lib64
+    pip.pyz
+    pyvenv.cfg
+  academic-advisor-backend
+    app
+      api
+        middleware
+          auth.py
+          cors.py
+          logging.py
+          rate_limit.py
+          __init__.py
+        v1
+          endpoints
+            academic.py
+            achievements.py
+            analytics.py
+            appointments.py
+            electives.py
+            messages.py
+            ml_insights.py
+            publications.py
+            research_area.py
+            resources.py
+            students.py
+            student_analysis.py
+            student_profile.py
+            student_projects_enhanced.py
+            weakness.py
+            __init__.py
+          api.py
+          auth.py
+          cv.py
+          faculty.py
+          messages.py
+          recommendations.py
+          resources.py
+          students.py
+          student_analysis.py
+          websocket.py
+          __init__.py
+        __init__.py
+      core
+        cache.py
+        config.py
+        constants.py
+        curriculum.py
+        database.py
+        error_tracking.py
+        exceptions.py
+        firebase.py
+        firebase_admin.py
+        firebase_sync.py
+        logging.py
+        metrics.py
+        monitoring.py
+        performance.py
+        security.py
+        websocket_manager.py
+        __init__.py
+      database
+        base.py
+        connection.py
+        __init__.py
+      ml
+        models
+          saved
+            README.md
+          performance_predictor.py
+          recommendation_engine.py
+          weakness_detector.py
+          __init__.py
+        preprocessors
+          data_preprocessor.py
+          feature_engineering.py
+          __init__.py
+        utils
+          metrics.py
+          model_utils.py
+          training.py
+          __init__.py
+        elective_recommender.py
+        ml_service.py
+        weakness_predictor.py
+        __init__.py
+      models
+        academic_record.py
+        achievement.py
+        analytics.py
+        appointment.py
+        cv.py
+        elective.py
+        faculty.py
+        mentorship.py
+        messages.py
+        performance.py
+        publications.py
+        recommendation.py
+        research_area.py
+        resource.py
+        student.py
+        student_analysis.py
+        student_performance.py
+        student_profile.py
+        student_projects.py
+        weakness.py
+        __init__.py
+      routers
+        academic.py
+      schemas
+        achievement.py
+        analytics_schemas.py
+        faculty_schemas.py
+        performance_schemas.py
+        recommendation_schemas.py
+        student_schemas.py
+        __init__.py
+      scripts
+        create_sample_data.py
+      services
+        academic_service.py
+        achievement_service.py
+        analytics_service.py
+        appointment_service.py
+        cloudinary_service.py
+        cv_analysis_service.py
+        cv_parser.py
+        elective_recommendation_service.py
+        enhanced_ml_inference.py
+        faculty_service.py
+        messaging_service.py
+        ml_performance_analysis.py
+        ml_service.py
+        nlp_service.py
+        notification_service.py
+        publication_service.py
+        recommendation_engine.py
+        recommendation_service.py
+        research_service.py
+        resource_matcher.py
+        resource_service.py
+        skill_extractor.py
+        student_analysis_service.py
+        student_projects_service.py
+        student_service.py
+        websocket_manager.py
+        __init__.py
+      tasks
+        semester_updater.py
+      utils
+        data_validator.py
+        decorators.py
+        formatters.py
+        helpers.py
+        metrics.py
+        pagination.py
+        validators.py
+        __init__.py
+      v1
+        endpoints
+          achievements.py
+          analytics.py
+      config.py
+      database.py
+      dependencies.py
+      main.py
+      __init__.py
+    scripts
+      backup.py
+      init_db.py
+      migrate_data.py
+      seed_data.py
+      train_models.py
+    tests
+      conftest.py
+      test_analytics.py
+      test_auth.py
+      test_ml_models.py
+      test_services.py
+      test_students.py
+      test_student_analysis.py
+      __init__.py
+    .env
+    .gitignore
+    docker-compose.yml
+    Dockerfile
+    firebase.py
+    main.py
+    ml_server.py
+    requirements.txt
+    serviceAccountKey.json
+    serviceAccountKey.template.json
+  academic-advisor-frontend
+    src
+      assets
+        confetti.json
+        react.svg
+      components
+        auth
+          LoginForm.tsx
+          ProtectedRoute.tsx
+        common
+          LoadingSpinner
+            index.tsx
+          CTALink.tsx
+          LoadingSpinner.tsx
+          Modal.tsx
+          StatCard.tsx
+        CVUploader
+          index.tsx
+          UploadZone.tsx
+        dashboard
+          cards
+            CVAnalyserCard.tsx
+            ExpertiseSummaryCard.tsx
+            MenteeOverviewCard.tsx
+            MentorshipSlotsCard.tsx
+            NotificationsCard.tsx
+            PerformanceSnapshot.tsx
+            QuickActionsCard.tsx
+            StudentAnalysisTable.tsx
+            StudentDetailModal.tsx
+            WeaknessIndicator.tsx
+          common
+            ErrorBoundary.tsx
+            LoadingSkeleton.tsx
+          sections
+            Achievements.tsx
+            Analytics.tsx
+            DashboardOverview.tsx
+            Messages.tsx
+            Performance.tsx
+            ProjectAnalysisResults.tsx
+            Publications.tsx
+            ResearchAreas.tsx
+            Settings.tsx
+            StudentProjectsList.tsx
+            StudentProjectsUpload.tsx
+          AcademicDataEntry.tsx
+          AcademicInsights.tsx
+          AIInsightsDashboard.tsx
+          CVAnalyser.tsx
+          EngineeringGuidance.tsx
+          FacultyHeader.tsx
+          FacultyMatcher.tsx
+          FacultySidebar.tsx
+          InterestManagement.tsx
+          MLDashboardWidget.tsx
+          MLInsights.tsx
+          PerformanceChart.tsx
+        ErrorBoundary
+          index.tsx
+        messaging
+          MessageCenter.tsx
+        AuthLayout.tsx
+        ErrorBoundary.tsx
+        ProtectedRoute.tsx
+      config
+        environment.ts
+      contexts
+        AuthContext.tsx
+        ThemeContext.tsx
+      core
+        api
+          interceptors
+            auth.interceptor.ts
+            error.interceptor.ts
+        integrations
+          firebase
+            config.ts
+            realtime.ts
+            storage.ts
+          youtube
+            youtube.service.ts
+      hooks
+        useAnalytics.ts
+        useAuth.ts
+        useCVParser.ts
+        useDashboardData.ts
+        useDebounce.ts
+        useEngineeringGuidance.ts
+        useErrorHandler.ts
+        useMessaging.ts
+        useMLInsights.ts
+        useTheme.ts
+        useWebSocket.ts
+      modules
+        agent1
+          performance-analytics
+            components
+              SubjectPerformance
+                index.tsx
+                SubjectRadar.tsx
+              TrendAnalyzer
+                index.tsx
+                TrendChart.tsx
+            constants
+              thresholds.ts
+            hooks
+              usePerformanceTrends.ts
+              usePredictiveMetrics.ts
+              useWeaknessAnalysis.ts
+            services
+              analytics.service.ts
+              prediction.service.ts
+              trend.service.ts
+            types
+              analytics.types.ts
+            utils
+              calculations.ts
+              formatters.ts
+              validators.ts
+          shared
+            components
+              ActionButton.tsx
+              InsightPanel.tsx
+              RecommendationCard.tsx
+            hooks
+              useAgent1Data.ts
+              useRecommendations.ts
+            utils
+              agent1.helpers.ts
+              data.transformers.ts
+          student-analysis
+            components
+              PerformanceTrends
+                index.tsx
+                TrendPredictor.tsx
+              StudentAnalysisTable
+                index.tsx
+                types.ts
+              WeaknessIndicator
+                index.tsx
+                WeaknessChart.tsx
+            hooks
+              useMLPredictions.ts
+              useRealTimeUpdates.ts
+              useStudentAnalysis.ts
+            services
+              ml-integration.service.ts
+              realtime-sync.service.ts
+              student-analysis.service.ts
+            types
+              student-analysis.types.ts
+        shared
+          services
+            api.service.ts
+      monitoring
+        error.tracker.ts
+        performance.monitor.ts
+      pages
+        Dashboard
+          FacultyDashboard.tsx
+          index.tsx
+          StudentDashboard.tsx
+        About.tsx
+        Academics.tsx
+        Admissions.tsx
+        Alumni.tsx
+        CampusLife.tsx
+        CampusTour.tsx
+        CareerServices.tsx
+        Demo.tsx
+        Departments.tsx
+        DigitalLibrary.tsx
+        FacultyPortal.tsx
+        Features.tsx
+        Help.tsx
+        HomePage.tsx
+        Login.tsx
+        NotFound.tsx
+        ProgramDetail.tsx
+        ProgramsList.tsx
+        Register.tsx
+        Research.tsx
+        Resources.tsx
+        StudentPortal.tsx
+      parsers
+        pdf.parser.ts
+        skill.extractor.ts
+        text.parser.ts
+      routes
+        AppRouter.tsx
+        ProtectedRoute.tsx
+      security
+        encryption.ts
+        sanitization.ts
+      services
+        analytics.service.ts
+        api.service.ts
+        auth.service.ts
+        cloudinary.service.ts
+        engineering.service.ts
+        extraction.service.ts
+        firebase.config.ts
+        github.service.ts
+        ml.service.ts
+        nlp.service.ts
+        parser.service.ts
+        student_analysis.service.ts
+        student_projects_cloudinary.service.ts
+        student_projects_no_storage.service.ts
+      styles
+        global.css
+      types
+        analytics.types.ts
+        auth.types.ts
+        cv.types.ts
+        dashboard.types.ts
+      utils
+        cn.ts
+        formatters.ts
+        mockData.ts
+        theme.utils.ts
+        validation.ts
+      App.css
+      App.test.js
+      App.tsx
+      index.css
+      index.tsx
+      logo.svg
+      main.tsx
+      reportWebVitals.js
+      reportWebVitals.tsx
+      setupTests.js
+      vite-env.d.ts
+    .env
+    .firebaserc
+    .gitignore
+    craco.config.js
+    eslint.config.js
+    firebase.json
+    firestore.indexes.json
+    firestore.rules
+    index.html
+    package-lock.json
+    package.json
+    postcss.config.js
+    README.md
+    tailwind.config.js
+    tsconfig.app.json
+    tsconfig.json
+    tsconfig.node.json
+    vite.config.ts
+  .gitattributes
+  .gitignore
+  academic-advisor-clean-tree.txt
+  package-lock.json
+  package.json
+  README.md
+.gitignore
 ## 🔑 Key Features
 
 ### **1. Academic Performance Analysis**
@@ -702,3 +1049,10 @@ git commit
 
 # show the true repo
 git rev-parse --show-toplevel
+
+# For merging your code to main
+git checkout main
+git merge Sharon
+
+# For pulling the changes from main
+git pull origin main
