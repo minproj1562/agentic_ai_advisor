@@ -339,8 +339,11 @@ academic-advisor
             analytics.py
             appointments.py
             electives.py
+            faculty_profile.py
+            meeting_requests.py
             messages.py
             ml_insights.py
+            notifications.py
             publications.py
             research_area.py
             resources.py
@@ -368,6 +371,7 @@ academic-advisor
         constants.py
         curriculum.py
         database.py
+        deps.py
         error_tracking.py
         exceptions.py
         firebase.py
@@ -413,6 +417,7 @@ academic-advisor
         cv.py
         elective.py
         faculty.py
+        meeting_request.py
         mentorship.py
         messages.py
         performance.py
@@ -439,6 +444,7 @@ academic-advisor
         __init__.py
       scripts
         create_sample_data.py
+        set_faculty_role.py
       services
         academic_service.py
         achievement_service.py
@@ -446,7 +452,7 @@ academic-advisor
         appointment_service.py
         cloudinary_service.py
         cv_analysis_service.py
-        cv_parser.py
+        cv_parser_v2.py
         elective_recommendation_service.py
         enhanced_ml_inference.py
         faculty_service.py
@@ -465,6 +471,7 @@ academic-advisor
         student_analysis_service.py
         student_projects_service.py
         student_service.py
+        weakness_analysis_service.py
         websocket_manager.py
         __init__.py
       tasks
@@ -491,7 +498,7 @@ academic-advisor
       backup.py
       init_db.py
       migrate_data.py
-      seed_data.py
+      seed_faculty_data.py
       train_models.py
     tests
       conftest.py
@@ -549,13 +556,18 @@ academic-advisor
           sections
             Achievements.tsx
             Analytics.tsx
+            CVAnalysisSection.tsx
             DashboardOverview.tsx
+            FacultyOverview.tsx
+            FacultyProfileView.tsx
             Messages.tsx
+            NotificationsSection.tsx
             Performance.tsx
             ProjectAnalysisResults.tsx
             Publications.tsx
             ResearchAreas.tsx
             Settings.tsx
+            StudentAnalysisSection.tsx
             StudentProjectsList.tsx
             StudentProjectsUpload.tsx
           AcademicDataEntry.tsx
@@ -572,10 +584,16 @@ academic-advisor
           PerformanceChart.tsx
         ErrorBoundary
           index.tsx
+        meetings
+          FacultyMeetingManagement.tsx
+          index.ts
+          MeetingsCalendar.tsx
+          StudentMeetingRequest.tsx
         messaging
           MessageCenter.tsx
         AuthLayout.tsx
         ErrorBoundary.tsx
+        FacultyGuard.tsx
         ProtectedRoute.tsx
       config
         environment.ts
@@ -686,6 +704,7 @@ academic-advisor
         Departments.tsx
         DigitalLibrary.tsx
         FacultyPortal.tsx
+        FacultyProfileSetup.tsx
         Features.tsx
         Help.tsx
         HomePage.tsx
@@ -722,6 +741,7 @@ academic-advisor
         student_analysis.service.ts
         student_projects_cloudinary.service.ts
         student_projects_no_storage.service.ts
+        weakness.service.ts
       styles
         global.css
       types
@@ -1056,3 +1076,9 @@ git merge Sharon
 
 # For pulling the changes from main
 git pull origin main
+
+# for automatically updating the requirements.txt file
+pip freeze > requirements.txt
+
+# To check the loading routes
+python -c "from app.api.v1.api import api_router; print('Registered routes:'); [print('  {} {}'.format(r.methods if hasattr(r, 'methods') else '', r.path)) for r in api_router.routes if hasattr(r, 'path')]"

@@ -1,5 +1,6 @@
 // StudentDashboard.tsx
 import React, { useState, useEffect } from 'react';
+import StudentMeetingRequest from '../../components/meetings/StudentMeetingRequest';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   TrendingUp,
@@ -225,7 +226,7 @@ const StudentDashboard: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState<
-    'overview' | 'performance' | 'electives' | 'weaknesses' | 'resources' | 'projects' | 'academic' | 'interests'
+    'overview' | 'performance' | 'electives' | 'weaknesses' | 'resources' | 'projects' | 'academic' | 'interests'| 'meetings'
   >('overview');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -887,6 +888,27 @@ const fetchUserProfile = async () => {
                     </button>
                   </li>
 
+                  <li>
+  <button
+    onClick={() => {
+      setActiveTab('meetings');
+      analyticsService.trackEvent('tab_switched', { tab: 'meetings' });
+    }}
+    className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-all ${
+      activeTab === 'meetings'
+        ? 'bg-gradient-to-r from-blue-50 to-purple-50 text-blue-600 shadow-sm'
+        : 'hover:bg-gray-50 text-gray-700'
+    }`}
+  >
+    <Calendar className="h-5 w-5" />
+    <span className="font-medium">Meeting Requests</span>
+    <span className="ml-auto bg-indigo-100 text-indigo-700 text-xs px-2 py-1 rounded-full">
+      Faculty
+    </span>
+  </button>
+</li>
+
+
                   {/* INTERESTS TAB - Added */}
                   <li>
                     <button
@@ -1063,6 +1085,17 @@ const fetchUserProfile = async () => {
                   {activeTab === 'electives' && 'AI Elective Recommendations'}
                   {activeTab === 'weaknesses' && 'Weakness Analysis & Improvement'}
                   {activeTab === 'resources' && 'Smart Study Resources'}
+                  {activeTab === 'meetings' && (
+  <motion.div
+    key="meetings"
+    initial={{ opacity: 0, y: 20 }}
+    animate={{ opacity: 1, y: 0 }}
+    exit={{ opacity: 0, y: -20 }}
+    transition={{ duration: 0.3 }}
+  >
+    <StudentMeetingRequest />
+  </motion.div>
+)}
                 </h1>
               </div>
 

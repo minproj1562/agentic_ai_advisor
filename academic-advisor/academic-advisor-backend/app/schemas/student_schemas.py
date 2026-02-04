@@ -6,7 +6,7 @@ Pydantic schemas for student-related data
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, EmailStr, Field, validator
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 
 class StudentBase(BaseModel):
@@ -14,7 +14,7 @@ class StudentBase(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
     email: EmailStr
     student_id: str = Field(..., min_length=1, max_length=20)
-    department: str = Field(..., regex="^(CS|ECE|MECH|CIVIL|EEE)$")
+    department: str = Field(..., pattern="^(CS|ECE|MECH|CIVIL|EEE|IT|CSE)$")  # Changed regex to pattern
     batch: int = Field(..., ge=2015, le=2030)
     current_semester: int = Field(..., ge=1, le=10)
 
@@ -22,13 +22,13 @@ class StudentBase(BaseModel):
 class StudentCreate(StudentBase):
     """Schema for creating a student"""
     password: str = Field(..., min_length=8)
-    phone: Optional[str] = Field(None, regex="^[0-9]{10}$")
+    phone: Optional[str] = Field(None, pattern="^[0-9]{10}$")  # Changed regex to pattern
 
 
 class StudentUpdate(BaseModel):
     """Schema for updating student data"""
     name: Optional[str] = Field(None, min_length=1, max_length=100)
-    phone: Optional[str] = Field(None, regex="^[0-9]{10}$")
+    phone: Optional[str] = Field(None, pattern="^[0-9]{10}$")  # Changed regex to pattern
     current_semester: Optional[int] = Field(None, ge=1, le=10)
     linkedin_profile: Optional[str] = None
     github_profile: Optional[str] = None
@@ -45,7 +45,8 @@ class PerformanceData(BaseModel):
     subjects: List[Dict[str, Any]]
     created_at: Optional[datetime] = None
     
-    @validator('sgpa')
+    @field_validator('sgpa')
+    @classmethod
     def validate_sgpa(cls, v):
         return round(v, 2)
 
@@ -53,7 +54,7 @@ class PerformanceData(BaseModel):
 class WeaknessData(BaseModel):
     """Weakness data schema"""
     subject: str
-    severity: str = Field(..., regex="^(low|medium|high|critical)$")
+    severity: str = Field(..., pattern="^(low|medium|high|critical)$")  # Changed regex to pattern
     average_score: float = Field(..., ge=0, le=100)
     gap: float
     topics: List[str]
@@ -133,8 +134,8 @@ class StudentAnalysisResponse(BaseModel):
     recommendations_pending: int
     predictions: Optional[Dict[str, Any]] = None
     
-    class Config:
-        schema_extra = {
+    model_config = {
+        "json_schema_extra": {
             "example": {
                 "student_id": "STU001",
                 "name": "John Doe",
@@ -153,6 +154,7 @@ class StudentAnalysisResponse(BaseModel):
                 "recommendations_pending": 2
             }
         }
+    }
 
 
 class StudentDetailResponse(BaseModel):
@@ -184,8 +186,8 @@ class BulkAnalysisRequest(BaseModel):
 
 class RecommendationSchema(BaseModel):
     """Recommendation schema"""
-    type: str = Field(..., regex="^(academic|attendance|subject_improvement|career|skills)$")
-    priority: str = Field(..., regex="^(low|medium|high)$")
+    type: str = Field(..., pattern="^(academic|attendance|subject_improvement|career|skills)$")  # Changed
+    priority: str = Field(..., pattern="^(low|medium|high)$")  # Changed
     title: str
     description: str
     actions: List[str]

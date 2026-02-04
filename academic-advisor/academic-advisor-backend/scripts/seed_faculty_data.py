@@ -25,7 +25,7 @@ from app.models.faculty import (
     ResearchExpertise, TeachingInfo, FacultyAvailability,
     PublicationSummary, Degree, MeetingSlot
 )
-from app.models.student import StudentPerformance, Subject, StudentInfo
+from app.models.student_performance import StudentPerformance, Subject, StudentInfo
 from app.models.student_profile import StudentProfile, SemesterRecord, SubjectScore, Branch
 from app.models.student_projects import StudentProject, ProjectType
 from app.models.meeting_request import MeetingRequest, MeetingRequestStatus, ScheduledMeeting
@@ -645,106 +645,54 @@ async def create_projects(students: List[StudentProfile]):
     """Create sample projects for students"""
     print("\n📁 Creating student projects...")
     
-    # Use correct ProjectType enum values from your model
     project_ideas = [
         {
             "title": "AI-Powered Plagiarism Detector",
             "tech": ["Python", "TensorFlow", "NLP", "Flask"],
-            "type": ProjectType.ACADEMIC,
-            "domain": "AI/ML",
-            "languages": ["Python"],
-            "frameworks": ["TensorFlow", "Flask"],
-            "tools": ["VS Code", "Git"]
+            "type": ProjectType.MAJOR_PROJECT,
+            "domain": "AI/ML"
         },
         {
             "title": "Smart Traffic Management System",
             "tech": ["Python", "OpenCV", "IoT", "React"],
-            "type": ProjectType.RESEARCH,
-            "domain": "IoT",
-            "languages": ["Python", "JavaScript"],
-            "frameworks": ["React", "OpenCV"],
-            "tools": ["Arduino", "Raspberry Pi"]
+            "type": ProjectType.MAJOR_PROJECT,
+            "domain": "IoT"
         },
         {
             "title": "Blockchain-based Voting System",
             "tech": ["Solidity", "Web3.js", "React", "Node.js"],
-            "type": ProjectType.ACADEMIC,
-            "domain": "Blockchain",
-            "languages": ["Solidity", "JavaScript"],
-            "frameworks": ["React", "Node.js", "Web3.js"],
-            "tools": ["Truffle", "Ganache"]
+            "type": ProjectType.MAJOR_PROJECT,
+            "domain": "Blockchain"
         },
         {
             "title": "Health Monitoring Wearable App",
             "tech": ["Flutter", "Firebase", "TensorFlow Lite"],
-            "type": ProjectType.PERSONAL,
-            "domain": "Mobile",
-            "languages": ["Dart", "Python"],
-            "frameworks": ["Flutter", "Firebase"],
-            "tools": ["Android Studio", "Firebase Console"]
+            "type": ProjectType.MINOR_PROJECT,
+            "domain": "Mobile"
         },
         {
             "title": "E-Commerce Recommendation Engine",
             "tech": ["Python", "Scikit-learn", "Django", "PostgreSQL"],
-            "type": ProjectType.INTERNSHIP,
-            "domain": "Data Science",
-            "languages": ["Python", "SQL"],
-            "frameworks": ["Django", "Scikit-learn"],
-            "tools": ["PostgreSQL", "Jupyter"]
+            "type": ProjectType.MINOR_PROJECT,
+            "domain": "Data Science"
         },
         {
             "title": "Real-time Chat Application",
             "tech": ["Node.js", "Socket.io", "React", "MongoDB"],
-            "type": ProjectType.HACKATHON,
-            "domain": "Web Dev",
-            "languages": ["JavaScript", "TypeScript"],
-            "frameworks": ["React", "Node.js", "Socket.io"],
-            "tools": ["MongoDB Atlas", "Heroku"]
+            "type": ProjectType.ACADEMIC,
+            "domain": "Web Dev"
         },
         {
             "title": "Image Classification using CNN",
             "tech": ["Python", "TensorFlow", "Keras", "OpenCV"],
             "type": ProjectType.ACADEMIC,
-            "domain": "AI/ML",
-            "languages": ["Python"],
-            "frameworks": ["TensorFlow", "Keras"],
-            "tools": ["Google Colab", "OpenCV"]
+            "domain": "AI/ML"
         },
         {
             "title": "Student Performance Predictor",
             "tech": ["Python", "Scikit-learn", "Flask", "React"],
             "type": ProjectType.RESEARCH,
-            "domain": "Data Science",
-            "languages": ["Python", "JavaScript"],
-            "frameworks": ["Flask", "React", "Scikit-learn"],
-            "tools": ["Jupyter", "VS Code"]
-        },
-        {
-            "title": "Open Source Contribution - React Library",
-            "tech": ["JavaScript", "TypeScript", "React"],
-            "type": ProjectType.OPEN_SOURCE,
-            "domain": "Web Dev",
-            "languages": ["JavaScript", "TypeScript"],
-            "frameworks": ["React"],
-            "tools": ["GitHub", "npm"]
-        },
-        {
-            "title": "Freelance Portfolio Website",
-            "tech": ["Next.js", "Tailwind", "MongoDB"],
-            "type": ProjectType.FREELANCE,
-            "domain": "Web Dev",
-            "languages": ["JavaScript", "TypeScript"],
-            "frameworks": ["Next.js", "Tailwind CSS"],
-            "tools": ["Vercel", "MongoDB Atlas"]
-        },
-        {
-            "title": "Hackathon Winner - Smart Campus App",
-            "tech": ["Flutter", "Firebase", "Google Maps API"],
-            "type": ProjectType.COMPETITION,
-            "domain": "Mobile",
-            "languages": ["Dart"],
-            "frameworks": ["Flutter", "Firebase"],
-            "tools": ["Android Studio", "Google Cloud"]
+            "domain": "Data Science"
         }
     ]
     
@@ -755,47 +703,16 @@ async def create_projects(students: List[StudentProfile]):
         selected_projects = random.sample(project_ideas, min(num_projects, len(project_ideas)))
         
         for proj_data in selected_projects:
-            start_date = datetime.utcnow() - timedelta(days=random.randint(60, 300))
-            end_date = start_date + timedelta(days=random.randint(30, 120)) if random.random() > 0.3 else None
-            
             project = StudentProject(
                 student_id=student.user_id,
                 title=proj_data["title"],
                 description=f"A {proj_data['domain']} project implementing {', '.join(proj_data['tech'][:2])}.",
-                detailed_description=f"This project focuses on {proj_data['domain']} using technologies like {', '.join(proj_data['tech'])}. It demonstrates practical application of concepts learned in the curriculum.",
                 project_type=proj_data["type"],
-                start_date=start_date,
-                end_date=end_date,
-                duration_months=round((end_date - start_date).days / 30, 1) if end_date else None,
-                programming_languages=proj_data["languages"],
-                frameworks=proj_data["frameworks"],
-                tools=proj_data["tools"],
                 technologies=proj_data["tech"],
                 github_url=f"https://github.com/{student.name.lower().replace(' ', '')}/{proj_data['title'].lower().replace(' ', '-')}",
-                is_team_project=random.choice([True, False]),
-                team_size=random.randint(1, 4),
-                role_in_project=random.choice(["Lead Developer", "Backend Developer", "Frontend Developer", "Full Stack Developer", "ML Engineer"]),
-                key_achievements=[
-                    f"Implemented {proj_data['domain']} features",
-                    "Improved performance by 30%",
-                    "Deployed to production"
-                ],
-                challenges_faced=[
-                    "Integration challenges",
-                    "Performance optimization"
-                ],
-                learnings=[
-                    f"Learned {proj_data['frameworks'][0] if proj_data['frameworks'] else 'new technology'}",
-                    "Improved problem-solving skills"
-                ],
-                extracted_skills=proj_data["tech"],
-                complexity_score=random.uniform(0.5, 1.0),
-                innovation_score=random.uniform(0.4, 0.9),
-                is_public=True,
-                views_count=random.randint(10, 500),
-                likes_count=random.randint(0, 50),
-                created_at=datetime.utcnow(),
-                updated_at=datetime.utcnow()
+                status=random.choice(["completed", "in_progress", "completed"]),
+                start_date=datetime.utcnow() - timedelta(days=random.randint(60, 300)),
+                created_at=datetime.utcnow()
             )
             
             await project.insert()
@@ -872,7 +789,7 @@ async def create_meeting_requests(faculty_list: List[Faculty], students: List[St
                 urgency="normal",
                 status=MeetingRequestStatus.ACCEPTED,
                 scheduled_meeting=ScheduledMeeting(
-                    date=meeting_date.strftime("%Y-%m-%d"),
+                    date=meeting_date.isoformat(),
                     start_time=random.choice(["10:00", "11:00", "14:00", "15:00"]),
                     end_time=random.choice(["10:30", "11:30", "14:30", "15:30"]),
                     venue=faculty.office_location or "Faculty Office"
@@ -880,41 +797,6 @@ async def create_meeting_requests(faculty_list: List[Faculty], students: List[St
                 faculty_response="Looking forward to our meeting. Please bring your project documents.",
                 created_at=datetime.utcnow() - timedelta(days=random.randint(3, 10)),
                 updated_at=datetime.utcnow() - timedelta(days=random.randint(1, 3))
-            )
-            
-            await request.insert()
-            requests_created += 1
-        
-        # Create completed requests
-        for i in range(random.randint(1, 2)):
-            if not faculty_students:
-                continue
-            
-            student = random.choice(faculty_students)
-            meeting_date = datetime.utcnow() - timedelta(days=random.randint(1, 14))
-            
-            request = MeetingRequest(
-                request_id=f"req_completed_{faculty.user_id}_{i}_{random.randint(1000, 9999)}",
-                student_id=student.user_id,
-                student_name=student.name,
-                student_email=student.email,
-                student_department=student.branch,
-                student_semester=student.current_semester,
-                faculty_id=faculty.user_id,
-                faculty_name=faculty.name,
-                subject=random.choice(subjects),
-                message="Thank you for meeting with me. The discussion was very helpful.",
-                urgency="normal",
-                status=MeetingRequestStatus.COMPLETED,
-                scheduled_meeting=ScheduledMeeting(
-                    date=meeting_date.strftime("%Y-%m-%d"),
-                    start_time="10:00",
-                    end_time="10:30",
-                    venue=faculty.office_location or "Faculty Office"
-                ),
-                faculty_response="Good meeting. Keep up the good work!",
-                created_at=datetime.utcnow() - timedelta(days=random.randint(14, 30)),
-                updated_at=meeting_date
             )
             
             await request.insert()

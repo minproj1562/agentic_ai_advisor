@@ -1,118 +1,66 @@
-# app/dependencies.py
 """
-FastAPI Dependencies
-Reusable dependencies for dependency injection
+FastAPI Dependencies - UPDATED
 """
 
 from typing import Optional
 from fastapi import Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
-from jose import JWTError, jwt
+from fastapi.security import HTTPBearer
+
+# REMOVED: Duplicate get_current_user - use the one from security.py
+from app.core.security import get_current_user, get_current_faculty, get_current_student, FirebaseUser
 
 from app.config import settings
-from app.core.firebase_admin import firebase_manager
 from app.utils.helpers import get_logger
 
 logger = get_logger(__name__)
 
-# OAuth2 scheme for token extraction
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/token")
+# OAuth2 scheme
+oauth2_scheme = HTTPBearer(auto_error=True)
 
 
 # ---------------------------
-# Authentication & User Roles
+# Role-based access (already in security.py, just import and use)
 # ---------------------------
-
-async def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
-    """
-    Get current authenticated user from JWT token and Firebase
-    """
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
-
-    try:
-        # Decode JWT
-        payload = jwt.decode(
-            token,
-            settings.JWT_SECRET_KEY,
-            algorithms=[settings.JWT_ALGORITHM]
-        )
-        uid: str = payload.get("uid")
-        if uid is None:
-            raise credentials_exception
-
-        # Fetch user from Firebase
-        user = await firebase_manager.get_document(
-            collection="users",
-            document_id=uid
-        )
-        if user is None:
-            raise credentials_exception
-
-        return user
-
-    except JWTError:
-        raise credentials_exception
-    except Exception as e:
-        logger.error(f"Authentication error: {str(e)}")
-        raise credentials_exception
-
-
-async def get_current_active_user(
-    current_user: dict = Depends(get_current_user)
-) -> dict:
-    """
-    Ensure the current user is active
-    """
-    if not current_user.get("is_active", False):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Inactive user"
-        )
-    return current_user
-
-
-async def get_admin_user(
-    current_user: dict = Depends(get_current_active_user)
-) -> dict:
-    """
-    Restrict access to admin users
-    """
-    if current_user.get("role") != "admin":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin access required"
-        )
-    return current_user
-
 
 async def get_faculty_user(
-    current_user: dict = Depends(get_current_active_user)
-) -> dict:
+    current_user: FirebaseUser = Depends(get_current_user)
+) -> FirebaseUser:
     """
-    Restrict access to faculty or admin users
+    Restrict access to faculty users
+    NOTE: This allows ONLY faculty role, not students
     """
-    if current_user.get("role") not in ["faculty", "admin"]:
+    if current_user.role != "faculty":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Faculty access required"
+            detail=f"Faculty access required. Current role: {current_user.role}"
         )
     return current_user
 
 
 async def get_student_user(
-    current_user: dict = Depends(get_current_active_user)
-) -> dict:
+    current_user: FirebaseUser = Depends(get_current_user)
+) -> FirebaseUser:
     """
     Restrict access to student users
     """
-    if current_user.get("role") != "student":
+    if current_user.role != "student":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Student access required"
+        )
+    return current_user
+
+
+async def get_admin_user(
+    current_user: FirebaseUser = Depends(get_current_user)
+) -> FirebaseUser:
+    """
+    Restrict access to admin users
+    """
+    if current_user.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access required"
         )
     return current_user
 
@@ -146,18 +94,14 @@ def get_student_service():
 # ---------------------------
 
 class PaginationParams:
-    """
-    Common pagination parameters
-    """
+    """Common pagination parameters"""
     def __init__(self, skip: int = 0, limit: int = 100):
         self.skip = max(skip, 0)
         self.limit = min(limit, 100)
 
 
 class FilterParams:
-    """
-    Common filter parameters
-    """
+    """Common filter parameters"""
     def __init__(
         self,
         department: Optional[str] = None,

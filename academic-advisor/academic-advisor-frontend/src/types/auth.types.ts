@@ -1,3 +1,4 @@
+// academic-advisor/academic-advisor-frontend/src/types/auth.types.ts
 export interface User {
   uid: string;
   email: string;

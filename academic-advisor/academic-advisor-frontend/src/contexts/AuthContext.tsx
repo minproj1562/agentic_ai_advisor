@@ -14,6 +14,7 @@ import {
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { auth, db } from '../services/firebase.config';
 import toast from 'react-hot-toast';
+import apiClient from '../services/api.service';
 
 interface User {
   uid: string;
@@ -125,18 +126,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setUser(userData);
       
       // Navigate based on role
-      if (userData.role === 'faculty') {
-        navigate('/faculty/dashboard', { replace: true });
-        toast.success(`Welcome back, Professor ${userData.name}!`);
-      } else if (userData.role === 'student') {
-        navigate('/student/dashboard', { replace: true });
-        toast.success(`Welcome back, ${userData.name}!`);
-      } else {
-        navigate('/');
-        toast.success(`Welcome back, ${userData.name}!`);
+          if (userData.role === 'faculty') {
+      // Check if profile setup is complete
+      try {
+        const setupStatus = await apiClient.get('/faculty-profile/check-setup-status');
+        
+        if (setupStatus.data.needs_setup) {
+          navigate('/faculty/profile-setup', { replace: true });
+          toast.success('Please complete your profile setup.');
+          return;
+        }
+      } catch (error) {
+        // If check fails, redirect to setup anyway for safety
+        console.log('Setup status check failed, redirecting to setup');
       }
       
-    } catch (error: any) {
+      navigate('/faculty/dashboard', { replace: true });
+      toast.success(`Welcome back, Professor ${userData.name}!`);
+    } else if (userData.role === 'student') {
+      navigate('/student/dashboard', { replace: true });
+      toast.success(`Welcome back, ${userData.name}!`);
+    }
+    
+  } catch (error: any) {
       console.error('Login error:', error);
       
       // Handle specific auth errors

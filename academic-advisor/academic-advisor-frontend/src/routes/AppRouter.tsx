@@ -4,6 +4,10 @@ import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AnimatePresence } from 'framer-motion';
 import LoadingSpinner from '../components/common/LoadingSpinner';
 import ProtectedRoute from './ProtectedRoute';
+import FacultyProfileSetup from '../pages/FacultyProfileSetup';
+
+// CORRECTED IMPORT PATH - moved from ../pages/FacultyDashboard
+import FacultyDashboard from '../pages/Dashboard/FacultyDashboard';
 
 // Lazy load all pages for optimal performance
 const HomePage = lazy(() => import('../pages/HomePage'));
@@ -111,6 +115,36 @@ const AppRouter: React.FC = () => {
               </ProtectedRoute>
             }
           />
+
+         {/* Faculty Dashboard */}
+<Route
+  path="/faculty/dashboard/*"
+  element={
+    <ProtectedRoute role="faculty">
+      <FacultyDashboard />
+    </ProtectedRoute>
+  }
+/>
+
+{/* Faculty Profile Setup - New */}
+<Route 
+  path="/faculty/profile-setup" 
+  element={
+    <ProtectedRoute role="faculty">
+      <FacultyProfileSetup />
+    </ProtectedRoute>
+  } 
+/>
+
+{/* Faculty Profile Edit - Uses same component with editMode */}
+<Route 
+  path="/faculty/profile-edit" 
+  element={
+    <ProtectedRoute role="faculty">
+      <FacultyProfileSetup />
+    </ProtectedRoute>
+  } 
+/>
           
           {/* 404 Route */}
           <Route path="/404" element={<NotFound />} />

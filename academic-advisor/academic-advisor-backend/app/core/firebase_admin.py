@@ -1,3 +1,4 @@
+# academic-advisor/academic-advisor-backend/app/core/firebase_admin.py
 """
 Firebase Admin SDK Integration
 Handles all Firebase operations including Firestore, Auth, and Storage

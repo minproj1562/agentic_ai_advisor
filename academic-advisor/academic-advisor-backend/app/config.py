@@ -12,7 +12,7 @@ class Settings(BaseSettings):
         case_sensitive=True,
         env_file=".env",
         env_file_encoding="utf-8",
-        extra="ignore"  # This allows extra fields in .env to be ignored
+        extra="ignore"
     )
     
     # App Config
@@ -55,6 +55,18 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: Optional[str] = None
     SENTRY_DSN: Optional[str] = None
     
+    # ============== Email/Notification Settings ==============
+    ENABLE_EMAIL_ALERTS: bool = True
+    SMTP_HOST: str = "smtp.gmail.com"
+    SMTP_PORT: int = 587
+    SMTP_USER: Optional[str] = None
+    SMTP_PASSWORD: Optional[str] = None
+    
+    # ============== YouTube API (Optional - FREE tier available) ==============
+    # Get free API key from: https://console.cloud.google.com/apis/credentials
+    # Enable "YouTube Data API v3" - gives 10,000 units/day FREE
+    YOUTUBE_API_KEY: Optional[str] = None
+    
     # CORS - Added port 5173 for Vite
     CORS_ORIGINS: List[str] = [
         "http://localhost:3000", 
@@ -66,6 +78,7 @@ class Settings(BaseSettings):
     
     # File Upload
     MAX_FILE_SIZE: int = 10 * 1024 * 1024  # 10MB
+
 
 @lru_cache()
 def get_settings() -> Settings:

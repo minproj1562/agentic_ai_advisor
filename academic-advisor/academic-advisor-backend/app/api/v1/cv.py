@@ -12,7 +12,7 @@ from app.models.cv import (
     CVUpload, CVAnalysis, ParsedCV, CVUploadResponse, CVStatusResponse, 
     CVAnalysisResponse, ProcessingStatus, FileValidationResult, CVValidationResult
 )
-from app.services.cv_parser import CVParser
+from app.services.cv_parser_v2 import EnhancedCVParser
 from app.services.nlp_service import NLPService
 from app.services.skill_extractor import SkillExtractor
 from app.services.research_service import ResearchAreaService
@@ -22,7 +22,7 @@ from app.core.config import settings
 
 router = APIRouter()
 
-cv_parser = CVParser()
+cv_parser = EnhancedCVParser()
 nlp_service = NLPService()
 skill_extractor = SkillExtractor()
 research_service = ResearchAreaService()
@@ -229,67 +229,81 @@ async def create_cv_summary(analysis: CVAnalysis, research_potential: Dict[str, 
     Create a comprehensive CV summary
     """
     # Extract key skills (top 10 by importance)
-    key_skills = sorted(
-        analysis.skills, 
-        key=lambda x: x.importance_score or 0, 
-        reverse=True
-    )[:10]
+    key_skills = []
+    if analysis.skills:
+        key_skills = sorted(
+            analysis.skills, 
+            key=lambda x: x.importance_score or 0, 
+            reverse=True
+        )[:10]
     
     # Calculate total experience
-    total_experience = analysis.experience_analysis.total_experience_years if analysis.experience_analysis else 0
+    total_experience = 0
+    career_level = "professional"
+    if analysis.experience_analysis:
+        total_experience = analysis.experience_analysis.total_experience_years or 0
+        career_level = analysis.experience_analysis.career_level or "professional"
     
     # Get highest education
-    highest_education = analysis.education_analysis.highest_degree if analysis.education_analysis else "Unknown"
+    highest_education = "Unknown"
+    if analysis.education_analysis:
+        highest_education = analysis.education_analysis.highest_degree or "Unknown"
     
     # Calculate overall score
     score = analysis.suitability_score or 70  # Default score
     
     # Get research focus
-    research_focus = analysis.research_profile.research_focus if analysis.research_profile else "General"
+    research_focus = "General"
+    if analysis.research_profile:
+        research_focus = analysis.research_profile.research_focus or "General"
     
     # Get technical competencies
-    technical_competencies = [
-        skill.name for skill in analysis.research_profile.technical_competencies 
-        if analysis.research_profile
-    ][:5]
+    technical_competencies = []
+    if analysis.research_profile and hasattr(analysis.research_profile, 'technical_competencies'):
+        if analysis.research_profile.technical_competencies:
+            technical_competencies = [
+                skill.name for skill in analysis.research_profile.technical_competencies
+            ][:5]
     
     # Generate summary text
     summary_parts = []
     
-    if analysis.experience_analysis:
+    if total_experience > 0:
         summary_parts.append(
-            f"Professional with {total_experience} years of experience in {analysis.experience_analysis.career_level} roles."
+            f"Professional with {total_experience} years of experience in {career_level} roles."
         )
     
-    if analysis.education_analysis:
+    if highest_education and highest_education != "Unknown":
         summary_parts.append(
-            f"Holds a {highest_degree} degree with focus in {research_focus}."
+            f"Holds a {highest_education} degree with focus in {research_focus}."
         )
     
     if key_skills:
         top_skill_names = [skill.name for skill in key_skills[:3]]
-        summary_parts.append(
-            f"Skilled in {', '.join(top_skill_names)} with demonstrated expertise in relevant technologies."
-        )
+        if top_skill_names:
+            summary_parts.append(
+                f"Skilled in {', '.join(top_skill_names)} with demonstrated expertise in relevant technologies."
+            )
     
-    if analysis.research_profile:
-        maturity = analysis.research_profile.maturity_level.value
-        summary_parts.append(
-            f"Shows {maturity} research potential with strong technical competencies."
-        )
+    if analysis.research_profile and hasattr(analysis.research_profile, 'maturity_level'):
+        if analysis.research_profile.maturity_level:
+            maturity = analysis.research_profile.maturity_level.value
+            summary_parts.append(
+                f"Shows {maturity} research potential with strong technical competencies."
+            )
     
     summary = " ".join(summary_parts) if summary_parts else "Comprehensive professional profile with diverse skills and experience."
     
     return {
         "upload_id": analysis.upload_id,
         "summary": summary,
-        "key_skills": [skill.name for skill in key_skills],
+        "key_skills": [skill.name for skill in key_skills] if key_skills else [],
         "total_experience": f"{total_experience} years",
         "highest_education": highest_education,
         "score": score,
         "research_focus": research_focus,
         "technical_competencies": technical_competencies,
-        "recommendations": analysis.recommendations
+        "recommendations": analysis.recommendations or []
     }
 
 @router.get("/status/{upload_id}", response_model=CVStatusResponse)

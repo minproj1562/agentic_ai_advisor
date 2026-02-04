@@ -39,7 +39,7 @@ class StudentFilters(BaseModel):
     department: Optional[str] = None
     cgpa_min: Optional[float] = Field(None, ge=0, le=10)
     cgpa_max: Optional[float] = Field(None, ge=0, le=10)
-    risk_level: Optional[str] = Field(None, regex="^(low|medium|high)$")
+    risk_level: Optional[str] = Field(None, pattern="^(low|medium|high)$")
     semester: Optional[int] = Field(None, ge=1, le=10)
 
 class BulkAnalysisRequest(BaseModel):
@@ -56,10 +56,10 @@ async def get_students_analysis(
     department: Optional[str] = None,
     cgpa_min: Optional[float] = Query(None, ge=0, le=10),
     cgpa_max: Optional[float] = Query(None, ge=0, le=10),
-    risk_level: Optional[str] = Query(None, regex="^(low|medium|high)$"),
+    risk_level: Optional[str] = Query(None, pattern="^(low|medium|high)$"),
     semester: Optional[int] = Query(None, ge=1, le=10),
-    sort_by: str = Query("cgpa", regex="^(cgpa|name|risk_score|attendance)$"),
-    sort_order: str = Query("desc", regex="^(asc|desc)$"),
+    sort_by: str = Query("cgpa", pattern="^(cgpa|name|risk_score|attendance)$"),
+    sort_order: str = Query("desc", pattern="^(asc|desc)$"),
     current_user: dict = Depends(get_current_user),
 ):
     """
@@ -167,7 +167,7 @@ async def get_student_detailed_analysis(
     student_id: str,
     include_predictions: bool = Query(True),
     include_recommendations: bool = Query(True),
-    time_range: Optional[str] = Query("all", regex="^(all|current|last_year)$"),
+    time_range: Optional[str] = Query("all", pattern="^(all|current|last_year)$"),
     current_user: dict = Depends(get_current_user),
 ):
     """
@@ -520,7 +520,7 @@ async def get_analysis_status(
 async def get_department_trends(
     department: str,
     semester: Optional[int] = None,
-    metric: str = Query("cgpa", regex="^(cgpa|attendance|assignments)$"),
+    metric: str = Query("cgpa", pattern="^(cgpa|attendance|assignments)$"),
     current_user: dict = Depends(get_current_user),
 ):
     """

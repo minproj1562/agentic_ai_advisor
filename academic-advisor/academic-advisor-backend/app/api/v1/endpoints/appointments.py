@@ -1,172 +1,190 @@
-#academic-advisor-backend/app/api/v1/endpoints/appointments.py
-from fastapi import APIRouter, HTTPException, Depends, Query
-from typing import List, Optional
-from datetime import datetime, timedelta
-from beanie import PydanticObjectId
+# app/api/v1/endpoints/appointments.py
+"""
+Appointments API - In-Person Meeting Slots
+"""
 
-from app.core.security import get_current_user, FirebaseUser
-from app.services.appointment_service import AppointmentService
-from app.models.appointment import SlotType, SlotStatus
+from fastapi import APIRouter, HTTPException, Depends
+from typing import Optional, List, Dict, Any
+from datetime import datetime, timedelta
 import logging
 
-router = APIRouter()
-logger = logging.getLogger(__name__)
+from app.core.security import get_current_user, FirebaseUser
+from app.models.appointment import AppointmentSlot, SlotType, SlotStatus
+from app.services.appointment_service import AppointmentService
+from app.services.notification_service import NotificationService
 
-@router.get("/faculty/{faculty_id}/slots")
+logger = logging.getLogger(__name__)
+router = APIRouter()
+
+appointment_service = AppointmentService()
+notification_service = NotificationService()
+
+
+@router.get("/faculty/slots")
 async def get_faculty_slots(
-    faculty_id: str,
-    start_date: Optional[datetime] = None,
-    end_date: Optional[datetime] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
     current_user: FirebaseUser = Depends(get_current_user)
 ):
-    """Get all appointment slots for a faculty member"""
-    service = AppointmentService()
+    """Get faculty's appointment slots"""
     try:
-        slots = await service.get_faculty_slots(
-            faculty_id, start_date, end_date
+        start = datetime.fromisoformat(start_date) if start_date else None
+        end = datetime.fromisoformat(end_date) if end_date else None
+        
+        slots = await appointment_service.get_faculty_slots(
+            faculty_id=current_user.uid,
+            start_date=start,
+            end_date=end
         )
-        return {"slots": [slot.dict() for slot in slots]}
+        
+        return {
+            "slots": [
+                {
+                    "id": str(s.id) if hasattr(s, 'id') else None,
+                    "date": s.date.isoformat() if s.date else None,
+                    "start_time": s.start_time,
+                    "end_time": s.end_time,
+                    "venue": getattr(s, 'venue', ''),
+                    "type": s.type.value if s.type else 'regular',
+                    "status": s.status.value if s.status else 'available',
+                    "is_booked": s.status == SlotStatus.BOOKED if s.status else False,
+                    "student_id": getattr(s, 'student_id', None),
+                    "topic": getattr(s, 'topic', None)
+                }
+                for s in slots
+            ]
+        }
     except Exception as e:
-        logger.error(f"Error getting faculty slots: {e}")
+        logger.error(f"Error getting slots: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/faculty/{faculty_id}/slots")
+
+@router.post("/faculty/slots")
 async def create_slot(
-    faculty_id: str,
-    slot_data: dict,
+    slot_data: Dict[str, Any],
     current_user: FirebaseUser = Depends(get_current_user)
 ):
     """Create a new appointment slot"""
-    if current_user.uid != faculty_id:
-        raise HTTPException(status_code=403, detail="Unauthorized")
-    
-    service = AppointmentService()
     try:
-        if slot_data.get("recurring", False):
-            # Create recurring slots
-            slots = await service.create_recurring_slots(
-                faculty_id=faculty_id,
-                start_date=slot_data["date"],
-                start_time=slot_data["start_time"],
-                end_time=slot_data["end_time"],
-                pattern=slot_data.get("recurrence_pattern", "weekly"),
-                slot_type=SlotType(slot_data.get("type", "Regular")),
-                weeks=slot_data.get("weeks", 4)
-            )
-            return {
-                "message": f"Created {len(slots)} recurring slots", 
-                "slots": [slot.dict() for slot in slots]
-            }
-        else:
-            # Create single slot
-            slot = await service.create_slot(
-                faculty_id=faculty_id,
-                date=slot_data["date"],
-                start_time=slot_data["start_time"],
-                end_time=slot_data["end_time"],
-                slot_type=SlotType(slot_data.get("type", "Regular"))
-            )
-            return {
-                "message": "Slot created successfully", 
-                "slot": slot.dict()
-            }
+        slot = await appointment_service.create_slot(
+            faculty_id=current_user.uid,
+            date=datetime.fromisoformat(slot_data['date']),
+            start_time=slot_data['start_time'],
+            end_time=slot_data['end_time'],
+            slot_type=SlotType(slot_data.get('type', 'regular'))
+        )
+        
+        # Set venue
+        if hasattr(slot, 'venue'):
+            slot.venue = slot_data.get('venue', '')
+            await slot.save()
+        
+        return {
+            "success": True,
+            "slot_id": str(slot.id) if hasattr(slot, 'id') else None,
+            "message": "Slot created successfully"
+        }
     except Exception as e:
         logger.error(f"Error creating slot: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
-
-@router.post("/slots/{slot_id}/book")
-async def book_slot(
-    slot_id: str,
-    booking_data: dict,
-    current_user: FirebaseUser = Depends(get_current_user)
-):
-    """Book an appointment slot"""
-    service = AppointmentService()
-    try:
-        result = await service.book_slot(
-            slot_id=slot_id,
-            student_id=current_user.uid,
-            topic=booking_data["topic"],
-            description=booking_data.get("description")
-        )
-        
-        # Send notification to faculty
-        await service.send_booking_notification(slot_id, current_user.uid)
-        
-        return {
-            "message": "Slot booked successfully", 
-            "booking": result
-        }
-    except Exception as e:
-        logger.error(f"Error booking slot: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
-
-@router.delete("/slots/{slot_id}")
-async def cancel_slot(
-    slot_id: str,
-    reason: Optional[str] = None,
-    current_user: FirebaseUser = Depends(get_current_user)
-):
-    """Cancel an appointment slot"""
-    service = AppointmentService()
-    try:
-        await service.cancel_slot(slot_id, reason)
-        return {"message": "Slot cancelled successfully"}
-    except Exception as e:
-        logger.error(f"Error cancelling slot: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
-
-@router.put("/slots/{slot_id}/reschedule")
-async def reschedule_slot(
-    slot_id: str,
-    reschedule_data: dict,
-    current_user: FirebaseUser = Depends(get_current_user)
-):
-    """Reschedule an appointment"""
-    service = AppointmentService()
-    try:
-        updated_slot = await service.reschedule_slot(
-            slot_id=slot_id,
-            new_date=reschedule_data["new_date"],
-            new_start_time=reschedule_data["new_start_time"],
-            new_end_time=reschedule_data["new_end_time"]
-        )
-        return {
-            "message": "Slot rescheduled successfully", 
-            "slot": updated_slot.dict()
-        }
-    except Exception as e:
-        logger.error(f"Error rescheduling slot: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
-
-@router.get("/student/bookings")
-async def get_student_bookings(
-    status: Optional[str] = None,
-    current_user: FirebaseUser = Depends(get_current_user)
-):
-    """Get student's bookings"""
-    service = AppointmentService()
-    try:
-        bookings = await service.get_student_bookings(
-            current_user.uid, 
-            status
-        )
-        return {"bookings": [booking.dict() for booking in bookings]}
-    except Exception as e:
-        logger.error(f"Error getting student bookings: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/faculty/slots/{slot_id}")
+async def delete_slot(
+    slot_id: str,
+    current_user: FirebaseUser = Depends(get_current_user)
+):
+    """Delete/cancel an appointment slot"""
+    try:
+        await appointment_service.cancel_slot(slot_id)
+        return {"success": True, "message": "Slot cancelled"}
+    except Exception as e:
+        logger.error(f"Error deleting slot: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.get("/available/{faculty_id}")
 async def get_available_slots(
     faculty_id: str,
-    date: Optional[datetime] = None,
-    current_user: FirebaseUser = Depends(get_current_user)
+    date: Optional[str] = None
 ):
-    """Get available slots for a faculty member"""
-    service = AppointmentService()
+    """Get available slots for a faculty (public for students)"""
     try:
-        slots = await service.get_available_slots(faculty_id, date)
-        return {"slots": [slot.dict() for slot in slots]}
+        target_date = datetime.fromisoformat(date) if date else None
+        
+        slots = await appointment_service.get_available_slots(
+            faculty_id=faculty_id,
+            date=target_date
+        )
+        
+        return {
+            "slots": [
+                {
+                    "id": str(s.id) if hasattr(s, 'id') else None,
+                    "date": s.date.isoformat() if s.date else None,
+                    "start_time": s.start_time,
+                    "end_time": s.end_time,
+                    "venue": getattr(s, 'venue', ''),
+                    "type": s.type.value if s.type else 'regular'
+                }
+                for s in slots
+            ]
+        }
     except Exception as e:
         logger.error(f"Error getting available slots: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/book/{slot_id}")
+async def book_slot(
+    slot_id: str,
+    booking_data: Dict[str, Any],
+    current_user: FirebaseUser = Depends(get_current_user)
+):
+    """Book an appointment slot (student)"""
+    try:
+        result = await appointment_service.book_slot(
+            slot_id=slot_id,
+            student_id=current_user.uid,
+            topic=booking_data.get('topic', ''),
+            description=booking_data.get('description')
+        )
+        
+        return {
+            "success": True,
+            "booking_id": result.get('booking_id'),
+            "message": "Appointment booked successfully"
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error booking slot: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/student/bookings")
+async def get_student_bookings(
+    current_user: FirebaseUser = Depends(get_current_user)
+):
+    """Get student's bookings"""
+    try:
+        bookings = await appointment_service.get_student_bookings(
+            student_id=current_user.uid
+        )
+        
+        return {
+            "bookings": [
+                {
+                    "id": str(b.id) if hasattr(b, 'id') else None,
+                    "slot_id": getattr(b, 'slot_id', None),
+                    "faculty_id": getattr(b, 'faculty_id', None),
+                    "topic": getattr(b, 'topic', None),
+                    "status": b.status.value if hasattr(b, 'status') and b.status else 'pending',
+                    "created_at": b.created_at.isoformat() if hasattr(b, 'created_at') and b.created_at else None
+                }
+                for b in bookings
+            ]
+        }
+    except Exception as e:
+        logger.error(f"Error getting bookings: {e}")
         raise HTTPException(status_code=500, detail=str(e))

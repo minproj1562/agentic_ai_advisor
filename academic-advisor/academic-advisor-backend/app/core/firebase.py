@@ -29,7 +29,7 @@ def get_firebase_app():
     # Initialize Firebase Admin SDK
     try:
         # Import settings here to avoid circular import
-        from app.config import settings
+        from app.core.config import settings
         
         cred_path = settings.FIREBASE_CREDENTIALS_PATH
         

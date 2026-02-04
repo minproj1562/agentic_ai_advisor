@@ -1,13 +1,46 @@
-from . import academic
-from . import electives
-from . import student_analysis
-from . import resources
-from . import messages
-from . import students
-from . import weakness
-from . import analytics
-from . import achievements
-from . import publications
-from . import research_area
-from . import appointments
-from . import student_projects_enhanced
+# app/api/v1/endpoints/__init__.py
+"""
+Endpoint modules for API v1
+"""
+
+from . import (
+    academic,
+    achievements,
+    analytics,
+    appointments,
+    electives,
+    faculty_profile,
+    meeting_requests,
+    messages,
+    ml_insights,
+    notifications,  # ADD THIS
+    publications,
+    research_area,
+    resources,
+    students,
+    student_analysis,
+    student_profile,
+    student_projects_enhanced,
+    weakness,
+)
+
+__all__ = [
+    "academic",
+    "achievements", 
+    "analytics",
+    "appointments",
+    "electives",
+    "faculty_profile",
+    "meeting_requests",
+    "messages",
+    "ml_insights",
+    "notifications",  # ADD THIS
+    "publications",
+    "research_area",
+    "resources",
+    "students",
+    "student_analysis",
+    "student_profile",
+    "student_projects_enhanced",
+    "weakness",
+]
