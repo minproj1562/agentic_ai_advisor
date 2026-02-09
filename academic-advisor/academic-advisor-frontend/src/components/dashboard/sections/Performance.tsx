@@ -6,19 +6,19 @@ import {
   Clock, Zap, ArrowUp, ArrowDown, Activity, RefreshCw, Download,
   BarChart3
 } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
 import {
   AreaChart, Area, BarChart, Bar,
   RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
   Cell, ComposedChart, Line
 } from 'recharts';
-import { useQuery } from '@tanstack/react-query';
 import { cn } from '../../../utils/cn';
 import { auth } from '../../../services/firebase.config';
 import toast from 'react-hot-toast';
 import PerformanceChart from '../PerformanceChart';
 
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
+const BACKEND_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 interface SemesterData {
   semester: number;
@@ -36,77 +36,79 @@ interface CoursePerformance {
   marks: number;
 }
 
-interface SkillAssessment {
-  skill: string;
-  proficiency: number;
-  lastAssessed: string;
-}
-
-interface MenteeComparison {
-  topPerformers: number;
-  averagePerformers: number;
-  needsAttention: number;
-}
-
-interface PredictionFactor {
-  factor: string;
-  impact: number;
-}
-
-interface PredictedPerformance {
-  nextSemester: number;
-  confidence: number;
-  factors: PredictionFactor[];
-}
-
 interface PerformanceData {
   currentSGPI: number;
   previousSGPI: number;
   trend: 'up' | 'down' | 'stable';
   percentageChange: number;
   semesterWiseData: SemesterData[];
-  courseWisePerformance: CoursePerformance[];
-  skillsAssessment: SkillAssessment[];
-  menteeComparison: MenteeComparison;
-  predictedPerformance: PredictedPerformance;
+  courseWisePerformance?: CoursePerformance[];
+  skillsAssessment?: any[];
+  menteeComparison?: any;
+  predictedPerformance?: any;
 }
 
 const Performance: React.FC = () => {
   const [timeRange, setTimeRange] = useState<'semester' | 'year' | 'all'>('all');
   const [selectedView, setSelectedView] = useState<'overview' | 'detailed' | 'comparison'>('overview');
-  const [selectedSemester, setSelectedSemester] = useState<number | null>(null);
 
-  // Fetch performance data from YOUR backend
+  // Fetch performance data from backend
   const { data: performanceData, isLoading, error, refetch } = useQuery({
-    queryKey: ['studentPerformance', timeRange],
-    queryFn: async (): Promise<PerformanceData> => {
-      const token = await auth.currentUser?.getIdToken();
-      
-      if (!token) {
-        throw new Error('Authentication required');
-      }
+  queryKey: ['studentPerformance', timeRange],
+  queryFn: async (): Promise<PerformanceData> => {
+    const token = await auth.currentUser?.getIdToken();
+    if (!token) throw new Error('Authentication required');
 
-      const response = await fetch(
-        `${BACKEND_URL}/api/v1/student/performance?range=${timeRange}`,
-        {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          }
-        }
-      );
-      
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.detail || 'Failed to fetch performance data');
-      }
-      
-      return response.json();
-    },
-    enabled: !!auth.currentUser,
-    staleTime: 2 * 60 * 1000, // 2 minutes
-    retry: 2,
-  });
+    // Use /me/full which has semester_records with subjects
+    const response = await fetch(`${BACKEND_URL}/api/v1/student-profile/me/full`, {
+      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
+    });
+
+    if (!response.ok) {
+      const errData = await response.json().catch(() => ({}));
+      throw new Error(errData.detail || 'Failed to fetch');
+    }
+
+    const profile = await response.json();
+
+    // sgpa_trend is already computed by the backend
+    const sgpaTrend = (profile.sgpa_trend || []).map((s: any) => ({
+      semester: s.semester,
+      sgpi: s.sgpa,
+      credits: s.credits,
+      courses: s.subjects_count || 0
+    }));
+
+    const latest = sgpaTrend[sgpaTrend.length - 1];
+    const previous = sgpaTrend[sgpaTrend.length - 2];
+
+    // Get latest semester subjects for course-wise table
+    const allSemesters = profile.semester_records || [];
+    const latestSemRecord = allSemesters
+      .filter((s: any) => s.is_complete)
+      .sort((a: any, b: any) => b.semester_number - a.semester_number)[0];
+
+    return {
+      currentSGPI: profile.latest_sgpa || latest?.sgpi || 0,
+      previousSGPI: profile.previous_sgpa || previous?.sgpi || latest?.sgpi || 0,
+      trend: profile.trend || 'stable',
+      percentageChange: profile.percentage_change || 0,
+      semesterWiseData: sgpaTrend,
+      courseWisePerformance: latestSemRecord
+        ? latestSemRecord.subjects.map((s: any) => ({
+            courseCode: s.subject_code,
+            courseName: s.subject_name,
+            grade: s.grade,
+            credits: s.credits,
+            marks: s.total_marks
+          }))
+        : []
+    };
+  },
+  enabled: !!auth.currentUser,
+  staleTime: 60_000,
+  retry: 2,
+});
 
   // Listen for academic data updates
   React.useEffect(() => {
@@ -124,7 +126,7 @@ const Performance: React.FC = () => {
     };
   }, [refetch]);
 
-  // Prepare data for PerformanceChart component
+  // Prepare data for charts
   const performanceChartData = useMemo(() => {
     if (!performanceData) return null;
     
@@ -133,38 +135,27 @@ const Performance: React.FC = () => {
       previousSGPI: performanceData.previousSGPI,
       trend: performanceData.trend,
       percentageChange: performanceData.percentageChange,
-      semesterWiseData: performanceData.semesterWiseData.map(sem => ({
-        semester: sem.semester,
-        sgpi: sem.sgpi,
-        credits: sem.credits,
-        courses: sem.courses,
-      })),
+      semesterWiseData: performanceData.semesterWiseData,
     };
   }, [performanceData]);
 
-  // Prepare data for Recharts
   const rechartsData = useMemo(() => {
     if (!performanceData?.semesterWiseData) return [];
     
-    return performanceData.semesterWiseData
-      .sort((a, b) => a.semester - b.semester)
-      .map(sem => ({
-        semester: sem.semester,
-        semesterLabel: `Sem ${sem.semester}`,
-        sgpi: Number(sem.sgpi.toFixed(2)),
-        credits: sem.credits,
-        courses: sem.courses,
-        rank: sem.rank,
-      }));
+    return performanceData.semesterWiseData.map(sem => ({
+      semester: sem.semester,
+      semesterLabel: `Sem ${sem.semester}`,
+      sgpi: Number(sem.sgpi.toFixed(2)),
+      credits: sem.credits,
+      courses: sem.courses
+    }));
   }, [performanceData]);
 
   const chartColors = {
     primary: '#6366f1',
     success: '#10b981',
     warning: '#f59e0b',
-    danger: '#ef4444',
-    info: '#06b6d4',
-    purple: '#8b5cf6'
+    danger: '#ef4444'
   };
 
   const getTrendIcon = () => {
@@ -243,12 +234,12 @@ const Performance: React.FC = () => {
         <p className="text-gray-600 dark:text-gray-400 text-center max-w-md mb-4">
           Add your academic scores in the Academic Data Entry section to see your performance analytics here.
         </p>
-        <a
-          href="/dashboard/academic-entry"
+        <button
+          onClick={() => window.location.href = '/dashboard#academic'}
           className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
         >
           Add Academic Data
-        </a>
+        </button>
       </div>
     );
   }
@@ -267,23 +258,6 @@ const Performance: React.FC = () => {
         </div>
         
         <div className="flex flex-wrap gap-3">
-          <div className="flex bg-gray-100 dark:bg-gray-700 rounded-lg p-1">
-            {(['semester', 'year', 'all'] as const).map((range) => (
-              <button
-                key={range}
-                onClick={() => setTimeRange(range)}
-                className={cn(
-                  'px-4 py-2 text-sm font-medium rounded-md capitalize transition-all',
-                  timeRange === range
-                    ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm'
-                    : 'text-gray-600 dark:text-gray-400'
-                )}
-              >
-                {range === 'semester' ? 'Recent' : range}
-              </button>
-            ))}
-          </div>
-
           <button
             onClick={() => refetch()}
             disabled={isLoading}
@@ -291,11 +265,6 @@ const Performance: React.FC = () => {
             title="Refresh data"
           >
             <RefreshCw className={cn("w-5 h-5", isLoading && "animate-spin")} />
-          </button>
-
-          <button className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all">
-            <Download className="w-4 h-4" />
-            Export
           </button>
         </div>
       </div>
@@ -356,9 +325,6 @@ const Performance: React.FC = () => {
           <p className="text-3xl font-bold text-purple-900 dark:text-purple-100">
             {performanceData.previousSGPI.toFixed(2)}
           </p>
-          <p className="text-xs text-purple-600 dark:text-purple-400 mt-2">
-            Last semester performance
-          </p>
         </motion.div>
 
         {/* Total Semesters */}
@@ -378,9 +344,6 @@ const Performance: React.FC = () => {
           </p>
           <p className="text-3xl font-bold text-green-900 dark:text-green-100">
             {performanceData.semesterWiseData.length}
-          </p>
-          <p className="text-xs text-green-600 dark:text-green-400 mt-2">
-            Total credits: {performanceData.semesterWiseData.reduce((sum, s) => sum + s.credits, 0)}
           </p>
         </motion.div>
 
@@ -433,401 +396,136 @@ const Performance: React.FC = () => {
         </motion.div>
       </div>
 
-      {/* View Tabs */}
-      <div className="flex gap-2 border-b border-gray-200 dark:border-gray-700">
-        {(['overview', 'detailed', 'comparison'] as const).map((view) => (
-          <button
-            key={view}
-            onClick={() => setSelectedView(view)}
-            className={cn(
-              'px-6 py-3 text-sm font-medium capitalize transition-all',
-              selectedView === view
-                ? 'text-indigo-600 dark:text-indigo-400 border-b-2 border-indigo-600 dark:border-indigo-400'
-                : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
-            )}
-          >
-            {view}
-          </button>
-        ))}
+      {/* Custom SVG Performance Chart */}
+      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6">
+        <PerformanceChart data={performanceChartData} />
       </div>
 
-      {/* Content Based on Selected View */}
-      <AnimatePresence mode="wait">
-        {selectedView === 'overview' && (
-          <motion.div
-            key="overview"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -20 }}
-            className="space-y-6"
-          >
-            {/* Custom SVG Performance Chart */}
-            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6">
-              <PerformanceChart data={performanceChartData} />
-            </div>
+      {/* Recharts Performance Trend */}
+      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6">
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-6">
+          Detailed SGPI Trend
+        </h3>
+        
+        {rechartsData.length > 0 ? (
+          <ResponsiveContainer width="100%" height={350}>
+            <ComposedChart data={rechartsData}>
+              <defs>
+                <linearGradient id="colorSGPI" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor={chartColors.primary} stopOpacity={0.3}/>
+                  <stop offset="95%" stopColor={chartColors.primary} stopOpacity={0}/>
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
+              <XAxis dataKey="semesterLabel" tick={{ fontSize: 12 }} />
+              <YAxis
+                yAxisId="left"
+                domain={[0, 10]}
+                tick={{ fontSize: 12 }}
+                tickFormatter={(value) => value.toFixed(1)}
+              />
+              <YAxis
+                yAxisId="right"
+                orientation="right"
+                domain={[0, 'auto']}
+                tick={{ fontSize: 12 }}
+              />
+              <Tooltip />
+              <Legend />
+              <Area
+                yAxisId="left"
+                type="monotone"
+                dataKey="sgpi"
+                stroke={chartColors.primary}
+                strokeWidth={2}
+                fill="url(#colorSGPI)"
+                name="SGPI"
+              />
+              <Bar
+                yAxisId="right"
+                dataKey="credits"
+                fill={chartColors.success}
+                opacity={0.6}
+                name="Credits"
+                radius={[4, 4, 0, 0]}
+              />
+              <Line
+                yAxisId="left"
+                type="monotone"
+                dataKey="sgpi"
+                stroke={chartColors.primary}
+                strokeWidth={3}
+                dot={{ fill: chartColors.primary, strokeWidth: 2, r: 5 }}
+                name="SGPI Trend"
+              />
+            </ComposedChart>
+          </ResponsiveContainer>
+        ) : null}
+      </div>
 
-            {/* Recharts Performance Trend */}
-            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6">
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-6">
-                Detailed SGPI Trend
-              </h3>
-              
-              {rechartsData.length > 0 ? (
-                <ResponsiveContainer width="100%" height={350}>
-                  <ComposedChart data={rechartsData}>
-                    <defs>
-                      <linearGradient id="colorSGPI" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor={chartColors.primary} stopOpacity={0.3}/>
-                        <stop offset="95%" stopColor={chartColors.primary} stopOpacity={0}/>
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
-                    <XAxis
-                      dataKey="semesterLabel"
-                      tick={{ fontSize: 12 }}
-                    />
-                    <YAxis
-                      yAxisId="left"
-                      domain={[0, 10]}
-                      tick={{ fontSize: 12 }}
-                      tickFormatter={(value) => value.toFixed(1)}
-                      label={{ value: 'SGPI', angle: -90, position: 'insideLeft' }}
-                    />
-                    <YAxis
-                      yAxisId="right"
-                      orientation="right"
-                      domain={[0, 'auto']}
-                      tick={{ fontSize: 12 }}
-                      label={{ value: 'Credits', angle: 90, position: 'insideRight' }}
-                    />
-                    <Tooltip
-                      contentStyle={{
-                        backgroundColor: 'rgba(255, 255, 255, 0.95)',
-                        border: '1px solid #e5e7eb',
-                        borderRadius: '0.5rem',
-                        padding: '0.75rem'
-                      }}
-                      formatter={(value: number, name: string) => {
-                        if (name === 'sgpi' || name === 'SGPI Trend') return [value.toFixed(2), 'SGPI'];
-                        if (name === 'credits') return [value, 'Credits'];
-                        return [value, name];
-                      }}
-                    />
-                    <Legend />
-                    <Area
-                      yAxisId="left"
-                      type="monotone"
-                      dataKey="sgpi"
-                      stroke={chartColors.primary}
-                      strokeWidth={2}
-                      fill="url(#colorSGPI)"
-                      name="SGPI"
-                    />
-                    <Bar
-                      yAxisId="right"
-                      dataKey="credits"
-                      fill={chartColors.success}
-                      opacity={0.6}
-                      name="Credits"
-                      radius={[4, 4, 0, 0]}
-                    />
-                    <Line
-                      yAxisId="left"
-                      type="monotone"
-                      dataKey="sgpi"
-                      stroke={chartColors.purple}
-                      strokeWidth={3}
-                      dot={{ fill: chartColors.purple, strokeWidth: 2, r: 5 }}
-                      activeDot={{ r: 7 }}
-                      name="SGPI Trend"
-                    />
-                  </ComposedChart>
-                </ResponsiveContainer>
-              ) : (
-                <div className="flex items-center justify-center h-64 text-gray-500">
-                  No semester data available for chart
-                </div>
-              )}
-            </div>
-
-            {/* Semester Statistics */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* Recent Semesters */}
-              <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6">
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-                  Semester Performance
-                </h3>
-                <div className="space-y-3">
-                  {performanceData.semesterWiseData
-                    .sort((a, b) => b.semester - a.semester)
-                    .map((sem, index) => (
-                      <motion.div
-                        key={sem.semester}
-                        initial={{ opacity: 0, x: -20 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        transition={{ delay: index * 0.1 }}
-                        className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors cursor-pointer"
-                        onClick={() => setSelectedSemester(sem.semester)}
-                      >
-                        <div className="flex items-center gap-4">
-                          <div className="w-12 h-12 bg-indigo-100 dark:bg-indigo-900/30 rounded-lg flex items-center justify-center">
-                            <span className="text-lg font-bold text-indigo-600 dark:text-indigo-400">
-                              {sem.semester}
-                            </span>
-                          </div>
-                          <div>
-                            <p className="font-medium text-gray-900 dark:text-white">
-                              Semester {sem.semester}
-                            </p>
-                            <p className="text-sm text-gray-600 dark:text-gray-400">
-                              {sem.credits} Credits • {sem.courses} Courses
-                            </p>
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-2xl font-bold text-gray-900 dark:text-white">
-                            {sem.sgpi.toFixed(2)}
-                          </p>
-                          {sem.rank && (
-                            <p className="text-xs text-gray-500 dark:text-gray-400">
-                              Rank: {sem.rank}
-                            </p>
-                          )}
-                        </div>
-                      </motion.div>
-                    ))}
-                </div>
-              </div>
-
-              {/* Skills Assessment Radar */}
-              <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6">
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-                  Skills Assessment
-                </h3>
-                {performanceData.skillsAssessment && performanceData.skillsAssessment.length > 0 ? (
-                  <ResponsiveContainer width="100%" height={280}>
-                    <RadarChart data={performanceData.skillsAssessment.slice(0, 6)}>
-                      <PolarGrid stroke="#e5e7eb" />
-                      <PolarAngleAxis
-                        dataKey="skill"
-                        tick={{ fontSize: 11 }}
-                      />
-                      <PolarRadiusAxis angle={90} domain={[0, 100]} />
-                      <Radar
-                        name="Proficiency"
-                        dataKey="proficiency"
-                        stroke={chartColors.primary}
-                        fill={chartColors.primary}
-                        fillOpacity={0.3}
-                      />
-                      <Tooltip />
-                    </RadarChart>
-                  </ResponsiveContainer>
-                ) : (
-                  <div className="flex items-center justify-center h-64 text-gray-500">
-                    Skills assessment not available
-                  </div>
-                )}
-              </div>
-            </div>
-          </motion.div>
-        )}
-
-        {selectedView === 'detailed' && (
-          <motion.div
-            key="detailed"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -20 }}
-            className="bg-white dark:bg-gray-800 rounded-xl shadow-lg overflow-hidden"
-          >
-            <div className="p-6">
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-                Course-wise Performance (Current Semester)
-              </h3>
-            </div>
-            
-            {performanceData.courseWisePerformance && performanceData.courseWisePerformance.length > 0 ? (
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-gray-50 dark:bg-gray-700">
-                    <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                        Course Code
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                        Course Name
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                        Credits
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                        Marks
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                        Grade
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                        Performance
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                    {performanceData.courseWisePerformance.map((course, index) => (
-                      <motion.tr
-                        key={course.courseCode}
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: index * 0.05 }}
-                        className="hover:bg-gray-50 dark:hover:bg-gray-700/50"
-                      >
-                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
-                          {course.courseCode}
-                        </td>
-                        <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">
-                          {course.courseName}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">
-                          {course.credits}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">
-                          {course.marks}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <span className={cn(
-                            "px-3 py-1 text-xs font-medium rounded-full",
-                            getGradeColor(course.grade)
-                          )}>
-                            {course.grade}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4">
-                          <div className="flex items-center gap-2">
-                            <div className="w-24 bg-gray-200 dark:bg-gray-700 rounded-full h-2">
-                              <div
-                                className={cn(
-                                  "h-2 rounded-full transition-all duration-500",
-                                  course.marks >= 90 ? "bg-green-500" :
-                                  course.marks >= 75 ? "bg-blue-500" :
-                                  course.marks >= 60 ? "bg-yellow-500" :
-                                  course.marks >= 40 ? "bg-orange-500" : "bg-red-500"
-                                )}
-                                style={{ width: `${Math.min(course.marks, 100)}%` }}
-                              />
-                            </div>
-                            <span className="text-xs text-gray-600 dark:text-gray-400">
-                              {course.marks}%
-                            </span>
-                          </div>
-                        </td>
-                      </motion.tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <div className="flex items-center justify-center h-64 text-gray-500">
-                No course performance data available
-              </div>
-            )}
-          </motion.div>
-        )}
-
-        {selectedView === 'comparison' && (
-          <motion.div
-            key="comparison"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -20 }}
-            className="space-y-6"
-          >
-            {/* Predicted Performance */}
-            {performanceData.predictedPerformance && (
-              <div className="bg-gradient-to-r from-purple-500 to-indigo-600 rounded-xl shadow-lg p-6 text-white">
-                <div className="flex items-center gap-3 mb-4">
-                  <Zap className="w-6 h-6" />
-                  <h3 className="text-xl font-semibold">AI Performance Prediction</h3>
-                </div>
-                
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  <div className="bg-white/10 backdrop-blur-sm rounded-lg p-4">
-                    <p className="text-sm opacity-90 mb-1">Predicted Next Semester SGPI</p>
-                    <p className="text-3xl font-bold">
-                      {performanceData.predictedPerformance.nextSemester.toFixed(2)}
-                    </p>
-                    <div className="mt-2 flex items-center gap-2">
-                      <div className="flex-1 bg-white/20 rounded-full h-2">
-                        <div
-                          className="bg-white h-2 rounded-full transition-all duration-500"
-                          style={{ width: `${performanceData.predictedPerformance.confidence}%` }}
-                        />
-                      </div>
-                      <span className="text-xs opacity-90">
-                        {performanceData.predictedPerformance.confidence}% confidence
+      {/* Course Performance Table */}
+      {performanceData.courseWisePerformance && performanceData.courseWisePerformance.length > 0 && (
+        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg overflow-hidden">
+          <div className="p-6">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+              Course-wise Performance (Current Semester)
+            </h3>
+          </div>
+          
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-gray-50 dark:bg-gray-700">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
+                    Course Code
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
+                    Course Name
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
+                    Credits
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
+                    Marks
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
+                    Grade
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                {performanceData.courseWisePerformance.map((course, index) => (
+                  <tr
+                    key={index}
+                    className="hover:bg-gray-50 dark:hover:bg-gray-700/50"
+                  >
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
+                      {course.courseCode}
+                    </td>
+                    <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">
+                      {course.courseName}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">
+                      {course.credits}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">
+                      {course.marks}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className={cn(
+                        "px-3 py-1 text-xs font-medium rounded-full",
+                        getGradeColor(course.grade)
+                      )}>
+                        {course.grade}
                       </span>
-                    </div>
-                  </div>
-                  
-                  <div className="md:col-span-2 bg-white/10 backdrop-blur-sm rounded-lg p-4">
-                    <p className="text-sm opacity-90 mb-3">Key Influencing Factors</p>
-                    <div className="space-y-2">
-                      {performanceData.predictedPerformance.factors.map((factor, index) => (
-                        <div key={index} className="flex items-center justify-between">
-                          <span className="text-sm">{factor.factor}</span>
-                          <div className="flex items-center gap-2">
-                            <div className="w-24 bg-white/20 rounded-full h-2">
-                              <div
-                                className={cn(
-                                  "h-2 rounded-full transition-all duration-500",
-                                  factor.impact > 0 ? "bg-green-400" : "bg-red-400"
-                                )}
-                                style={{ width: `${Math.min(Math.abs(factor.impact) * 3, 100)}%` }}
-                              />
-                            </div>
-                            <span className={cn(
-                              "text-xs font-medium w-12 text-right",
-                              factor.impact > 0 ? "text-green-300" : "text-red-300"
-                            )}>
-                              {factor.impact > 0 ? '+' : ''}{factor.impact}%
-                            </span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* SGPI Comparison Chart */}
-            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6">
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-6">
-                SGPI Comparison Across Semesters
-              </h3>
-              
-              <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={rechartsData}>
-                  <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
-                  <XAxis dataKey="semesterLabel" />
-                  <YAxis domain={[0, 10]} tickFormatter={(value) => value.toFixed(1)} />
-                  <Tooltip 
-                    formatter={(value: number) => [value.toFixed(2), 'SGPI']}
-                  />
-                  <Bar dataKey="sgpi" radius={[8, 8, 0, 0]}>
-                    {rechartsData.map((entry, index) => (
-                      <Cell 
-                        key={`cell-${index}`} 
-                        fill={entry.sgpi >= 8.5 ? chartColors.success : 
-                              entry.sgpi >= 6.5 ? chartColors.warning : chartColors.danger} 
-                      />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

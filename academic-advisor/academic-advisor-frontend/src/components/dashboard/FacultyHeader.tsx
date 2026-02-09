@@ -92,8 +92,7 @@ const FacultyHeader: React.FC<FacultyHeaderProps> = ({
     {
       icon: User,
       label: 'View Profile',
-      onClick: () => navigate('/profile'),
-    },
+      onClick: () => navigate('/faculty/dashboard', { state: { section: 'profile' } }),},
     {
       icon: Settings,
       label: 'Settings',

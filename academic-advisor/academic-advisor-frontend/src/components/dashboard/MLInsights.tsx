@@ -66,52 +66,63 @@ export const MLInsights: React.FC<MLInsightsProps> = ({
   }, [user, academicData]);
 
   const fetchMLInsights = async () => {
-    if (!user?.uid) return;
+  if (!user?.uid) return;
 
-    setLoading(true);
-    setError(null);
+  setLoading(true);
+  setError(null);
 
-    try {
-      // Fetch all ML insights in parallel
-      const [predictionRes, weaknessRes, careerRes] = await Promise.all([
-        mlService.getPredictions(
-          user.uid,
-          academicData,
-          historicalScores,
-          currentSemester
-        ),
-        subjectScores.length > 0 
-          ? mlService.analyzeWeaknesses(user.uid, subjectScores, academicData.current_cgpa)
-          : null,
-        skills.length > 0 || interests.length > 0
-          ? mlService.predictCareer(
-              user.uid,
-              skills,
-              interests,
-              academicData.current_cgpa,
-              projects
-            )
-          : null
-      ]);
+  try {
+    // Fetch all ML insights from backend
+    const [predictionRes, weaknessRes, careerRes] = await Promise.all([
+      mlService.getPredictions(
+        user.uid,
+        academicData,
+        historicalScores,
+        currentSemester
+      ).catch(err => {
+        console.error('Predictions error:', err);
+        return null;
+      }),
+      
+      subjectScores.length > 0 
+        ? mlService.analyzeWeaknesses(user.uid, subjectScores, academicData.current_cgpa).catch(err => {
+            console.error('Weakness analysis error:', err);
+            return null;
+          })
+        : null,
+        
+      skills.length > 0 || interests.length > 0
+        ? mlService.predictCareer(
+            user.uid,
+            skills,
+            interests,
+            academicData.current_cgpa,
+            projects
+          ).catch(err => {
+            console.error('Career prediction error:', err);
+            return null;
+          })
+        : null
+    ]);
 
-      setPredictions(predictionRes);
-      if (weaknessRes) setWeaknessAnalysis(weaknessRes);
-      if (careerRes) setCareerPredictions(careerRes);
+    if (predictionRes) setPredictions(predictionRes);
+    if (weaknessRes) setWeaknessAnalysis(weaknessRes);
+    if (careerRes) setCareerPredictions(careerRes);
 
-      // Show toast for high-risk students
-      if (predictionRes.predictions.risk_level === 'High') {
-        toast.error('⚠️ High academic risk detected. Please review recommendations.', {
-          duration: 5000
-        });
-      }
-    } catch (err) {
-      console.error('Error fetching ML insights:', err);
-      setError('Failed to fetch ML insights. Please try again.');
-      toast.error('Failed to load AI insights');
-    } finally {
-      setLoading(false);
+    // Show warnings for high risk
+    if (predictionRes && predictionRes.predictions.risk_level === 'High') {
+      toast.error('⚠️ High academic risk detected. Please review recommendations.', {
+        duration: 5000
+      });
     }
-  };
+  } catch (err) {
+    console.error('Error fetching ML insights:', err);
+    setError('Failed to fetch ML insights. Using cached data if available.');
+    toast.error('Some AI insights may be unavailable');
+  } finally {
+    setLoading(false);
+  }
+};
 
   const getRiskColor = (level: string) => {
     switch (level) {

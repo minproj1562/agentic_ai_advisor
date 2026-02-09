@@ -1,105 +1,127 @@
+# academic-advisor-backend/app/api/v1/api.py
 """
-API Router - Aggregates all endpoint routers
+API Router aggregation - All v1 endpoints
 """
 
 from fastapi import APIRouter
-import logging
-import importlib
 
-logger = logging.getLogger(__name__)
+# Import all endpoint routers
+from app.api.v1.endpoints.student_profile import router as student_profile_router
+from app.api.v1.endpoints.academic import router as academic_router
+from app.api.v1.endpoints.students import router as students_router
+from app.api.v1.endpoints.electives import router as electives_router
+from app.api.v1.endpoints.weakness import router as weakness_router
+from app.api.v1.endpoints.resources import router as resources_router
+from app.api.v1.endpoints.meeting_requests import router as meeting_requests_router
+from app.api.v1.endpoints.student_projects_enhanced import router as projects_router
+from app.api.v1.endpoints.notifications import router as notifications_router
+from app.api.v1.endpoints.analytics import router as analytics_router
+from app.api.v1.endpoints.student_analysis import router as student_analysis_router  # ADD THIS
 
+# Import auth router
+from app.api.v1.auth import router as auth_router
+
+# Optional routers (may not exist)
+try:
+    from app.api.v1.endpoints.faculty_profile import router as faculty_profile_router
+    HAS_FACULTY_PROFILE = True
+except ImportError:
+    HAS_FACULTY_PROFILE = False
+
+try:
+    from app.api.v1.endpoints.ml_insights import router as ml_insights_router
+    HAS_ML_INSIGHTS = True
+except ImportError:
+    HAS_ML_INSIGHTS = False
+
+# Create main API router
 api_router = APIRouter()
 
-# ==================== Fixed router loading function ====================
+# Include all routers with proper prefixes and tags
+api_router.include_router(
+    auth_router, 
+    prefix="/auth", 
+    tags=["Authentication"]
+)
 
-def safe_include_router(module_path: str, prefix: str, tags: list):
-    """Safely import and include a router with detailed error logging"""
-    try:
-        # Import the full module path
-        module = importlib.import_module(module_path)
-        
-        # Always look for 'router' attribute
-        router = getattr(module, 'router', None)
-        
-        if router is None:
-            logger.error(f"❌ No 'router' found in {module_path}")
-            return False
-        
-        api_router.include_router(router, prefix=prefix, tags=tags)
-        logger.info(f"✅ Loaded: {prefix} from {module_path}")
-        return True
-        
-    except ImportError as e:
-        logger.error(f"❌ ImportError for {module_path}: {e}")
-        return False
-    except Exception as e:
-        logger.error(f"❌ Error loading {module_path}: {type(e).__name__}: {e}")
-        return False
+api_router.include_router(
+    student_profile_router, 
+    prefix="/student-profile", 
+    tags=["Student Profile"]
+)
 
+api_router.include_router(
+    academic_router, 
+    prefix="/academic", 
+    tags=["Academic Data"]
+)
 
-# ==================== Load all routers ====================
+# ADD THIS - Student Analysis Router (for dashboard data)
+api_router.include_router(
+    student_analysis_router, 
+    prefix="/student-analysis", 
+    tags=["Student Analysis"]
+)
 
-# Auth
-safe_include_router("app.api.v1.auth", "/auth", ["Authentication"])
+api_router.include_router(
+    students_router, 
+    prefix="/students", 
+    tags=["Students"]
+)
 
-# Students
-safe_include_router("app.api.v1.students", "/students", ["Students"])
-safe_include_router("app.api.v1.endpoints.students", "/students", ["Students Endpoints"])
-safe_include_router("app.api.v1.student_analysis", "/student-analysis", ["Student Analysis"])
-safe_include_router("app.api.v1.endpoints.student_analysis", "/student-analysis", ["Student Analysis Endpoints"])
-safe_include_router("app.api.v1.endpoints.student_profile", "/student-profile", ["Student Profile"])
-safe_include_router("app.api.v1.endpoints.student_projects_enhanced", "/student-projects", ["Student Projects"])
+api_router.include_router(
+    electives_router, 
+    prefix="/electives", 
+    tags=["Elective Recommendations"]
+)
 
-# Faculty
-safe_include_router("app.api.v1.faculty", "/faculty", ["Faculty"])
-safe_include_router("app.api.v1.endpoints.faculty_profile", "/faculty-profile", ["Faculty Profile"])
+api_router.include_router(
+    weakness_router, 
+    prefix="/weakness", 
+    tags=["Weakness Analysis"]
+)
 
-# Meetings
-safe_include_router("app.api.v1.endpoints.meeting_requests", "/meetings", ["Meeting Requests"])
-safe_include_router("app.api.v1.endpoints.appointments", "/appointments", ["Appointments"])
+api_router.include_router(
+    resources_router, 
+    prefix="/resources", 
+    tags=["Study Resources"]
+)
 
-# Notifications
-safe_include_router("app.api.v1.endpoints.notifications", "/notifications", ["Notifications"])
+api_router.include_router(
+    meeting_requests_router, 
+    prefix="/meetings", 
+    tags=["Meeting Requests"]
+)
 
-# Messages
-safe_include_router("app.api.v1.messages", "/messages", ["Messages"])
-safe_include_router("app.api.v1.endpoints.messages", "/messages", ["Messages Endpoints"])
+api_router.include_router(
+    projects_router, 
+    prefix="/projects", 
+    tags=["Student Projects"]
+)
 
-# CV
-safe_include_router("app.api.v1.cv", "/cv", ["CV Processing"])
+api_router.include_router(
+    notifications_router, 
+    prefix="/notifications", 
+    tags=["Notifications"]
+)
 
-# Recommendations
-safe_include_router("app.api.v1.recommendations", "/recommendations", ["Recommendations"])
+api_router.include_router(
+    analytics_router, 
+    prefix="/analytics", 
+    tags=["Analytics"]
+)
 
-# Resources
-safe_include_router("app.api.v1.resources", "/resources", ["Resources"])
-safe_include_router("app.api.v1.endpoints.resources", "/resources", ["Resources Endpoints"])
+# Optional routers
+if HAS_FACULTY_PROFILE:
+    api_router.include_router(
+        faculty_profile_router, 
+        prefix="/faculty-profile", 
+        tags=["Faculty Profile"]
+    )
 
-# Academic
-safe_include_router("app.api.v1.endpoints.academic", "/academic", ["Academic"])
-
-# Electives
-safe_include_router("app.api.v1.endpoints.electives", "/electives", ["Electives"])
-
-# Weakness
-safe_include_router("app.api.v1.endpoints.weakness", "/weakness", ["Weakness Analysis"])
-
-# Analytics
-safe_include_router("app.api.v1.endpoints.analytics", "/analytics", ["Analytics"])
-
-# ML Insights
-safe_include_router("app.api.v1.endpoints.ml_insights", "/ml-insights", ["ML Insights"])
-
-# Achievements
-safe_include_router("app.api.v1.endpoints.achievements", "/achievements", ["Achievements"])
-
-# Research
-safe_include_router("app.api.v1.endpoints.research_area", "/research", ["Research"])
-
-# Publications
-safe_include_router("app.api.v1.endpoints.publications", "/publications", ["Publications"])
-
-# WebSocket
-safe_include_router("app.api.v1.websocket", "/ws", ["WebSocket"])
-
-logger.info("🚀 API router initialization complete")
+if HAS_ML_INSIGHTS:
+    api_router.include_router(
+        ml_insights_router, 
+        prefix="/ml-insights", 
+        tags=["ML Insights"]
+    )

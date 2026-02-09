@@ -5,6 +5,7 @@ import { AnimatePresence } from 'framer-motion';
 import LoadingSpinner from '../components/common/LoadingSpinner';
 import ProtectedRoute from './ProtectedRoute';
 import FacultyProfileSetup from '../pages/FacultyProfileSetup';
+import FacultyProfileEdit from '../pages/FacultyProfileEdit';
 
 // CORRECTED IMPORT PATH - moved from ../pages/FacultyDashboard
 import FacultyDashboard from '../pages/Dashboard/FacultyDashboard';
@@ -140,13 +141,12 @@ const AppRouter: React.FC = () => {
 <Route 
   path="/faculty/profile-edit" 
   element={
-    <ProtectedRoute role="faculty">
-      <FacultyProfileSetup />
+    <ProtectedRoute>
+      <FacultyProfileEdit />
     </ProtectedRoute>
   } 
 />
-          
-          {/* 404 Route */}
+           {/* 404 Route */}
           <Route path="/404" element={<NotFound />} />
           <Route path="*" element={<Navigate to="/404" replace />} />
         </Routes>

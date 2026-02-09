@@ -1,4 +1,4 @@
-# app/api/v1/analytics.py
+# app/api/v1/auth.py
 """
 Analytics API endpoints
 """

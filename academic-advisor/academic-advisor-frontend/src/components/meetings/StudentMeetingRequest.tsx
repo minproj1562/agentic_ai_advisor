@@ -144,7 +144,7 @@ const RequestFormModal: React.FC<{
     setIsSubmitting(true);
     
     try {
-      await apiClient.post('/meetings/request', {
+      await apiClient.post('/meetings/student/create', {
         faculty_id: faculty.user_id,
         subject: data.subject,
         message: data.message,

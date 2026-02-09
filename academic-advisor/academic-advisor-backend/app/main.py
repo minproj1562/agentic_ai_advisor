@@ -19,7 +19,8 @@ import os
 from app.config import settings
 from app.api.v1.api import api_router
 
-# Import document models
+# Import document models - ADD StudentProfile
+from app.models.student_profile import StudentProfile  # ← ADD THIS LINE
 from app.models.student_performance import StudentPerformance
 from app.models.elective import Elective
 from app.models.resource import StudyResource
@@ -35,8 +36,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Document models for Beanie
+# Document models for Beanie - ADD StudentProfile
 document_models = [
+    StudentProfile,          # ← ADD THIS LINE
     StudentPerformance,
     Elective,
     StudyResource,
@@ -81,6 +83,7 @@ async def lifespan(app: FastAPI):
             document_models=document_models
         )
         logger.info("✅ MongoDB connected successfully")
+        logger.info(f"📊 Initialized {len(document_models)} document models")  # ← OPTIONAL: Add this for debugging
     except Exception as e:
         logger.error(f"❌ MongoDB connection failed: {e}")
         raise

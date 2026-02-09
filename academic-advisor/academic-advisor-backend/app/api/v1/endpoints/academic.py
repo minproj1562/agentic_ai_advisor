@@ -18,9 +18,14 @@ logger = logging.getLogger(__name__)
 class SubjectInput(BaseModel):
     subject_code: str = Field(..., min_length=1)
     subject_name: str = Field(..., min_length=1)
-    credits: int = Field(default=3, ge=1, le=6)
-    internal_marks: float = Field(default=0, ge=0, le=20)
-    external_marks: float = Field(default=0, ge=0, le=80)
+    credits: int = Field(default=3, ge=1, le=10)  # Changed from le=6 to le=10 for internship
+    internal_marks: float = Field(default=0, ge=0, le=100)  # Changed from le=20 to le=100
+    external_marks: float = Field(default=0, ge=0, le=100)  # Changed from le=80 to le=100
+    internal_max: float = Field(default=20, ge=0, le=100)  # NEW: for grade calculation
+    external_max: float = Field(default=80, ge=0, le=100)  # NEW: for grade calculation
+    total_marks: Optional[float] = None
+    grade: Optional[str] = None
+    grade_points: Optional[float] = None
     is_elective: bool = False
     is_practical: bool = False
 
@@ -32,6 +37,8 @@ class SubjectInput(BaseModel):
                 "credits": 3,
                 "internal_marks": 18,
                 "external_marks": 65,
+                "internal_max": 20,
+                "external_max": 80,
                 "is_elective": False,
                 "is_practical": False
             }
@@ -41,7 +48,7 @@ class SubjectInput(BaseModel):
 class AddScoresRequest(BaseModel):
     semester_number: int = Field(..., ge=1, le=8)
     academic_year: str = Field(..., min_length=4)
-    subjects: List[SubjectInput] = Field(..., min_items=1)
+    subjects: List[SubjectInput] = Field(..., min_length=1)
 
     class Config:
         json_schema_extra = {
@@ -54,7 +61,9 @@ class AddScoresRequest(BaseModel):
                         "subject_name": "Data Structures",
                         "credits": 3,
                         "internal_marks": 18,
-                        "external_marks": 65
+                        "external_marks": 65,
+                        "internal_max": 20,
+                        "external_max": 80
                     }
                 ]
             }
@@ -90,13 +99,13 @@ async def get_profile(
     try:
         service = AcademicService()
         profile = await service.get_student_profile(current_user)
-        
+
         if not profile:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Profile not found. Please create your profile first."
             )
-        
+
         return {
             "profile": {
                 "user_id": profile.user_id,
@@ -134,11 +143,15 @@ async def create_profile(
             current_user, 
             profile_data.model_dump()
         )
-        
+
         return {
             "message": "Profile saved successfully",
             "current_semester": profile.current_semester,
             "current_academic_year": profile.current_academic_year,
+            "name": profile.name,
+            "roll_number": profile.roll_number,
+            "branch": profile.branch,
+            "admission_year": profile.admission_year,
             "profile": {
                 "user_id": profile.user_id,
                 "name": profile.name,
@@ -165,17 +178,17 @@ async def add_scores(
     """Add semester scores"""
     try:
         service = AcademicService()
-        
+
         # Convert Pydantic models to dicts
         subjects_data = [s.model_dump() for s in request.subjects]
-        
+
         result = await service.add_semester_scores(
             current_user,
             request.semester_number,
             request.academic_year,
             subjects_data
         )
-        
+
         return {
             "message": f"Semester {request.semester_number} scores added successfully",
             **result
@@ -202,7 +215,7 @@ async def get_scores(
     try:
         service = AcademicService()
         scores = await service.get_semester_scores(current_user, semester_number)
-        
+
         return {
             "semester_number": semester_number,
             "count": len(scores),
@@ -238,7 +251,7 @@ async def get_semesters(
     try:
         service = AcademicService()
         semesters = await service.get_semester_records(current_user)
-        
+
         return {
             "count": len(semesters),
             "semesters": [
@@ -270,13 +283,13 @@ async def get_cgpa(
     try:
         service = AcademicService()
         profile = await service.get_student_profile(current_user)
-        
+
         if not profile:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Profile not found"
             )
-        
+
         return {
             "cgpa": profile.cgpa,
             "total_credits_earned": profile.total_credits_earned,
@@ -303,15 +316,15 @@ async def get_academic_summary(
     try:
         service = AcademicService()
         profile = await service.get_student_profile(current_user)
-        
+
         if not profile:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Profile not found"
             )
-        
+
         completed_semesters = [s for s in profile.semester_records if s.is_complete]
-        
+
         return {
             "user_id": profile.user_id,
             "name": profile.name,
@@ -350,29 +363,29 @@ async def delete_semester(
     """Delete a semester's scores"""
     try:
         from app.models.student_profile import StudentProfile
-        
+
         profile = await StudentProfile.find_one(
             StudentProfile.user_id == current_user.uid
         )
-        
+
         if not profile:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Profile not found"
             )
-        
+
         original_len = len(profile.semester_records)
         profile.semester_records = [
             s for s in profile.semester_records 
             if s.semester_number != semester_number
         ]
-        
+
         if len(profile.semester_records) == original_len:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Semester {semester_number} not found"
             )
-        
+
         # Recalculate CGPA
         if profile.semester_records:
             total_points = sum(s.sgpa * s.total_credits for s in profile.semester_records if s.is_complete)
@@ -382,10 +395,10 @@ async def delete_semester(
         else:
             profile.cgpa = 0.0
             profile.total_credits_earned = 0
-        
+
         profile.last_updated = datetime.now()
         await profile.save()
-        
+
         return {
             "message": f"Semester {semester_number} deleted successfully",
             "updated_cgpa": profile.cgpa,
@@ -399,7 +412,8 @@ async def delete_semester(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e)
         )
-    
+
+
 @router.get("/subjects/available/{semester}")
 async def get_available_subjects_for_semester(
     semester: int,
@@ -409,7 +423,7 @@ async def get_available_subjects_for_semester(
     try:
         service = AcademicService()
         subjects_data = await service.get_available_subjects(current_user, semester)
-        
+
         return {
             "success": True,
             **subjects_data

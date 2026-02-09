@@ -53,6 +53,7 @@ class Settings(BaseSettings):
     
     # External Services
     OPENAI_API_KEY: Optional[str] = None
+    GROQ_API_KEY: Optional[str] = None 
     SENTRY_DSN: Optional[str] = None
     
     # ============== Email/Notification Settings ==============

@@ -1,14 +1,12 @@
 // src/components/dashboard/AcademicInsights.tsx
 
 import React, { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import {
   Brain,
   TrendingUp,
-  TrendingDown,
   AlertTriangle,
   Target,
-  BookOpen,
   Award,
   ChevronRight,
   Loader2,
@@ -19,9 +17,10 @@ import {
   GraduationCap,
   Clock,
   Star,
-  AlertCircle
+  AlertCircle,
+  Info
 } from 'lucide-react';
-import { mlService, AcademicRecommendations, WeaknessData } from '../../services/ml.service';
+import { mlService, AcademicRecommendations } from '../../services/ml.service';
 import { useAuth } from '../../contexts/AuthContext';
 import toast from 'react-hot-toast';
 
@@ -38,21 +37,28 @@ export const AcademicInsights: React.FC<AcademicInsightsProps> = ({
   const [loading, setLoading] = useState(true);
   const [recommendations, setRecommendations] = useState<AcademicRecommendations | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [needsSetup, setNeedsSetup] = useState(false);
 
   useEffect(() => {
     if (user?.uid) {
       fetchRecommendations();
     }
     
-    // Listen for academic data updates
     const handleAcademicUpdate = () => {
       fetchRecommendations();
     };
     
+    const handleProfileSaved = () => {
+      setNeedsSetup(false);
+      fetchRecommendations();
+    };
+    
     window.addEventListener('academicDataUpdated', handleAcademicUpdate);
+    window.addEventListener('profileSaved', handleProfileSaved);
     
     return () => {
       window.removeEventListener('academicDataUpdated', handleAcademicUpdate);
+      window.removeEventListener('profileSaved', handleProfileSaved);
     };
   }, [user]);
 
@@ -60,6 +66,7 @@ export const AcademicInsights: React.FC<AcademicInsightsProps> = ({
     try {
       setLoading(true);
       setError(null);
+      setNeedsSetup(false);
       
       const data = await mlService.getAcademicRecommendations();
       setRecommendations(data);
@@ -74,7 +81,14 @@ export const AcademicInsights: React.FC<AcademicInsightsProps> = ({
       
     } catch (err: any) {
       console.error('Error fetching recommendations:', err);
-      setError(err.message || 'Failed to fetch recommendations');
+      
+      // Check if it's a "profile not found" error
+      if (err.message?.includes('profile') || err.response?.status === 404) {
+        setNeedsSetup(true);
+        setError(null);
+      } else {
+        setError(err.message || 'Failed to fetch recommendations');
+      }
     } finally {
       setLoading(false);
     }
@@ -100,6 +114,7 @@ export const AcademicInsights: React.FC<AcademicInsightsProps> = ({
     }
   };
 
+  // Loading state
   if (loading) {
     return (
       <div className="bg-white rounded-xl shadow-sm border p-6">
@@ -111,6 +126,48 @@ export const AcademicInsights: React.FC<AcademicInsightsProps> = ({
     );
   }
 
+  // Needs setup state
+  if (needsSetup) {
+    return (
+      <div className="bg-gradient-to-r from-blue-50 to-purple-50 border border-blue-200 rounded-xl p-6">
+        <div className="flex items-center space-x-4">
+          <div className="p-3 bg-blue-100 rounded-full">
+            <GraduationCap className="w-8 h-8 text-blue-600" />
+          </div>
+          <div className="flex-1">
+            <h3 className="font-semibold text-blue-900 text-lg">Complete Your Academic Profile</h3>
+            <p className="text-sm text-blue-700 mt-1">
+              Add your academic details and semester scores to unlock AI-powered recommendations
+            </p>
+          </div>
+          <button
+            onClick={() => window.dispatchEvent(new CustomEvent('navigateToAcademic'))}
+            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
+          >
+            <GraduationCap className="w-4 h-4" />
+            Setup Now
+          </button>
+        </div>
+        
+        <div className="mt-4 grid grid-cols-3 gap-4">
+          <div className="bg-white/50 rounded-lg p-3 text-center">
+            <Sparkles className="w-6 h-6 text-purple-600 mx-auto mb-2" />
+            <p className="text-xs text-gray-600">Personalized Elective Recommendations</p>
+          </div>
+          <div className="bg-white/50 rounded-lg p-3 text-center">
+            <Target className="w-6 h-6 text-orange-600 mx-auto mb-2" />
+            <p className="text-xs text-gray-600">Weakness Analysis & Improvement Plan</p>
+          </div>
+          <div className="bg-white/50 rounded-lg p-3 text-center">
+            <Award className="w-6 h-6 text-green-600 mx-auto mb-2" />
+            <p className="text-xs text-gray-600">Honours/Minor Eligibility Check</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Error state
   if (error) {
     return (
       <div className="bg-white rounded-xl shadow-sm border p-6">
@@ -134,15 +191,16 @@ export const AcademicInsights: React.FC<AcademicInsightsProps> = ({
     );
   }
 
+  // No recommendations yet
   if (!recommendations) {
     return (
       <div className="bg-blue-50 border border-blue-200 rounded-xl p-6">
         <div className="flex items-center space-x-3">
-          <GraduationCap className="w-6 h-6 text-blue-600" />
+          <Info className="w-6 h-6 text-blue-600" />
           <div>
-            <p className="font-medium text-blue-900">Add Your Academic Data</p>
+            <p className="font-medium text-blue-900">No Recommendations Available</p>
             <p className="text-sm text-blue-700">
-              Enter your semester scores to get AI-powered recommendations
+              Add your semester scores to receive personalized recommendations
             </p>
           </div>
         </div>
@@ -166,9 +224,11 @@ export const AcademicInsights: React.FC<AcademicInsightsProps> = ({
           </div>
           <div className="text-right">
             <p className="text-sm text-blue-100">Current CGPA</p>
-            <p className="text-3xl font-bold">{recommendations.student_info.cgpa.toFixed(2)}</p>
+            <p className="text-3xl font-bold">
+              {recommendations.student_info?.cgpa?.toFixed(2) || '0.00'}
+            </p>
             <p className="text-xs text-blue-200">
-              {recommendations.student_info.branch} • Sem {recommendations.student_info.semester}
+              {recommendations.student_info?.branch || 'N/A'} • Sem {recommendations.student_info?.semester || 'N/A'}
             </p>
           </div>
         </div>
@@ -215,9 +275,9 @@ export const AcademicInsights: React.FC<AcademicInsightsProps> = ({
                     <div>
                       <h4 className="font-semibold">{weakness.subject}</h4>
                       <p className="text-sm mt-1">
-                        Score: {weakness.average_score.toFixed(1)}% • Gap: {weakness.gap.toFixed(1)}%
+                        Score: {weakness.average_score?.toFixed(1) || 0}% • Gap: {weakness.gap?.toFixed(1) || 0}%
                       </p>
-                      {weakness.topics.length > 0 && (
+                      {weakness.topics && weakness.topics.length > 0 && (
                         <div className="mt-2 flex flex-wrap gap-1">
                           {weakness.topics.slice(0, 3).map((topic, tIndex) => (
                             <span
@@ -250,7 +310,7 @@ export const AcademicInsights: React.FC<AcademicInsightsProps> = ({
                 Immediate Actions
               </h3>
               <div className="space-y-3">
-                {recommendations.curriculum_recommendations.immediate_actions.map((action: any, index: number) => (
+                {recommendations.curriculum_recommendations.immediate_actions.map((action, index) => (
                   <div
                     key={index}
                     className={`p-3 rounded-lg border-l-4 ${
@@ -289,7 +349,7 @@ export const AcademicInsights: React.FC<AcademicInsightsProps> = ({
                   
                   {recommendations.curriculum_recommendations.honours_minor_eligibility.available_programs && (
                     <div className="mt-3 space-y-2">
-                      {recommendations.curriculum_recommendations.honours_minor_eligibility.available_programs.slice(0, 3).map((program: any, index: number) => (
+                      {recommendations.curriculum_recommendations.honours_minor_eligibility.available_programs.slice(0, 3).map((program, index) => (
                         <div key={index} className="flex items-center justify-between text-sm">
                           <span>{program.program}</span>
                           <span className="text-green-600 font-medium">{program.type}</span>
@@ -338,7 +398,7 @@ export const AcademicInsights: React.FC<AcademicInsightsProps> = ({
           </div>
           
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {recommendations.interest_based_recommendations.slice(0, 3).map((rec: any, index: number) => (
+            {recommendations.interest_based_recommendations.slice(0, 3).map((rec, index) => (
               <motion.div
                 key={index}
                 initial={{ opacity: 0, y: 20 }}
@@ -360,7 +420,7 @@ export const AcademicInsights: React.FC<AcademicInsightsProps> = ({
         </div>
       )}
 
-      {/* Focus Areas */}
+      {/* Focus Areas - Strong Subjects */}
       {recommendations.curriculum_recommendations?.focus_areas?.length > 0 && (
         <div className="bg-green-50 border border-green-200 rounded-xl p-6">
           <h3 className="font-semibold text-green-900 mb-3 flex items-center gap-2">
@@ -368,12 +428,12 @@ export const AcademicInsights: React.FC<AcademicInsightsProps> = ({
             Your Strong Areas
           </h3>
           <div className="flex flex-wrap gap-2">
-            {recommendations.curriculum_recommendations.focus_areas.map((area: any, index: number) => (
+            {recommendations.curriculum_recommendations.focus_areas.map((area, index) => (
               <span
                 key={index}
                 className="px-3 py-1 bg-green-100 text-green-700 rounded-full text-sm"
               >
-                {area.area} ({area.average_score.toFixed(0)}%)
+                {area.area} ({area.average_score?.toFixed(0) || 0}%)
               </span>
             ))}
           </div>

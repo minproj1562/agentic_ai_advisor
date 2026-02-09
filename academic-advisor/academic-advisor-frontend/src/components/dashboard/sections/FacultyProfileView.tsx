@@ -7,6 +7,8 @@ import {
   GraduationCap, Briefcase, BookOpen, Award,
   Edit, Globe, Linkedin, Settings, CheckCircle
 } from 'lucide-react';
+import apiClient from '../../../services/api.service';
+import { useAuth } from '../../../contexts/AuthContext';
 import { format } from 'date-fns';
 
 interface FacultyProfileViewProps {

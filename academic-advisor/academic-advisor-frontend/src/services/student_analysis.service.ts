@@ -1,8 +1,8 @@
-// vite-student-analysis.service.ts
+// academic-advisor-frontend/src/services/student_analysis.service.ts
 import axios, { AxiosInstance, AxiosResponse, InternalAxiosRequestConfig } from 'axios';
 import { auth } from '../services/firebase.config';
 
-// Types (copied from your existing service to ensure compatibility)
+// Types
 export interface StudentAnalysisRequest {
   skip?: number;
   limit?: number;
@@ -77,7 +77,6 @@ export interface DetailedAnalysis extends StudentAnalysis {
   recommendations: string[];
 }
 
-// Extended ML Prediction interface to match your service structure
 export interface MLPredictionResponse {
   prediction_id: string;
   student_id: string;
@@ -138,101 +137,78 @@ export interface SystemAlert {
   acknowledged: boolean;
 }
 
-// Mock data for fallback
-const generateMockStudentData = (studentId: string): DetailedAnalysis => {
-  const currentSemester = Math.floor(Math.random() * 4) + 1;
-  const sgpaTrend = Array.from({ length: currentSemester }, (_, i) => ({
-    semester: i + 1,
-    sgpa: 6 + Math.random() * 4,
-    credits: 20 + Math.floor(Math.random() * 10),
-    year: `202${i + 1}`
-  }));
-  
-  const latestSgpa = sgpaTrend[sgpaTrend.length - 1].sgpa;
-  const cgpa = sgpaTrend.reduce((sum, s) => sum + s.sgpa, 0) / sgpaTrend.length;
-  
+// Analytics Event Types
+export interface AnalyticsEvent {
+  event_name: string;
+  event_data?: Record<string, any>;
+  user_id?: string;
+  timestamp: string;
+  session_id?: string;
+}
+
+// Empty/Default data generators (no mock data - just empty structures)
+const getEmptyStudentData = (studentId: string): DetailedAnalysis => {
   return {
     student_id: studentId,
-    name: `Student ${studentId}`,
-    department: 'Computer Science',
-    batch: 2020,
-    current_semester: currentSemester,
-    cgpa: cgpa,
-    sgpa_trend: sgpaTrend.map(s => s.sgpa),
-    latest_sgpa: latestSgpa,
-    attendance: 75 + Math.floor(Math.random() * 25),
-    weaknesses: [
-      { subject: 'Mathematics', topic: 'Calculus', severity: 'medium', gap: 15, priority: 2 },
-      { subject: 'Physics', topic: 'Quantum Mechanics', severity: 'low', gap: 10, priority: 3 },
-      { subject: 'Data Structures', topic: 'Trees', severity: 'high', gap: 20, priority: 1 }
-    ],
-    weakness_count: 3,
-    risk_score: 0.3,
+    name: '',
+    department: '',
+    batch: 0,
+    current_semester: 0,
+    cgpa: 0,
+    sgpa_trend: [],
+    latest_sgpa: 0,
+    attendance: 0,
+    weaknesses: [],
+    weakness_count: 0,
+    risk_score: 0,
     risk_level: 'low',
-    improvement_trend: 'improving',
-    recommendations_pending: 2,
-    profile_completeness: 85,
+    improvement_trend: 'stable',
+    recommendations_pending: 0,
+    profile_completeness: 0,
     last_updated: new Date().toISOString(),
     metadata: {
-      total_credits: currentSemester * 25,
+      total_credits: 0,
       has_warnings: false,
       analysis_version: '1.0'
     },
     performance_data: {
-      sgpa_trend: sgpaTrend,
-      attendance_trend: sgpaTrend.map(s => ({
-        semester: s.semester,
-        attendance: 75 + Math.floor(Math.random() * 25),
-        assignments: 5 + Math.floor(Math.random() * 5)
-      })),
-      grade_distribution: {
-        'A': 2,
-        'B': 3,
-        'C': 1,
-        'D': 0
-      },
+      sgpa_trend: [],
+      attendance_trend: [],
+      grade_distribution: {},
       statistics: {
-        mean_sgpa: cgpa,
-        std_sgpa: 0.5,
-        min_sgpa: Math.min(...sgpaTrend.map(s => s.sgpa)),
-        max_sgpa: Math.max(...sgpaTrend.map(s => s.sgpa)),
-        trend_direction: 'up'
+        mean_sgpa: 0,
+        std_sgpa: 0,
+        min_sgpa: 0,
+        max_sgpa: 0,
+        trend_direction: 'stable'
       }
     },
     predictions: {
-      next_semester_sgpa: latestSgpa + (Math.random() - 0.5),
-      expected_graduation_cgpa: cgpa + (Math.random() - 0.3),
-      failure_risk: 'low'
+      next_semester_sgpa: 0,
+      expected_graduation_cgpa: 0,
+      failure_risk: 'unknown'
     },
-    recommendations: [
-      'Focus on improving your mathematics fundamentals',
-      'Consider joining a study group for physics',
-      'Practice more programming problems'
-    ]
+    recommendations: []
   };
 };
 
-const generateMockPredictionData = (studentId: string): MLPredictionResponse => {
+const getEmptyPredictionData = (studentId: string): MLPredictionResponse => {
   return {
     prediction_id: `pred_${studentId}_${Date.now()}`,
     student_id: studentId,
     predictions: {
-      next_semester_sgpa: 7.5 + Math.random() * 2,
-      expected_graduation_cgpa: 7.8 + Math.random() * 1.5,
-      failure_risk: Math.random() > 0.7 ? 'high' : Math.random() > 0.4 ? 'medium' : 'low',
-      confidence_interval: [7.0, 8.5],
-      key_factors: ['attendance', 'previous_performance', 'study_habits'],
-      improvement_recommendations: [
-        'Increase study hours by 2 hours per week',
-        'Focus on weak subjects identified in analysis',
-        'Join peer study groups'
-      ]
+      next_semester_sgpa: 0,
+      expected_graduation_cgpa: 0,
+      failure_risk: 'unknown',
+      confidence_interval: [0, 0],
+      key_factors: [],
+      improvement_recommendations: []
     },
     model_metadata: {
-      model_version: '1.2.0',
-      training_date: '2023-01-15',
-      accuracy: 0.87,
-      features_used: ['attendance', 'grades', 'study_time', 'previous_sgpa']
+      model_version: '1.0.0',
+      training_date: new Date().toISOString(),
+      accuracy: 0,
+      features_used: []
     },
     timestamp: new Date().toISOString()
   };
@@ -247,14 +223,14 @@ const convertToAcademicRecords = (performanceData: DetailedAnalysis['performance
     sgpa: semesterData.sgpa,
     credits: semesterData.credits,
     year: semesterData.year,
-    subjects: [], // Default empty array since we don't have subject data in this structure
-    attendance: 0 // Default value
+    subjects: [],
+    attendance: 0
   }));
 };
 
-// Helper function to adapt ML predictions to your DetailedAnalysis format
+// Helper function to adapt ML predictions to DetailedAnalysis format
 const adaptMLPredictions = (mlPredictions: any): DetailedAnalysis['predictions'] => {
-  if (!mlPredictions.predictions) {
+  if (!mlPredictions?.predictions) {
     return {
       next_semester_sgpa: 0,
       expected_graduation_cgpa: 0,
@@ -270,7 +246,7 @@ const adaptMLPredictions = (mlPredictions: any): DetailedAnalysis['predictions']
   };
 };
 
-// Simple EventEmitter implementation to replace Node.js events
+// Simple EventEmitter implementation
 class SimpleEventEmitter {
   private events: { [key: string]: Function[] } = {};
 
@@ -307,19 +283,23 @@ export class StudentAnalysisService extends SimpleEventEmitter {
   private baseURL: string;
   private realtimeSubscriptions: Map<string, string>;
   private dataCache: Map<string, { data: any; timestamp: number }>;
+  private analyticsQueue: AnalyticsEvent[] = [];
   private readonly CACHE_TTL = 2 * 60 * 1000; // 2 minutes
-  private useMockData: boolean = false;
+  private readonly ANALYTICS_BATCH_SIZE = 10;
+  private readonly ANALYTICS_FLUSH_INTERVAL = 30000; // 30 seconds
+  private analyticsFlushTimer: NodeJS.Timeout | null = null;
+  private sessionId: string;
 
   constructor() {
     super();
-    // Use Vite environment variables
     this.baseURL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
     this.realtimeSubscriptions = new Map();
     this.dataCache = new Map();
+    this.sessionId = this.generateSessionId();
     
     this.api = axios.create({
       baseURL: `${this.baseURL}/api/v1/student-analysis`,
-      timeout: 10000, // Reduced timeout to fail faster
+      timeout: 10000,
       headers: {
         'Content-Type': 'application/json',
       },
@@ -327,37 +307,166 @@ export class StudentAnalysisService extends SimpleEventEmitter {
 
     this.setupInterceptors();
     this.setupRealtimeListeners();
+    this.startAnalyticsFlushTimer();
   }
 
-private setupInterceptors(): void {
-  // Request interceptor
-  this.api.interceptors.request.use(
-    async (config: InternalAxiosRequestConfig) => {
-      try {
-        // FIXED: Get token from Firebase Auth directly
-        const currentUser = auth.currentUser;
-        if (currentUser) {
-          const token = await currentUser.getIdToken();
-          if (token && config.headers) {
-            config.headers.Authorization = `Bearer ${token}`;
-          }
-        }
-      } catch (error) {
-        console.error('Failed to get auth token:', error);
+  // ==================== ANALYTICS TRACKING METHODS ====================
+  
+  /**
+   * Track an analytics event
+   * @param eventName - Name of the event to track
+   * @param eventData - Optional data associated with the event
+   */
+  public trackEvent(eventName: string, eventData?: Record<string, any>): void {
+    try {
+      const event: AnalyticsEvent = {
+        event_name: eventName,
+        event_data: eventData,
+        user_id: auth.currentUser?.uid,
+        timestamp: new Date().toISOString(),
+        session_id: this.sessionId
+      };
+
+      // Add to queue
+      this.analyticsQueue.push(event);
+
+      // Log in development
+      if (import.meta.env.DEV) {
+        console.log(`[Analytics] ${eventName}:`, eventData);
       }
-      
-      // Add request ID for tracking
-      if (config.headers) {
-        config.headers['X-Request-ID'] = this.generateRequestId();
+
+      // Flush if queue is full
+      if (this.analyticsQueue.length >= this.ANALYTICS_BATCH_SIZE) {
+        this.flushAnalytics();
       }
-      
-      return config;
-    },
-    (error) => {
-      console.error('Request error:', error);
-      return Promise.reject(error);
+
+      // Emit event for any listeners
+      this.emit('analyticsEvent', event);
+    } catch (error) {
+      console.error('Failed to track event:', error);
     }
-  );
+  }
+
+  /**
+   * Track a page view event
+   * @param pageName - Name of the page viewed
+   * @param additionalData - Optional additional data
+   */
+  public trackPageView(pageName: string, additionalData?: Record<string, any>): void {
+    this.trackEvent('page_view', {
+      page: pageName,
+      ...additionalData
+    });
+  }
+
+  /**
+   * Track a user action event
+   * @param action - The action performed
+   * @param category - Category of the action
+   * @param label - Optional label for the action
+   * @param value - Optional numeric value
+   */
+  public trackAction(action: string, category: string, label?: string, value?: number): void {
+    this.trackEvent('user_action', {
+      action,
+      category,
+      label,
+      value
+    });
+  }
+
+  /**
+   * Track an error event
+   * @param error - The error that occurred
+   * @param context - Context where the error occurred
+   */
+  public trackError(error: Error | string, context?: string): void {
+    this.trackEvent('error', {
+      message: error instanceof Error ? error.message : error,
+      stack: error instanceof Error ? error.stack : undefined,
+      context
+    });
+  }
+
+  /**
+   * Track feature usage
+   * @param featureName - Name of the feature used
+   * @param details - Optional details about usage
+   */
+  public trackFeatureUsage(featureName: string, details?: Record<string, any>): void {
+    this.trackEvent('feature_usage', {
+      feature: featureName,
+      ...details
+    });
+  }
+
+  /**
+   * Flush analytics events to the server
+   */
+  private async flushAnalytics(): Promise<void> {
+    if (this.analyticsQueue.length === 0) return;
+
+    const eventsToSend = [...this.analyticsQueue];
+    this.analyticsQueue = [];
+
+    try {
+      await this.api.post('/analytics/batch', { events: eventsToSend });
+    } catch (error) {
+      // If failed, add events back to queue (at the front)
+      this.analyticsQueue = [...eventsToSend, ...this.analyticsQueue];
+      console.error('Failed to flush analytics:', error);
+    }
+  }
+
+  /**
+   * Start the analytics flush timer
+   */
+  private startAnalyticsFlushTimer(): void {
+    if (this.analyticsFlushTimer) {
+      clearInterval(this.analyticsFlushTimer);
+    }
+
+    this.analyticsFlushTimer = setInterval(() => {
+      this.flushAnalytics();
+    }, this.ANALYTICS_FLUSH_INTERVAL);
+  }
+
+  /**
+   * Generate a unique session ID
+   */
+  private generateSessionId(): string {
+    return `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  }
+
+  // ==================== EXISTING METHODS ====================
+
+  private setupInterceptors(): void {
+    // Request interceptor
+    this.api.interceptors.request.use(
+      async (config: InternalAxiosRequestConfig) => {
+        try {
+          const currentUser = auth.currentUser;
+          if (currentUser) {
+            const token = await currentUser.getIdToken();
+            if (token && config.headers) {
+              config.headers.Authorization = `Bearer ${token}`;
+            }
+          }
+        } catch (error) {
+          console.error('Failed to get auth token:', error);
+        }
+        
+        if (config.headers) {
+          config.headers['X-Request-ID'] = this.generateRequestId();
+        }
+        
+        return config;
+      },
+      (error) => {
+        console.error('Request error:', error);
+        return Promise.reject(error);
+      }
+    );
 
     // Response interceptor
     this.api.interceptors.response.use(
@@ -366,15 +475,7 @@ private setupInterceptors(): void {
         return response;
       },
       async (error) => {
-        // Log the error but don't try to refresh tokens for now
         console.error('API Error:', error);
-        
-        // Check if it's a CORS or connection error
-        if (error.code === 'ECONNREFUSED' || error.message.includes('CORS')) {
-          console.log('Backend not available, switching to mock data');
-          this.useMockData = true;
-        }
-        
         this.handleApiError(error);
         return Promise.reject(error);
       }
@@ -386,7 +487,6 @@ private setupInterceptors(): void {
   }
 
   private logApiCall(config: any, response: AxiosResponse): void {
-    // Use Vite's import.meta.env for environment detection
     if (import.meta.env.DEV) {
       console.log('API Call:', {
         method: config.method,
@@ -401,24 +501,21 @@ private setupInterceptors(): void {
     const errorMessage = error.response?.data?.detail || 'An unexpected error occurred';
     const errorCode = error.response?.status;
     
-    // Emit error event for global error handling
     window.dispatchEvent(new CustomEvent('api-error', {
       detail: { message: errorMessage, code: errorCode }
     }));
     
+    this.trackError(errorMessage, 'api_call');
     this.logError(error);
   }
 
   private logError(error: any): void {
-    // Integration with error monitoring service (e.g., Sentry)
-    // In Vite, you might use import.meta.env to check for Sentry DSN
     if ((window as any).Sentry && import.meta.env.VITE_SENTRY_DSN) {
       (window as any).Sentry.captureException(error);
     }
   }
 
   private setupRealtimeListeners(): void {
-    // Using type assertions to handle services that may not have exact type definitions
     const realtimeService = realtimeSyncService as any;
     const mlService = mlIntegrationService as any;
 
@@ -442,7 +539,6 @@ private setupInterceptors(): void {
   private handleRealtimeUpdate(update: any): void {
     const { path, data } = update;
     
-    // Update cache with fresh data
     if (path.includes('students/')) {
       const studentId = path.split('/')[1];
       this.dataCache.set(`student_${studentId}`, {
@@ -454,14 +550,12 @@ private setupInterceptors(): void {
     this.emit('realtimeData', { path, data });
   }
 
-  // EXISTING METHODS FROM YOUR ORIGINAL SERVICE
   public async getStudentsList(params: StudentAnalysisRequest): Promise<StudentAnalysis[]> {
     try {
       const response = await this.api.get<StudentAnalysis[]>('/list', { params });
       return response.data;
     } catch (error) {
       console.error('Failed to fetch students list:', error);
-      // Return empty array instead of throwing
       return [];
     }
   }
@@ -483,7 +577,6 @@ private setupInterceptors(): void {
         },
       });
       
-      // Cache the result
       this.dataCache.set(cacheKey, {
         data: response.data,
         timestamp: Date.now()
@@ -493,20 +586,19 @@ private setupInterceptors(): void {
     } catch (error) {
       console.error(`Failed to fetch details for student ${studentId}:`, error);
       
-      // Return mock data as fallback
-      const mockData = generateMockStudentData(studentId);
+      // Return empty data structure instead of mock data
+      const emptyData = getEmptyStudentData(studentId);
       
-      // Cache the mock data for a shorter time
       this.dataCache.set(cacheKey, {
-        data: mockData,
+        data: emptyData,
         timestamp: Date.now()
       });
       
-      return mockData;
+      return emptyData;
     }
   }
 
-  public async getPredictions(studentId: string): Promise<any> {
+  public async getPredictions(studentId: string): Promise<MLPredictionResponse> {
     try {
       const response = await this.api.get(`/${studentId}/predictions`, {
         params: {
@@ -517,27 +609,21 @@ private setupInterceptors(): void {
       return response.data;
     } catch (error) {
       console.error(`Failed to fetch predictions for student ${studentId}:`, error);
-      
-      // Return mock data as fallback
-      return generateMockPredictionData(studentId);
+      return getEmptyPredictionData(studentId);
     }
   }
 
-  // NEW METHOD THAT WAS MISSING
   public async getRealtimeDashboard(facultyId: string): Promise<RealtimeDashboard> {
     try {
       const response: AxiosResponse<RealtimeDashboard> = await this.api.get('/dashboard/realtime', {
         params: { faculty_id: facultyId },
       });
 
-      // Subscribe to real-time updates for this dashboard
       this.subscribeToFacultyUpdates(facultyId);
-
       return response.data;
     } catch (error) {
       console.error(`Failed to fetch realtime dashboard for faculty ${facultyId}:`, error);
       
-      // Return empty dashboard as fallback
       return {
         faculty_id: facultyId,
         students: [],
@@ -578,7 +664,6 @@ private setupInterceptors(): void {
         mlIntegrationService.getPredictions(studentId)
       ]);
 
-      // Use the adapter function to ensure type compatibility
       const adaptedPredictions = adaptMLPredictions(mlPredictions);
 
       const enhancedData: DetailedAnalysis = {
@@ -586,29 +671,25 @@ private setupInterceptors(): void {
         predictions: adaptedPredictions
       };
 
-      // Cache the result
       this.dataCache.set(cacheKey, {
         data: enhancedData,
         timestamp: Date.now()
       });
 
-      // Subscribe to real-time updates for this student
       this.subscribeToStudentUpdates(studentId);
 
       return enhancedData;
     } catch (error) {
       console.error(`Failed to get enhanced student data for ${studentId}:`, error);
       
-      // Return mock data as fallback
-      const mockData = generateMockStudentData(studentId);
+      const emptyData = getEmptyStudentData(studentId);
       
-      // Cache the mock data for a shorter time
       this.dataCache.set(cacheKey, {
-        data: mockData,
+        data: emptyData,
         timestamp: Date.now()
       });
       
-      return mockData;
+      return emptyData;
     }
   }
 
@@ -626,7 +707,6 @@ private setupInterceptors(): void {
   }
 
   private handleStudentRealtimeUpdate(studentId: string, update: any): void {
-    // Update cache with fresh data
     this.dataCache.set(`student_${studentId}`, {
       data: update.data,
       timestamp: Date.now()
@@ -638,13 +718,11 @@ private setupInterceptors(): void {
   public async triggerAdvancedAnalysis(studentId: string): Promise<{ analysis_id: string; status: string }> {
     try {
       const studentData = await this.getStudentDetails(studentId);
-      
-      // Convert performance data to AcademicRecord format expected by ML service
       const academicRecords = convertToAcademicRecords(studentData.performance_data);
 
       const [weaknessAnalysis, prediction] = await Promise.all([
         mlIntegrationService.analyzeWeaknesses(studentId, academicRecords),
-        mlIntegrationService.getPredictions(studentId, true) // Force refresh
+        mlIntegrationService.getPredictions(studentId, true)
       ]);
 
       const response = await this.api.post(`/${studentId}/advanced-analysis`, {
@@ -654,31 +732,34 @@ private setupInterceptors(): void {
       });
 
       this.emit('advancedAnalysisComplete', { studentId, result: response.data });
+      this.trackEvent('advanced_analysis_triggered', { studentId });
       return response.data;
     } catch (error) {
       console.error(`Failed to trigger advanced analysis for ${studentId}:`, error);
       
-      // Return mock response as fallback
       return {
         analysis_id: `analysis_${studentId}_${Date.now()}`,
-        status: 'completed'
+        status: 'failed'
       };
     }
   }
 
-  // Add missing methods
   public async exportToExcel(students: StudentAnalysis[]): Promise<void> {
     try {
-      const response = await this.api.post('/export/excel', { students });
+      const response = await this.api.post('/export/excel', { students }, {
+        responseType: 'blob'
+      });
       
-      // Create a download link for the Excel file
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement('a');
       link.href = url;
-      link.setAttribute('download', 'students.xlsx');
+      link.setAttribute('download', `students_${new Date().toISOString().split('T')[0]}.xlsx`);
       document.body.appendChild(link);
       link.click();
       link.remove();
+      window.URL.revokeObjectURL(url);
+      
+      this.trackEvent('export_excel', { count: students.length });
     } catch (error) {
       console.error('Failed to export to Excel:', error);
       throw error;
@@ -688,6 +769,7 @@ private setupInterceptors(): void {
   public async bulkAnalyze(studentIds: string[]): Promise<any> {
     try {
       const response = await this.api.post('/bulk-analyze', { student_ids: studentIds });
+      this.trackEvent('bulk_analyze', { count: studentIds.length });
       return response.data;
     } catch (error) {
       console.error('Failed to bulk analyze:', error);
@@ -698,6 +780,7 @@ private setupInterceptors(): void {
   public async sendBulkEmail(studentIds: string[]): Promise<any> {
     try {
       const response = await this.api.post('/bulk-email', { student_ids: studentIds });
+      this.trackEvent('bulk_email_sent', { count: studentIds.length });
       return response.data;
     } catch (error) {
       console.error('Failed to send bulk email:', error);
@@ -708,6 +791,7 @@ private setupInterceptors(): void {
   public async generateBulkReport(studentIds: string[]): Promise<any> {
     try {
       const response = await this.api.post('/bulk-report', { student_ids: studentIds });
+      this.trackEvent('bulk_report_generated', { count: studentIds.length });
       return response.data;
     } catch (error) {
       console.error('Failed to generate bulk report:', error);
@@ -733,7 +817,6 @@ private setupInterceptors(): void {
     } else {
       this.dataCache.clear();
     }
-    // Using type assertion for mlIntegrationService
     const mlService = mlIntegrationService as any;
     if (mlService.clearCache) {
       mlService.clearCache(studentId);
@@ -741,19 +824,29 @@ private setupInterceptors(): void {
   }
 
   public getServiceStats(): any {
-    // Using type assertions for external services
     const mlService = mlIntegrationService as any;
     const realtimeService = realtimeSyncService as any;
     
     return {
       cacheSize: this.dataCache.size,
       realtimeSubscriptions: this.realtimeSubscriptions.size,
+      analyticsQueueSize: this.analyticsQueue.length,
+      sessionId: this.sessionId,
       mlServiceStats: mlService.getCacheStats ? mlService.getCacheStats() : {},
       realtimeStats: realtimeService.getSubscriptionStats ? realtimeService.getSubscriptionStats() : {}
     };
   }
 
   public destroy(): void {
+    // Flush remaining analytics
+    this.flushAnalytics();
+    
+    // Clear the flush timer
+    if (this.analyticsFlushTimer) {
+      clearInterval(this.analyticsFlushTimer);
+      this.analyticsFlushTimer = null;
+    }
+
     // Cleanup all real-time subscriptions
     this.realtimeSubscriptions.forEach((subscriptionId) => {
       realtimeSyncService.unsubscribe(subscriptionId);
@@ -764,7 +857,6 @@ private setupInterceptors(): void {
     this.removeAllListeners();
   }
 
-  // Include other existing methods from your original service
   public async triggerWeaknessAnalysis(
     studentId: string,
     forceRefresh: boolean = false
@@ -773,14 +865,14 @@ private setupInterceptors(): void {
       const response = await this.api.post(`/${studentId}/weakness-analysis`, null, {
         params: { force_refresh: forceRefresh },
       });
+      this.trackEvent('weakness_analysis_triggered', { studentId, forceRefresh });
       return response.data;
     } catch (error) {
       console.error(`Failed to trigger weakness analysis for ${studentId}:`, error);
       
-      // Return mock response as fallback
       return {
-        status: 'completed',
-        job_id: `job_${studentId}_${Date.now()}`
+        status: 'failed',
+        job_id: undefined
       };
     }
   }
@@ -796,30 +888,24 @@ private setupInterceptors(): void {
     } catch (error) {
       console.error(`Failed to get analysis status for ${studentId}:`, error);
       
-      // Return mock response as fallback
       return {
-        status: 'completed',
-        progress: 100
+        status: 'unknown',
+        progress: 0
       };
     }
   }
-
-  // Add other methods as needed from your original service...
 }
 
-// Mock implementations for the imported services to prevent runtime errors
-// These would normally be imported from your modules
+// Service stubs for imported services
 const mlIntegrationService = {
-  getPredictions: (studentId: string, forceRefresh?: boolean) => Promise.resolve(generateMockPredictionData(studentId)),
+  getPredictions: (studentId: string, forceRefresh?: boolean) => Promise.resolve(getEmptyPredictionData(studentId)),
   analyzeWeaknesses: (studentId: string, records: any) => Promise.resolve({ weaknesses: [] }),
-  // Add other methods as needed
 };
 
 const realtimeSyncService = {
   subscribeToDepartmentUpdates: (facultyId: string, callback: Function) => `sub_${facultyId}`,
   subscribeToStudentUpdates: (studentId: string, callback: Function) => `sub_${studentId}`,
   unsubscribe: (subscriptionId: string) => { /* unsubscribe logic */ },
-  // Add other methods as needed
 };
 
 // Singleton instance
@@ -831,5 +917,8 @@ export const getStudentAnalysisService = (): StudentAnalysisService => {
   }
   return serviceInstance;
 };
+
+// Create a default instance for direct import usage
+export const studentAnalysisService = getStudentAnalysisService();
 
 export default StudentAnalysisService;

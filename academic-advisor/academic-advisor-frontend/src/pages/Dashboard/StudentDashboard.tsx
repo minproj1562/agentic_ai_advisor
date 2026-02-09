@@ -46,7 +46,7 @@ import {
 import { useAuth } from '../../contexts/AuthContext';
 import PerformanceChart from '../../components/dashboard/PerformanceChart';
 import StatCard from '../../components/common/StatCard';
-import { analyticsService } from '../../services/analytics.service';
+import { analyticsService, extendedAnalyticsService } from '../../services/analytics.service';
 import { StudentProjectsList } from '../../components/dashboard/sections/StudentProjectsList';
 import { StudentProjectsUpload } from '../../components/dashboard/sections/StudentProjectsUpload';
 import { studentProjectsService } from '../../services/student_projects_cloudinary.service';
@@ -62,6 +62,14 @@ import { AcademicDataEntry } from '../../components/dashboard/AcademicDataEntry'
 import { InterestManagement } from '../../components/dashboard/InterestManagement';
 import { AcademicInsights } from '../../components/dashboard/AcademicInsights';
 import { auth } from '../../services/firebase.config';
+
+interface SubjectData {
+  name: string;
+  score: number;
+  credits: number;
+  trend: 'up' | 'down' | 'stable';
+  weakness: string[];
+}
 
 const BACKEND_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -82,7 +90,7 @@ const loadProfileFromStorage = (): any => {
     const stored = localStorage.getItem(PROFILE_STORAGE_KEY);
     if (stored) {
       const data = JSON.parse(stored);
-      if (Date.now() - data.timestamp < 3600000) { // 1 hour cache
+      if (Date.now() - data.timestamp < 3600000) {
         return data;
       }
     }
@@ -193,32 +201,27 @@ const transformPredictionData = (mlPredictions: any): ExtendedPredictionResult =
   };
 };
 
-// hooks/usePerformanceMetrics.ts
+// Performance metrics hook with real data structure
 const usePerformanceMetrics = () => {
-  return {
+  const [metrics] = useState({
     studentInfo: {
       year: 'Third Year',
       semester: 'Semester 5',
-      branch: 'Computer Science & Information Technology',
-      rollNumber: 'CSIT/2022/045'
+      branch: 'Information Technology',
+      rollNumber: 'IT/2022/045'
     },
-    subjects: [
-      { name: 'Data Structures & Algorithms', score: 78, credits: 4, trend: 'up', weakness: ['Trees', 'Graph Algorithms'] },
-      { name: 'Operating Systems', score: 85, credits: 4, trend: 'stable', weakness: [] },
-      { name: 'Database Management Systems', score: 65, credits: 4, trend: 'down', weakness: ['Normalization', 'Query Optimization', 'Indexing'] },
-      { name: 'Computer Networks', score: 92, credits: 3, trend: 'up', weakness: [] },
-      { name: 'Software Engineering', score: 88, credits: 3, trend: 'up', weakness: [] },
-      { name: 'Theory of Computation', score: 71, credits: 3, trend: 'stable', weakness: ['Turing Machines'] }
-    ],
-    overallCGPA: 7.8,
-    semesterSGPA: 8.1,
-    strongSubjects: ['Computer Networks', 'Software Engineering'],
-    weakSubjects: ['Database Management Systems'],
-    completedCredits: 95,
-    totalCredits: 160,
-    interests: ['Web Development', 'Cloud Computing', 'AI/ML'],
-    careerGoals: ['Software Engineer', 'Full Stack Developer', 'Cloud Architect']
-  };
+    subjects: [] as SubjectData[],
+    overallCGPA: 0,
+    semesterSGPA: 0,
+    strongSubjects: [] as string[],
+    weakSubjects: [] as string[],
+    completedCredits: 0,
+    totalCredits: 166,
+    interests: [] as string[],
+    careerGoals: [] as string[]
+  });
+
+  return metrics;
 };
 
 const StudentDashboard: React.FC = () => {
@@ -226,14 +229,13 @@ const StudentDashboard: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState<
-    'overview' | 'performance' | 'electives' | 'weaknesses' | 'resources' | 'projects' | 'academic' | 'interests'| 'meetings'
+    'overview' | 'performance' | 'electives' | 'weaknesses' | 'resources' | 'projects' | 'academic' | 'interests' | 'meetings'
   >('overview');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [projectsView, setProjectsView] = useState<'list' | 'upload'>('list');
   const [projectCount, setProjectCount] = useState(0);
   const [projectsLoading, setProjectsLoading] = useState(false);
-  const [useMockData, setUseMockData] = useState(false);
   
   // Integrated dashboard data with proper typing
   const [studentData, setStudentData] = useState<ExtendedDetailedAnalysis | null>(null);
@@ -262,18 +264,29 @@ const StudentDashboard: React.FC = () => {
       toast.success('Profile data updated!');
     };
 
-    const handleProfileUpdated = () => {
-      fetchUserProfile();
-      fetchDashboardData();
-    };
+   const handleProfileUpdated = async () => {
+  extendedAnalyticsService.clearCache();
+  await fetchUserProfile();
+  await fetchDashboardData(false);
+};
 
-    const handleAcademicDataUpdated = () => {
-      fetchUserProfile();
-      fetchDashboardData();
-      toast.success('Academic data refreshed!');
-    };
+    const handleAcademicDataUpdated = async () => {
+  console.log('Academic data updated — refreshing everything');
 
-    // Add event listeners
+  // Clear analytics cache to force fresh fetch
+  extendedAnalyticsService.clearCache();
+
+  // Clear local state to force re-render
+  setPerformanceData(null);
+  setStudentData(null);
+  setDashboardStats(null);
+
+  // Re-fetch everything
+  await fetchUserProfile();
+  await fetchDashboardData(true);
+
+  toast.success('Dashboard updated with new academic data!');
+};
     window.addEventListener('profileSaved', handleProfileSaved as EventListener);
     window.addEventListener('profileUpdated', handleProfileUpdated);
     window.addEventListener('academicDataUpdated', handleAcademicDataUpdated);
@@ -285,10 +298,9 @@ const StudentDashboard: React.FC = () => {
     };
   }, [user]);
 
-const fetchUserProfile = async () => {
+  const fetchUserProfile = async () => {
   if (!user?.uid) return;
   
-  // Try cache first
   const cachedProfile = loadProfileFromStorage();
   if (cachedProfile) {
     setUserProfile(cachedProfile);
@@ -296,27 +308,38 @@ const fetchUserProfile = async () => {
   }
   
   try {
-    // FIXED: Get token from Firebase Auth directly
     const currentUser = auth.currentUser;
     if (!currentUser) {
       console.error('No authenticated user found');
       return;
     }
     
-    const token = await currentUser.getIdToken(true); // force refresh
+    const token = await currentUser.getIdToken(true);
     
     if (!token) {
       console.error('Failed to get auth token');
       return;
     }
     
-    const response = await fetch(`${BACKEND_URL}/api/v1/student/profile`, {
+    // Try /me first, fallback to /profile
+    let response = await fetch(`${BACKEND_URL}/api/v1/student-profile/me`, {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json'
       }
     });
+    
+    // If /me fails with 404, try /profile
+    if (response.status === 404) {
+      response = await fetch(`${BACKEND_URL}/api/v1/student-profile/profile`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+    }
     
     if (response.ok) {
       const data = await response.json();
@@ -339,27 +362,23 @@ const fetchUserProfile = async () => {
       localStorage.setItem('userBranch', profile.branch);
       localStorage.setItem('userSemester', profile.semester.toString());
       
-      // Notify other components
       window.dispatchEvent(new CustomEvent('profileLoaded', { detail: profile }));
       
     } else if (response.status === 404) {
       console.log('Profile not found - user needs to create profile');
       localStorage.removeItem(PROFILE_STORAGE_KEY);
+      setUserProfile(null);
     } else {
-      const errorData = await response.json().catch(() => ({}));
-      console.error('Failed to fetch profile:', response.status, errorData);
+      console.error('Failed to fetch profile:', response.status);
     }
   } catch (error) {
     console.error('Error fetching profile:', error);
-    // If error but we have cached data, still use it
     if (!userProfile && cachedProfile) {
-      // FIXED: Use toast() instead of toast.info()
       toast('Using cached profile data');
     }
   }
 };
 
-  // Helper function to update dashboard with profile data
   const updateDashboardWithProfile = (profile: any) => {
     setDashboardStats((prev: DashboardStats | null) => ({
       ...(prev || {
@@ -384,9 +403,8 @@ const fetchUserProfile = async () => {
     }));
   };
 
-  // Helper functions
-  const calculatePercentageChange = (studentData: ExtendedDetailedAnalysis): number => {
-    const sgpaTrend = studentData.performance_data?.sgpa_trend;
+  const calculatePercentageChange = (data: ExtendedDetailedAnalysis): number => {
+    const sgpaTrend = data.performance_data?.sgpa_trend;
     if (!sgpaTrend || sgpaTrend.length < 2) return 0;
     
     const current = sgpaTrend[sgpaTrend.length - 1].sgpa;
@@ -399,13 +417,12 @@ const fetchUserProfile = async () => {
     return sgpaTrend.reduce((sum, semester) => sum + semester.sgpa, 0) / sgpaTrend.length;
   };
 
-  const generateRealInsights = (studentData: ExtendedDetailedAnalysis, predictions: ExtendedPredictionResult) => {
-    const weaknesses = studentData.weaknesses || [];
-    const performanceTrend = studentData.improvement_trend;
+  const generateRealInsights = (data: ExtendedDetailedAnalysis, preds: ExtendedPredictionResult) => {
+    const weaknesses = data.weaknesses || [];
+    const performanceTrend = data.improvement_trend;
     
-    const recommendations = [];
+    const recommendations: Array<{ message: string; priority: string; type: string }> = [];
     
-    // Weakness-based recommendations
     weaknesses.forEach((weakness) => {
       const extendedWeakness = transformWeaknessData(weakness);
       if (extendedWeakness.severity === 'high' || extendedWeakness.severity === 'critical') {
@@ -423,7 +440,6 @@ const fetchUserProfile = async () => {
       }
     });
 
-    // Trend-based recommendations
     if (performanceTrend === 'declining') {
       recommendations.push({
         message: 'Performance trend declining. Review study strategies and seek guidance',
@@ -438,8 +454,7 @@ const fetchUserProfile = async () => {
       });
     }
 
-    // Prediction-based insights
-    if (predictions.failure_risk === 'high') {
+    if (preds.failure_risk === 'high') {
       recommendations.push({
         message: 'High failure risk detected. Consider additional support and resources',
         priority: 'high',
@@ -447,7 +462,6 @@ const fetchUserProfile = async () => {
       });
     }
 
-    // Add general recommendations if none specific
     if (recommendations.length === 0) {
       recommendations.push({
         message: 'Good performance! Focus on maintaining consistency and exploring advanced topics',
@@ -469,19 +483,18 @@ const fetchUserProfile = async () => {
       trends: {
         overall: performanceTrend,
         confidence: 0.85,
-        averageChange: calculatePercentageChange(studentData)
+        averageChange: calculatePercentageChange(data)
       },
       predictions: {
-        nextSGPI: predictions.next_semester_sgpa,
-        confidence: predictions.confidence_score && predictions.confidence_score > 0.8 ? 'high' : 
-                   predictions.confidence_score && predictions.confidence_score > 0.6 ? 'medium' : 'low',
+        nextSGPI: preds.next_semester_sgpa,
+        confidence: preds.confidence_score && preds.confidence_score > 0.8 ? 'high' : 
+                   preds.confidence_score && preds.confidence_score > 0.6 ? 'medium' : 'low',
         rSquared: 0.76
       },
       riskFactors
     };
   };
 
-  // Add function to fetch project count
   const fetchProjectCount = async () => {
     if (!user) return;
     
@@ -499,109 +512,65 @@ const fetchUserProfile = async () => {
     }
   };
 
-  // Fetch dashboard data
-  const fetchDashboardData = async (showLoader = true) => {
-    if (!user?.uid) {
-      setLoading(false);
-      return;
-    }
+const fetchDashboardData = async (showLoader = true) => {
+  if (!user?.uid) { setLoading(false); return; }
 
-    try {
-      if (showLoader) setLoading(true);
-      
-      const studentService = getStudentAnalysisService();
-      
-      // Fetch real student data from backend
-      const [studentDetails, mlPredictions, metrics, stats, insightsData] = await Promise.all([
-        studentService.getStudentDetails(user.uid),
-        mlIntegrationService.getPredictions(user.uid),
-        analyticsService.getPerformanceMetrics(user.uid),
-        analyticsService.getDashboardStats(user.uid),
-        analyticsService.generateInsights(await analyticsService.getPerformanceMetrics(user.uid))
-      ]);
+  try {
+    if (showLoader) setLoading(true);
 
-      // Transform data to extended types
-      const extendedStudentDetails = transformStudentData(studentDetails);
-      const extendedMlPredictions = transformPredictionData(mlPredictions);
+    // Use the new analytics service that calls /me/full
+    const [chartData, stats, metrics] = await Promise.all([
+      extendedAnalyticsService.getPerformanceChartData(user.uid),
+      extendedAnalyticsService.getDashboardStats(user.uid),
+      extendedAnalyticsService.getPerformanceMetrics(user.uid)
+    ]);
 
-      setStudentData(extendedStudentDetails);
-      setPredictions(extendedMlPredictions);
+    const insightsData = await extendedAnalyticsService.generateInsights(metrics);
 
-      // Transform data for dashboard display
-      const sgpaTrend = extendedStudentDetails.performance_data?.sgpa_trend || [];
-      const chartData = {
-        currentSGPI: extendedStudentDetails.latest_sgpa || stats.currentSGPI,
-        previousSGPI: sgpaTrend.length > 1 ? sgpaTrend[sgpaTrend.length - 2].sgpa : (extendedStudentDetails.latest_sgpa || stats.previousSGPI),
-        trend: extendedStudentDetails.improvement_trend || stats.trend,
-        percentageChange: calculatePercentageChange(extendedStudentDetails) || stats.percentageChange,
-        semesterWiseData: sgpaTrend.length > 0 ? sgpaTrend.map((semester: any) => ({
-          semester: semester.semester,
-          sgpi: semester.sgpa,
-          credits: semester.credits,
-          courses: []
-        })) : metrics.map((m: any) => ({
-          semester: m.semester,
-          sgpi: m.sgpi,
-          credits: m.credits,
-          courses: m.courses
-        }))
-      };
+    // Set chart data — this is what PerformanceChart receives
+    setPerformanceData(chartData);
 
-      const combinedStats: DashboardStats = {
-        currentSGPI: extendedStudentDetails.latest_sgpa || stats.currentSGPI,
-        previousSGPI: chartData.previousSGPI,
-        averageSGPI: calculateAverageSGPA(sgpaTrend) || stats.averageSGPI,
-        bestSGPI: Math.max(...(sgpaTrend.map((s: any) => s.sgpa) || [stats.bestSGPI || 0])),
-        totalCredits: extendedStudentDetails.metadata?.total_credits || stats.totalCredits,
-        currentSemester: extendedStudentDetails.current_semester || stats.currentSemester,
-        // FIXED: Ensure rank and totalStudents are strings
-        rank: String(stats.rank || `${(extendedStudentDetails.current_semester || 1) * 15}/120`),
-        totalStudents: String(stats.totalStudents || '120'),
-        department: extendedStudentDetails.department || stats.department,
-        completedCourses: stats.completedCourses || (extendedStudentDetails.current_semester || 1) * 6,
-        trend: extendedStudentDetails.improvement_trend || stats.trend,
-        percentageChange: chartData.percentageChange
-      };
+    // Set stats for StatCards
+    setDashboardStats(stats as DashboardStats);
 
-      const combinedInsights = generateRealInsights(extendedStudentDetails, extendedMlPredictions) || insightsData;
+    // Set insights
+    setInsights(insightsData);
 
-      setPerformanceData(chartData);
-      setDashboardStats(combinedStats);
-      setInsights(combinedInsights);
-      setLastUpdated(new Date());
-
-      // Track dashboard view
-      await analyticsService.trackEvent('dashboard_viewed', {
-        userId: user.uid,
-        role: 'student',
-        tab: activeTab,
-        timestamp: new Date().toISOString()
+    // Set student data for other components
+    const fullData = await extendedAnalyticsService.fetchFullDashboardData();
+    if (fullData) {
+      setStudentData({
+        weaknesses: fullData.weaknesses || [],
+        performance_data: { sgpa_trend: fullData.sgpa_trend || [] },
+        improvement_trend: fullData.trend || 'stable',
+        department: fullData.branch,
+        current_semester: fullData.current_semester,
+        latest_sgpa: fullData.latest_sgpa,
+        cgpa: fullData.cgpa,
+        weakness_count: fullData.weakness_count,
+        metadata: { total_credits: fullData.total_credits_earned },
+        risk_level: fullData.cgpa < 6 ? 'high' : fullData.cgpa < 7 ? 'medium' : 'low',
+        attendance: 0,
+        batch: fullData.admission_year,
+        profile_completeness: fullData.completion_percentage
       });
-
-      // Show recommendations if any
-      const highPriorityRecs = combinedInsights.recommendations?.filter((r: any) => r.priority === 'high') || [];
-      if (highPriorityRecs.length > 0) {
-        toast(highPriorityRecs[0].message, {
-          icon: '⚠️',
-          duration: 5000
-        });
-      }
-
-    } catch (error) {
-      console.error('Dashboard fetch error:', error);
-      toast.error('Failed to load dashboard data');
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
     }
-  };
 
-  // Event listener for project uploads
+    setLastUpdated(new Date());
+
+  } catch (error) {
+    console.error('Dashboard fetch error:', error);
+    toast.error('Failed to load dashboard data');
+  } finally {
+    setLoading(false);
+    setRefreshing(false);
+  }
+};
+
   useEffect(() => {
     const handleProjectUploaded = () => {
       console.log('Project uploaded event received');
       fetchProjectCount();
-      //setProjectsView('list');
     };
 
     window.addEventListener('projectUploaded', handleProjectUploaded);
@@ -611,7 +580,6 @@ const fetchUserProfile = async () => {
     };
   }, []);
 
-  // Initial data fetch when user is available
   useEffect(() => {
     if (user) {
       fetchUserProfile();
@@ -622,22 +590,20 @@ const fetchUserProfile = async () => {
     }
   }, [user]);
 
-  // Also refresh project count when switching tabs
   useEffect(() => {
     if (activeTab === 'projects' || activeTab === 'overview') {
       fetchProjectCount();
     }
   }, [activeTab]);
 
-  // Set up real-time subscription
   useEffect(() => {
     if (!user?.uid) return;
 
-    const unsubscribe = analyticsService.subscribeToMetrics(user.uid, (metrics: any[]) => {
-      if (metrics && metrics.length > 0) {
-        const stats = {
-          currentSGPI: metrics[0].sgpi,
-          previousSGPI: metrics[1]?.sgpi || metrics[0].sgpi,
+const unsubscribe = extendedAnalyticsService.subscribeToMetrics(user.uid, (metrics: any[]) => {
+  if (metrics && metrics.length > 0) {
+    const stats = {
+      currentSGPI: metrics[0].sgpi,
+      previousSGPI: metrics[1]?.sgpi || metrics[0].sgpi,
           trend: metrics[0].sgpi > (metrics[1]?.sgpi || 0) ? 'up' : 'down',
           percentageChange: metrics[1] ? ((metrics[0].sgpi - metrics[1].sgpi) / metrics[1].sgpi) * 100 : 0
         };
@@ -656,7 +622,6 @@ const fetchUserProfile = async () => {
       }
     });
 
-    // Additional real-time subscription for ML data
     const subscriptionId = realtimeSyncService.subscribeToStudentUpdates(user.uid, (update) => {
       if (update.data) {
         toast.success('Performance data updated!', { duration: 2000 });
@@ -670,7 +635,6 @@ const fetchUserProfile = async () => {
     };
   }, [user]);
 
-  // Auto-refresh every 5 minutes
   useEffect(() => {
     if (!user) return;
 
@@ -681,14 +645,12 @@ const fetchUserProfile = async () => {
     return () => clearInterval(interval);
   }, [user]);
 
-  // Manual refresh
   const handleRefresh = async () => {
     setRefreshing(true);
     await fetchDashboardData(false);
     toast.success('Dashboard refreshed!');
   };
 
-  // Download report
   const handleDownloadReport = () => {
     const reportData = {
       student: userDisplayName,
@@ -719,7 +681,6 @@ const fetchUserProfile = async () => {
     toast.success('Report downloaded!');
   };
 
-  // Loading state with skeleton
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-purple-50">
@@ -810,7 +771,7 @@ const fetchUserProfile = async () => {
               </div>
 
               {/* Navigation */}
-              <nav className="flex-1 p-4">
+              <nav className="flex-1 p-4 overflow-y-auto">
                 <ul className="space-y-2">
                   <li>
                     <button
@@ -848,7 +809,6 @@ const fetchUserProfile = async () => {
                     </button>
                   </li>
                   
-                  {/* PROJECTS TAB */}
                   <li>
                     <button
                       onClick={() => {
@@ -889,27 +849,25 @@ const fetchUserProfile = async () => {
                   </li>
 
                   <li>
-  <button
-    onClick={() => {
-      setActiveTab('meetings');
-      analyticsService.trackEvent('tab_switched', { tab: 'meetings' });
-    }}
-    className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-all ${
-      activeTab === 'meetings'
-        ? 'bg-gradient-to-r from-blue-50 to-purple-50 text-blue-600 shadow-sm'
-        : 'hover:bg-gray-50 text-gray-700'
-    }`}
-  >
-    <Calendar className="h-5 w-5" />
-    <span className="font-medium">Meeting Requests</span>
-    <span className="ml-auto bg-indigo-100 text-indigo-700 text-xs px-2 py-1 rounded-full">
-      Faculty
-    </span>
-  </button>
-</li>
+                    <button
+                      onClick={() => {
+                        setActiveTab('meetings');
+                        analyticsService.trackEvent('tab_switched', { tab: 'meetings' });
+                      }}
+                      className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-all ${
+                        activeTab === 'meetings'
+                          ? 'bg-gradient-to-r from-blue-50 to-purple-50 text-blue-600 shadow-sm'
+                          : 'hover:bg-gray-50 text-gray-700'
+                      }`}
+                    >
+                      <Calendar className="h-5 w-5" />
+                      <span className="font-medium">Meeting Requests</span>
+                      <span className="ml-auto bg-indigo-100 text-indigo-700 text-xs px-2 py-1 rounded-full">
+                        Faculty
+                      </span>
+                    </button>
+                  </li>
 
-
-                  {/* INTERESTS TAB - Added */}
                   <li>
                     <button
                       onClick={() => {
@@ -930,7 +888,6 @@ const fetchUserProfile = async () => {
                     </button>
                   </li>
 
-                  {/* Engineering Guidance Tabs */}
                   <li>
                     <button
                       onClick={() => {
@@ -983,7 +940,7 @@ const fetchUserProfile = async () => {
                           : 'hover:bg-gray-50 text-gray-700'
                       }`}
                     >
-                      <GraduationCap className="h-5 w-5" />
+                      <BookOpen className="h-5 w-5" />
                       <span className="font-medium">Study Resources</span>
                       <span className="ml-auto bg-green-100 text-green-700 text-xs px-2 py-1 rounded-full">
                         New
@@ -1015,29 +972,6 @@ const fetchUserProfile = async () => {
                       </button>
                     </li>
                   </ul>
-                </div>
-
-                {/* Development Mode Toggle */}
-                <div className="mt-8 pt-8 border-t">
-                  <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">Development Mode</p>
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs text-gray-500">Use Mock Data</span>
-                    <button
-                      onClick={() => setUseMockData(!useMockData)}
-                      className={`relative inline-flex h-6 w-11 items-center rounded-full ${
-                        useMockData ? 'bg-blue-600' : 'bg-gray-200'
-                      }`}
-                    >
-                      <span
-                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition ${
-                          useMockData ? 'translate-x-6' : 'translate-x-1'
-                        }`}
-                      />
-                    </button>
-                  </div>
-                  <p className="text-xs text-gray-500 text-center">
-                    {useMockData ? 'Using Mock Data' : 'Using API Data'}
-                  </p>
                 </div>
               </nav>
 
@@ -1085,28 +1019,11 @@ const fetchUserProfile = async () => {
                   {activeTab === 'electives' && 'AI Elective Recommendations'}
                   {activeTab === 'weaknesses' && 'Weakness Analysis & Improvement'}
                   {activeTab === 'resources' && 'Smart Study Resources'}
-                  {activeTab === 'meetings' && (
-  <motion.div
-    key="meetings"
-    initial={{ opacity: 0, y: 20 }}
-    animate={{ opacity: 1, y: 0 }}
-    exit={{ opacity: 0, y: -20 }}
-    transition={{ duration: 0.3 }}
-  >
-    <StudentMeetingRequest />
-  </motion.div>
-)}
+                  {activeTab === 'meetings' && 'Meeting Requests'}
                 </h1>
               </div>
 
               <div className="flex items-center space-x-4">
-                {/* Data Source Indicator */}
-                <span className={`text-xs px-2 py-1 rounded-full ${
-                  useMockData ? 'bg-yellow-100 text-yellow-700' : 'bg-green-100 text-green-700'
-                }`}>
-                  {useMockData ? 'Using Mock Data' : 'Live Data'}
-                </span>
-
                 {/* Refresh Button */}
                 <button
                   onClick={handleRefresh}
@@ -1200,7 +1117,6 @@ const fetchUserProfile = async () => {
                     </button>
                   </div>
                   
-                  {/* Show latest analysis summary */}
                   <div className="grid grid-cols-3 gap-4">
                     <div className="text-center">
                       <p className="text-2xl font-bold text-purple-700">3</p>
@@ -1362,7 +1278,6 @@ const fetchUserProfile = async () => {
 
                 {/* Quick Access Cards */}
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                  {/* Projects Preview Card */}
                   <motion.div
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -1391,7 +1306,6 @@ const fetchUserProfile = async () => {
                     </button>
                   </motion.div>
 
-                  {/* Electives Preview */}
                   <motion.div
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -1420,7 +1334,6 @@ const fetchUserProfile = async () => {
                     </button>
                   </motion.div>
 
-                  {/* Weakness Preview */}
                   <motion.div
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -1434,12 +1347,16 @@ const fetchUserProfile = async () => {
                       Areas to Improve
                     </h3>
                     <div className="space-y-2">
-                      {engineeringMetrics.weakSubjects.map((subject, idx) => (
-                        <div key={idx} className="flex justify-between items-center text-sm">
-                          <span className="text-gray-600">{subject}</span>
-                          <span className="text-orange-600 font-medium">Needs focus</span>
-                        </div>
-                      ))}
+                      {engineeringMetrics.weakSubjects.length > 0 ? (
+                        engineeringMetrics.weakSubjects.map((subject: string, idx: number) => (
+                          <div key={idx} className="flex justify-between items-center text-sm">
+                            <span className="text-gray-600">{subject}</span>
+                            <span className="text-orange-600 font-medium">Needs focus</span>
+                          </div>
+                        ))
+                      ) : (
+                        <p className="text-sm text-gray-500">No weak subjects identified</p>
+                      )}
                     </div>
                     <button className="mt-4 text-sm text-orange-600 hover:text-orange-700 font-medium flex items-center">
                       View improvement plan
@@ -1447,7 +1364,6 @@ const fetchUserProfile = async () => {
                     </button>
                   </motion.div>
 
-                  {/* Resources Preview */}
                   <motion.div
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -1488,16 +1404,6 @@ const fetchUserProfile = async () => {
                 transition={{ duration: 0.3 }}
                 className="space-y-6"
               >
-                
-                {/* Data Source Indicator */}
-                <div className="flex justify-end">
-                  <span className={`text-xs px-2 py-1 rounded-full ${
-                    useMockData ? 'bg-yellow-100 text-yellow-700' : 'bg-green-100 text-green-700'
-                  }`}>
-                    {useMockData ? 'Using Mock Data' : 'Live Data'}
-                  </span>
-                </div>
-
                 <TrendAnalyzer 
                   studentId={user?.uid || 'student-123'} 
                   className="bg-white rounded-xl shadow-sm border p-6"
@@ -1514,7 +1420,6 @@ const fetchUserProfile = async () => {
                   }}
                 />
 
-                {/* Detailed Performance Chart */}
                 <div className="bg-white rounded-xl shadow-sm border p-6">
                   <div className="flex items-center justify-between mb-6">
                     <h2 className="text-xl font-bold text-gray-900">Detailed Performance Analysis</h2>
@@ -1531,11 +1436,10 @@ const fetchUserProfile = async () => {
                   <PerformanceChart data={performanceData} />
                 </div>
 
-                {/* Subject-wise Performance */}
                 <div className="bg-white rounded-xl shadow-sm border p-6">
                   <h3 className="text-lg font-semibold text-gray-900 mb-4">Subject-wise Performance</h3>
                   <div className="space-y-3">
-                    {engineeringMetrics.subjects.map((subject, idx) => (
+                    {engineeringMetrics.subjects.map((subject: SubjectData, idx: number) => (
                       <div key={idx} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                         <div className="flex items-center space-x-3">
                           <div className={`h-2 w-2 rounded-full ${
@@ -1562,7 +1466,6 @@ const fetchUserProfile = async () => {
                   </div>
                 </div>
 
-                {/* Performance Stats Grid */}
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                   <StatCard
                     title="Current Semester"
@@ -1590,7 +1493,6 @@ const fetchUserProfile = async () => {
                   />
                 </div>
 
-                {/* AI Insights Panel */}
                 <div className="bg-gradient-to-r from-blue-50 to-purple-50 rounded-xl p-6 border border-blue-200">
                   <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
                     <Brain className="h-5 w-5 mr-2 text-purple-600" />
@@ -1627,7 +1529,6 @@ const fetchUserProfile = async () => {
               </motion.div>
             )}
 
-            {/* PROJECTS TAB CONTENT */}
             {activeTab === 'projects' && (
               <motion.div
                 key="projects"
@@ -1658,7 +1559,6 @@ const fetchUserProfile = async () => {
               </motion.div>
             )}
 
-            {/* ACADEMIC TAB CONTENT */}
             {activeTab === 'academic' && (
               <motion.div
                 key="academic"
@@ -1671,7 +1571,6 @@ const fetchUserProfile = async () => {
               </motion.div>
             )}
 
-            {/* INTERESTS TAB CONTENT */}
             {activeTab === 'interests' && (
               <motion.div
                 key="interests"
@@ -1688,7 +1587,6 @@ const fetchUserProfile = async () => {
               </motion.div>
             )}
 
-            {/* Engineering Guidance Tabs */}
             {activeTab === 'electives' && (
               <motion.div
                 key="electives"
@@ -1722,6 +1620,18 @@ const fetchUserProfile = async () => {
                 transition={{ duration: 0.3 }}
               >
                 <StudyResources />
+              </motion.div>
+            )}
+
+            {activeTab === 'meetings' && (
+              <motion.div
+                key="meetings"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+                transition={{ duration: 0.3 }}
+              >
+                <StudentMeetingRequest />
               </motion.div>
             )}
           </AnimatePresence>

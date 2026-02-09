@@ -100,15 +100,6 @@ from .faculty import (
     Degree
 )
 
-# Appointments
-from .appointment import (
-    AppointmentSlot, 
-    AppointmentBooking, 
-    SlotType, 
-    SlotStatus, 
-    BookingStatus
-)
-
 # Meeting Requests
 from .meeting_request import (
     MeetingRequest,
@@ -154,10 +145,7 @@ __all__ = [
     "UniformFacultyProfile", "PersonalInfo", "AcademicQualifications", 
     "CurrentPosition", "ResearchExpertise", "TeachingInfo", 
     "FacultyAvailability", "PublicationSummary", "Degree",
-    
-    # Appointments
-    "AppointmentSlot", "AppointmentBooking", "SlotType", "SlotStatus", "BookingStatus",
-    
+      
     # Meeting Requests
     "MeetingRequest", "MeetingRequestStatus", "ScheduledMeeting",
 ]
