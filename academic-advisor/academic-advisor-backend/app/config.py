@@ -30,9 +30,6 @@ class Settings(BaseSettings):
     MONGODB_DATABASE: str = "academic_advisor"
     DATABASE_NAME: str = "academic_advisor"
     
-    # PostgreSQL (for SQLAlchemy models)
-    DATABASE_URL: str = "postgresql://user:password@localhost/academic_advisor"
-    
     # Redis
     REDIS_URL: str = "redis://localhost:6379"
     

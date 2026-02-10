@@ -49,6 +49,7 @@ import StatCard from '../../components/common/StatCard';
 import { analyticsService, extendedAnalyticsService } from '../../services/analytics.service';
 import { StudentProjectsList } from '../../components/dashboard/sections/StudentProjectsList';
 import { StudentProjectsUpload } from '../../components/dashboard/sections/StudentProjectsUpload';
+import { ProjectAnalysisResults } from '../../components/dashboard/sections/ProjectAnalysisResults';
 import { studentProjectsService } from '../../services/student_projects_cloudinary.service';
 import { getStudentAnalysisService } from '../../services/student_analysis.service';
 import { mlIntegrationService } from '../../modules/agent1/student-analysis/services/ml-integration.service';
@@ -56,13 +57,15 @@ import { realtimeSyncService } from '../../modules/agent1/student-analysis/servi
 import { DetailedAnalysis, PredictionResult, WeaknessData } from '../../modules/agent1/student-analysis/types/student-analysis.types';
 import TrendAnalyzer from '../../modules/agent1/performance-analytics/components/TrendAnalyzer';
 import SubjectPerformance from '../../modules/agent1/performance-analytics/components/SubjectPerformance';
-import { ElectiveRecommender, WeaknessAnalyzer, StudyResources } from '../../components/dashboard/EngineeringGuidance';
+import { WeaknessAnalyzer, StudyResources } from '../../components/dashboard/EngineeringGuidance';
+import MLRecommendations from '../../components/dashboard/MLRecommendations';
+import { mlService, LegacyProjectAnalysisResult, ComprehensiveProjectAnalysisResponse } from '../../services/ml.service';
 import toast from 'react-hot-toast';
 import { AcademicDataEntry } from '../../components/dashboard/AcademicDataEntry';
 import { InterestManagement } from '../../components/dashboard/InterestManagement';
 import { AcademicInsights } from '../../components/dashboard/AcademicInsights';
 import { auth } from '../../services/firebase.config';
-
+import { ComprehensiveAnalysis } from '../../services/student_projects_cloudinary.service';
 interface SubjectData {
   name: string;
   score: number;
@@ -237,6 +240,18 @@ const StudentDashboard: React.FC = () => {
   const [projectCount, setProjectCount] = useState(0);
   const [projectsLoading, setProjectsLoading] = useState(false);
   
+  // Project analysis state
+  const [showProjectAnalysis, setShowProjectAnalysis] = useState(false);
+  const [projectAnalysisResult, setProjectAnalysisResult] = useState<LegacyProjectAnalysisResult | null>(null);
+  const [analysisLoading, setAnalysisLoading] = useState(false);
+  
+  // Recommendation stats for overview
+  const [recommendationStats, setRecommendationStats] = useState({
+    careerPaths: 0,
+    honoursProgramsMatch: 0,
+    electivesRecommended: 0
+  });
+  
   // Integrated dashboard data with proper typing
   const [studentData, setStudentData] = useState<ExtendedDetailedAnalysis | null>(null);
   const [predictions, setPredictions] = useState<ExtendedPredictionResult | null>(null);
@@ -254,6 +269,111 @@ const StudentDashboard: React.FC = () => {
   // Type-safe user display name
   const userDisplayName = (user as AuthUser)?.displayName || 'Student';
 
+  // Fetch recommendation stats
+  const fetchRecommendationStats = async () => {
+    try {
+      const data = await mlService.getRecommendations(true, true, true, false);
+      setRecommendationStats({
+        careerPaths: data.careers?.length || 0,
+        honoursProgramsMatch: data.honours?.filter(h => h.eligibility)?.length || 0,
+        electivesRecommended: data.electives?.length || 0
+      });
+    } catch (error) {
+      console.error('Error fetching recommendation stats:', error);
+    }
+  };
+
+  // Handle project analysis after upload
+  // Handle project analysis after upload
+const handleProjectAnalyzed = async (analysisResponse: ComprehensiveAnalysis) => {
+  try {
+    // ComprehensiveAnalysis is compatible with LegacyProjectAnalysisResult
+    // Add any missing fields with defaults for type safety
+    const legacyFormat: LegacyProjectAnalysisResult = {
+      inferred_interests: analysisResponse.inferred_interests.map(i => ({
+        domain: i.domain,
+        confidence: i.confidence,
+        keywords: i.keywords || [],
+        relatedSkills: i.relatedSkills || [],
+        careerPaths: i.careerPaths || [],
+        industryRelevance: i.industryRelevance || i.confidence * 0.9,
+      })),
+      elective_recommendations: analysisResponse.elective_recommendations.map(e => ({
+        elective: e.elective,
+        code: '', // Not present in ComprehensiveAnalysis
+        match_score: e.match_score,
+        reasons: e.reasons,
+        skills_to_gain: e.skills_to_gain,
+        career_relevance: e.career_relevance,
+        difficulty_level: e.difficulty_level,
+      })),
+      honours_minor_recommendations: analysisResponse.honours_minor_recommendations.map(h => ({
+        program: h.program,
+        type: h.type,
+        match_score: h.match_score,
+        courses: h.courses,
+        career_paths: h.career_paths,
+        credits: h.credits,
+        semester_commitment: h.semester_commitment,
+        reasons: h.reasons,
+      })),
+      career_paths: analysisResponse.career_paths.map(c => ({
+        title: c.title,
+        match_score: c.match_score,
+        salary_range: c.salary_range,
+        market_demand: c.market_demand,
+        growth_potential: c.growth_potential,
+        required_skills: c.required_skills,
+        companies_hiring: [], // Not present in ComprehensiveAnalysis
+        honours_program: c.honours_program,
+        preparation_path: c.preparation_path,
+      })),
+      skill_gap_analysis: {
+        current_skills: analysisResponse.skill_gap_analysis.current_skills,
+        skill_gaps: analysisResponse.skill_gap_analysis.skill_gaps,
+        priority_skills: analysisResponse.skill_gap_analysis.priority_skills,
+        learning_resources: Object.fromEntries(
+          Object.entries(analysisResponse.skill_gap_analysis.learning_resources).map(
+            ([skill, resources]) => [
+              skill,
+              (resources as string[]).map(r => ({ platform: 'Online', course: r }))
+            ]
+          )
+        ),
+        completeness_percentage: 70, // Default since not in ComprehensiveAnalysis
+        estimated_learning_time: analysisResponse.skill_gap_analysis.estimated_learning_time,
+      },
+      next_steps: analysisResponse.next_steps.map(s => ({
+        action: s.action,
+        category: s.category,
+        priority: s.priority,
+        deadline: s.deadline,
+        details: s.details,
+      })),
+      metadata: {
+        analysis_date: analysisResponse.metadata?.analysis_date || new Date().toISOString(),
+        confidence_score: analysisResponse.metadata?.confidence_score || 0.75,
+        model_version: '2.0.0',
+        data_sources: ['projects'],
+      },
+    };
+
+    setProjectAnalysisResult(legacyFormat);
+    setShowProjectAnalysis(true);
+    
+    // Update recommendation stats
+    setRecommendationStats({
+      careerPaths: analysisResponse.career_paths?.length || 0,
+      honoursProgramsMatch: analysisResponse.honours_minor_recommendations?.filter(h => h.eligibility_met)?.length || 0,
+      electivesRecommended: analysisResponse.elective_recommendations?.length || 0
+    });
+    
+    toast.success('Project analyzed! View your personalized recommendations.');
+  } catch (error) {
+    console.error('Error processing analysis:', error);
+    toast.error('Failed to process analysis results');
+  }
+};
   // Event listeners for profile and academic data updates
   useEffect(() => {
     const handleProfileSaved = (event: CustomEvent) => {
@@ -264,120 +384,122 @@ const StudentDashboard: React.FC = () => {
       toast.success('Profile data updated!');
     };
 
-   const handleProfileUpdated = async () => {
-  extendedAnalyticsService.clearCache();
-  await fetchUserProfile();
-  await fetchDashboardData(false);
-};
+    const handleProfileUpdated = async () => {
+      extendedAnalyticsService.clearCache();
+      await fetchUserProfile();
+      await fetchDashboardData(false);
+    };
 
     const handleAcademicDataUpdated = async () => {
-  console.log('Academic data updated — refreshing everything');
+      console.log('Academic data updated — refreshing everything');
+      extendedAnalyticsService.clearCache();
+      setPerformanceData(null);
+      setStudentData(null);
+      setDashboardStats(null);
+      await fetchUserProfile();
+      await fetchDashboardData(true);
+      // Also refresh recommendations
+      await fetchRecommendationStats();
+      toast.success('Dashboard updated with new academic data!');
+    };
 
-  // Clear analytics cache to force fresh fetch
-  extendedAnalyticsService.clearCache();
-
-  // Clear local state to force re-render
-  setPerformanceData(null);
-  setStudentData(null);
-  setDashboardStats(null);
-
-  // Re-fetch everything
-  await fetchUserProfile();
-  await fetchDashboardData(true);
-
-  toast.success('Dashboard updated with new academic data!');
+    // Listen for project analysis completion
+// Listen for project analysis completion
+const handleProjectAnalysisComplete = (event: CustomEvent<ComprehensiveAnalysis>) => {
+  handleProjectAnalyzed(event.detail);
 };
+
     window.addEventListener('profileSaved', handleProfileSaved as EventListener);
     window.addEventListener('profileUpdated', handleProfileUpdated);
     window.addEventListener('academicDataUpdated', handleAcademicDataUpdated);
+    window.addEventListener('projectAnalysisComplete', handleProjectAnalysisComplete as EventListener);
 
     return () => {
       window.removeEventListener('profileSaved', handleProfileSaved as EventListener);
       window.removeEventListener('profileUpdated', handleProfileUpdated);
       window.removeEventListener('academicDataUpdated', handleAcademicDataUpdated);
+      window.removeEventListener('projectAnalysisComplete', handleProjectAnalysisComplete as EventListener);
     };
   }, [user]);
 
   const fetchUserProfile = async () => {
-  if (!user?.uid) return;
-  
-  const cachedProfile = loadProfileFromStorage();
-  if (cachedProfile) {
-    setUserProfile(cachedProfile);
-    updateDashboardWithProfile(cachedProfile);
-  }
-  
-  try {
-    const currentUser = auth.currentUser;
-    if (!currentUser) {
-      console.error('No authenticated user found');
-      return;
+    if (!user?.uid) return;
+    
+    const cachedProfile = loadProfileFromStorage();
+    if (cachedProfile) {
+      setUserProfile(cachedProfile);
+      updateDashboardWithProfile(cachedProfile);
     }
     
-    const token = await currentUser.getIdToken(true);
-    
-    if (!token) {
-      console.error('Failed to get auth token');
-      return;
-    }
-    
-    // Try /me first, fallback to /profile
-    let response = await fetch(`${BACKEND_URL}/api/v1/student-profile/me`, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
+    try {
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
+        console.error('No authenticated user found');
+        return;
       }
-    });
-    
-    // If /me fails with 404, try /profile
-    if (response.status === 404) {
-      response = await fetch(`${BACKEND_URL}/api/v1/student-profile/profile`, {
+      
+      const token = await currentUser.getIdToken(true);
+      
+      if (!token) {
+        console.error('Failed to get auth token');
+        return;
+      }
+      
+      let response = await fetch(`${BACKEND_URL}/api/v1/student-profile/me`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         }
       });
+      
+      if (response.status === 404) {
+        response = await fetch(`${BACKEND_URL}/api/v1/student-profile/profile`, {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        });
+      }
+      
+      if (response.ok) {
+        const data = await response.json();
+        
+        const profile = {
+          name: data.name,
+          branch: data.branch,
+          semester: data.current_semester,
+          cgpa: data.cgpa,
+          admission_year: data.admission_year,
+          academic_year: data.current_academic_year,
+          total_credits: data.total_credits_earned,
+          roll_number: data.roll_number
+        };
+        
+        setUserProfile(profile);
+        saveProfileToStorage(profile);
+        updateDashboardWithProfile(profile);
+        
+        localStorage.setItem('userBranch', profile.branch);
+        localStorage.setItem('userSemester', profile.semester.toString());
+        
+        window.dispatchEvent(new CustomEvent('profileLoaded', { detail: profile }));
+        
+      } else if (response.status === 404) {
+        console.log('Profile not found - user needs to create profile');
+        localStorage.removeItem(PROFILE_STORAGE_KEY);
+        setUserProfile(null);
+      } else {
+        console.error('Failed to fetch profile:', response.status);
+      }
+    } catch (error) {
+      console.error('Error fetching profile:', error);
+      if (!userProfile && cachedProfile) {
+        toast('Using cached profile data');
+      }
     }
-    
-    if (response.ok) {
-      const data = await response.json();
-      
-      const profile = {
-        name: data.name,
-        branch: data.branch,
-        semester: data.current_semester,
-        cgpa: data.cgpa,
-        admission_year: data.admission_year,
-        academic_year: data.current_academic_year,
-        total_credits: data.total_credits_earned,
-        roll_number: data.roll_number
-      };
-      
-      setUserProfile(profile);
-      saveProfileToStorage(profile);
-      updateDashboardWithProfile(profile);
-      
-      localStorage.setItem('userBranch', profile.branch);
-      localStorage.setItem('userSemester', profile.semester.toString());
-      
-      window.dispatchEvent(new CustomEvent('profileLoaded', { detail: profile }));
-      
-    } else if (response.status === 404) {
-      console.log('Profile not found - user needs to create profile');
-      localStorage.removeItem(PROFILE_STORAGE_KEY);
-      setUserProfile(null);
-    } else {
-      console.error('Failed to fetch profile:', response.status);
-    }
-  } catch (error) {
-    console.error('Error fetching profile:', error);
-    if (!userProfile && cachedProfile) {
-      toast('Using cached profile data');
-    }
-  }
-};
+  };
 
   const updateDashboardWithProfile = (profile: any) => {
     setDashboardStats((prev: DashboardStats | null) => ({
@@ -512,65 +634,59 @@ const StudentDashboard: React.FC = () => {
     }
   };
 
-const fetchDashboardData = async (showLoader = true) => {
-  if (!user?.uid) { setLoading(false); return; }
+  const fetchDashboardData = async (showLoader = true) => {
+    if (!user?.uid) { setLoading(false); return; }
 
-  try {
-    if (showLoader) setLoading(true);
+    try {
+      if (showLoader) setLoading(true);
 
-    // Use the new analytics service that calls /me/full
-    const [chartData, stats, metrics] = await Promise.all([
-      extendedAnalyticsService.getPerformanceChartData(user.uid),
-      extendedAnalyticsService.getDashboardStats(user.uid),
-      extendedAnalyticsService.getPerformanceMetrics(user.uid)
-    ]);
+      const [chartData, stats, metrics] = await Promise.all([
+        extendedAnalyticsService.getPerformanceChartData(user.uid),
+        extendedAnalyticsService.getDashboardStats(user.uid),
+        extendedAnalyticsService.getPerformanceMetrics(user.uid)
+      ]);
 
-    const insightsData = await extendedAnalyticsService.generateInsights(metrics);
+      const insightsData = await extendedAnalyticsService.generateInsights(metrics);
 
-    // Set chart data — this is what PerformanceChart receives
-    setPerformanceData(chartData);
+      setPerformanceData(chartData);
+      setDashboardStats(stats as DashboardStats);
+      setInsights(insightsData);
 
-    // Set stats for StatCards
-    setDashboardStats(stats as DashboardStats);
+      const fullData = await extendedAnalyticsService.fetchFullDashboardData();
+      if (fullData) {
+        setStudentData({
+          weaknesses: fullData.weaknesses || [],
+          performance_data: { sgpa_trend: fullData.sgpa_trend || [] },
+          improvement_trend: fullData.trend || 'stable',
+          department: fullData.branch,
+          current_semester: fullData.current_semester,
+          latest_sgpa: fullData.latest_sgpa,
+          cgpa: fullData.cgpa,
+          weakness_count: fullData.weakness_count,
+          metadata: { total_credits: fullData.total_credits_earned },
+          risk_level: fullData.cgpa < 6 ? 'high' : fullData.cgpa < 7 ? 'medium' : 'low',
+          attendance: 0,
+          batch: fullData.admission_year,
+          profile_completeness: fullData.completion_percentage
+        });
+      }
 
-    // Set insights
-    setInsights(insightsData);
+      setLastUpdated(new Date());
 
-    // Set student data for other components
-    const fullData = await extendedAnalyticsService.fetchFullDashboardData();
-    if (fullData) {
-      setStudentData({
-        weaknesses: fullData.weaknesses || [],
-        performance_data: { sgpa_trend: fullData.sgpa_trend || [] },
-        improvement_trend: fullData.trend || 'stable',
-        department: fullData.branch,
-        current_semester: fullData.current_semester,
-        latest_sgpa: fullData.latest_sgpa,
-        cgpa: fullData.cgpa,
-        weakness_count: fullData.weakness_count,
-        metadata: { total_credits: fullData.total_credits_earned },
-        risk_level: fullData.cgpa < 6 ? 'high' : fullData.cgpa < 7 ? 'medium' : 'low',
-        attendance: 0,
-        batch: fullData.admission_year,
-        profile_completeness: fullData.completion_percentage
-      });
+    } catch (error) {
+      console.error('Dashboard fetch error:', error);
+      toast.error('Failed to load dashboard data');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
     }
-
-    setLastUpdated(new Date());
-
-  } catch (error) {
-    console.error('Dashboard fetch error:', error);
-    toast.error('Failed to load dashboard data');
-  } finally {
-    setLoading(false);
-    setRefreshing(false);
-  }
-};
+  };
 
   useEffect(() => {
     const handleProjectUploaded = () => {
       console.log('Project uploaded event received');
       fetchProjectCount();
+      fetchRecommendationStats();
     };
 
     window.addEventListener('projectUploaded', handleProjectUploaded);
@@ -585,6 +701,7 @@ const fetchDashboardData = async (showLoader = true) => {
       fetchUserProfile();
       fetchDashboardData();
       fetchProjectCount();
+      fetchRecommendationStats();
     } else {
       setLoading(false);
     }
@@ -594,16 +711,19 @@ const fetchDashboardData = async (showLoader = true) => {
     if (activeTab === 'projects' || activeTab === 'overview') {
       fetchProjectCount();
     }
+    if (activeTab === 'electives' || activeTab === 'overview') {
+      fetchRecommendationStats();
+    }
   }, [activeTab]);
 
   useEffect(() => {
     if (!user?.uid) return;
 
-const unsubscribe = extendedAnalyticsService.subscribeToMetrics(user.uid, (metrics: any[]) => {
-  if (metrics && metrics.length > 0) {
-    const stats = {
-      currentSGPI: metrics[0].sgpi,
-      previousSGPI: metrics[1]?.sgpi || metrics[0].sgpi,
+    const unsubscribe = extendedAnalyticsService.subscribeToMetrics(user.uid, (metrics: any[]) => {
+      if (metrics && metrics.length > 0) {
+        const stats = {
+          currentSGPI: metrics[0].sgpi,
+          previousSGPI: metrics[1]?.sgpi || metrics[0].sgpi,
           trend: metrics[0].sgpi > (metrics[1]?.sgpi || 0) ? 'up' : 'down',
           percentageChange: metrics[1] ? ((metrics[0].sgpi - metrics[1].sgpi) / metrics[1].sgpi) * 100 : 0
         };
@@ -647,7 +767,10 @@ const unsubscribe = extendedAnalyticsService.subscribeToMetrics(user.uid, (metri
 
   const handleRefresh = async () => {
     setRefreshing(true);
-    await fetchDashboardData(false);
+    await Promise.all([
+      fetchDashboardData(false),
+      fetchRecommendationStats()
+    ]);
     toast.success('Dashboard refreshed!');
   };
 
@@ -665,6 +788,7 @@ const unsubscribe = extendedAnalyticsService.subscribeToMetrics(user.uid, (metri
       weaknesses: studentData?.weaknesses || [],
       predictions: predictions,
       insights: insights,
+      recommendationStats: recommendationStats,
       lastUpdated: lastUpdated.toISOString()
     };
 
@@ -716,6 +840,21 @@ const unsubscribe = extendedAnalyticsService.subscribeToMetrics(user.uid, (metri
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
+      {/* Project Analysis Results Modal */}
+      <AnimatePresence>
+        {showProjectAnalysis && projectAnalysisResult && (
+          <ProjectAnalysisResults
+            analysis={projectAnalysisResult}
+            onClose={() => {
+              setShowProjectAnalysis(false);
+              setProjectAnalysisResult(null);
+            }}
+            studentBranch={userProfile?.branch || studentData?.department || 'IT'}
+            studentSemester={userProfile?.semester || studentData?.current_semester || 5}
+          />
+        )}
+      </AnimatePresence>
+
       {/* Sidebar */}
       <AnimatePresence>
         {sidebarOpen && (
@@ -901,9 +1040,9 @@ const unsubscribe = extendedAnalyticsService.subscribeToMetrics(user.uid, (metri
                       }`}
                     >
                       <Sparkles className="h-5 w-5" />
-                      <span className="font-medium">Elective Recommendations</span>
+                      <span className="font-medium">AI Recommendations</span>
                       <span className="ml-auto bg-purple-100 text-purple-700 text-xs px-2 py-1 rounded-full font-semibold">
-                        AI
+                        {recommendationStats.electivesRecommended}
                       </span>
                     </button>
                   </li>
@@ -921,9 +1060,9 @@ const unsubscribe = extendedAnalyticsService.subscribeToMetrics(user.uid, (metri
                     >
                       <AlertCircle className="h-5 w-5" />
                       <span className="font-medium">Weakness Analysis</span>
-                      {engineeringMetrics.weakSubjects.length > 0 && (
+                      {studentData?.weakness_count && studentData.weakness_count > 0 && (
                         <span className="ml-auto bg-orange-100 text-orange-700 text-xs px-2 py-1 rounded-full">
-                          {engineeringMetrics.weakSubjects.length}
+                          {studentData.weakness_count}
                         </span>
                       )}
                     </button>
@@ -1016,7 +1155,7 @@ const unsubscribe = extendedAnalyticsService.subscribeToMetrics(user.uid, (metri
                   {activeTab === 'projects' && 'My Projects & AI Interests'}
                   {activeTab === 'academic' && 'Academic Data Entry'}
                   {activeTab === 'interests' && 'My Interests'}
-                  {activeTab === 'electives' && 'AI Elective Recommendations'}
+                  {activeTab === 'electives' && 'AI-Powered Recommendations'}
                   {activeTab === 'weaknesses' && 'Weakness Analysis & Improvement'}
                   {activeTab === 'resources' && 'Smart Study Resources'}
                   {activeTab === 'meetings' && 'Meeting Requests'}
@@ -1098,7 +1237,7 @@ const unsubscribe = extendedAnalyticsService.subscribeToMetrics(user.uid, (metri
                   </div>
                 </motion.div>
 
-                {/* AI Analysis Summary Card */}
+                {/* AI Analysis Summary Card - Now with real data */}
                 <motion.div
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
@@ -1107,30 +1246,44 @@ const unsubscribe = extendedAnalyticsService.subscribeToMetrics(user.uid, (metri
                   <div className="flex items-center justify-between mb-4">
                     <h3 className="text-lg font-semibold flex items-center">
                       <Brain className="w-5 h-5 mr-2 text-purple-600" />
-                      Latest AI Analysis
+                      AI Recommendation Summary
                     </h3>
                     <button
-                      onClick={() => setActiveTab('projects')}
-                      className="text-sm text-purple-600 hover:text-purple-700"
+                      onClick={() => setActiveTab('electives')}
+                      className="text-sm text-purple-600 hover:text-purple-700 flex items-center gap-1"
                     >
                       View All
+                      <ChevronRight className="w-4 h-4" />
                     </button>
                   </div>
                   
                   <div className="grid grid-cols-3 gap-4">
-                    <div className="text-center">
-                      <p className="text-2xl font-bold text-purple-700">3</p>
+                    <div className="text-center p-3 bg-white rounded-lg shadow-sm">
+                      <div className="flex items-center justify-center gap-2 mb-1">
+                        <Briefcase className="w-4 h-4 text-purple-600" />
+                        <p className="text-2xl font-bold text-purple-700">{recommendationStats.careerPaths}</p>
+                      </div>
                       <p className="text-xs text-gray-600">Career Paths Identified</p>
                     </div>
-                    <div className="text-center">
-                      <p className="text-2xl font-bold text-blue-700">2</p>
+                    <div className="text-center p-3 bg-white rounded-lg shadow-sm">
+                      <div className="flex items-center justify-center gap-2 mb-1">
+                        <Award className="w-4 h-4 text-blue-600" />
+                        <p className="text-2xl font-bold text-blue-700">{recommendationStats.honoursProgramsMatch}</p>
+                      </div>
                       <p className="text-xs text-gray-600">Honours Programs Match</p>
                     </div>
-                    <div className="text-center">
-                      <p className="text-2xl font-bold text-green-700">4</p>
+                    <div className="text-center p-3 bg-white rounded-lg shadow-sm">
+                      <div className="flex items-center justify-center gap-2 mb-1">
+                        <Sparkles className="w-4 h-4 text-green-600" />
+                        <p className="text-2xl font-bold text-green-700">{recommendationStats.electivesRecommended}</p>
+                      </div>
                       <p className="text-xs text-gray-600">Electives Recommended</p>
                     </div>
                   </div>
+                  
+                  <p className="text-xs text-gray-500 mt-4 text-center">
+                    Based on your academic performance (40%), interests (30%), and projects (30%)
+                  </p>
                 </motion.div>
 
                 {/* Engineering Student Info Card */}
@@ -1248,11 +1401,11 @@ const unsubscribe = extendedAnalyticsService.subscribeToMetrics(user.uid, (metri
                   />
                   
                   <StatCard
-                    title="AI Interests"
-                    value={engineeringMetrics.interests.length.toString()}
+                    title="AI Recommendations"
+                    value={recommendationStats.electivesRecommended.toString()}
                     icon={<Brain className="h-6 w-6 text-indigo-600" />}
                     color="indigo"
-                    onClick={() => setActiveTab('projects')}
+                    onClick={() => setActiveTab('electives')}
                   />
                 </div>
 
@@ -1316,16 +1469,16 @@ const unsubscribe = extendedAnalyticsService.subscribeToMetrics(user.uid, (metri
                   >
                     <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
                       <Sparkles className="h-5 w-5 mr-2 text-purple-600" />
-                      Recommended Electives
+                      AI Recommendations
                     </h3>
                     <div className="space-y-2">
                       <div className="flex justify-between items-center text-sm">
-                        <span className="text-gray-600">Cloud Computing</span>
-                        <span className="text-purple-600 font-medium">92% match</span>
+                        <span className="text-gray-600">Electives</span>
+                        <span className="text-purple-600 font-medium">{recommendationStats.electivesRecommended} matched</span>
                       </div>
                       <div className="flex justify-between items-center text-sm">
-                        <span className="text-gray-600">Machine Learning</span>
-                        <span className="text-purple-600 font-medium">85% match</span>
+                        <span className="text-gray-600">Honours/Minors</span>
+                        <span className="text-purple-600 font-medium">{recommendationStats.honoursProgramsMatch} eligible</span>
                       </div>
                     </div>
                     <button className="mt-4 text-sm text-purple-600 hover:text-purple-700 font-medium flex items-center">
@@ -1347,10 +1500,10 @@ const unsubscribe = extendedAnalyticsService.subscribeToMetrics(user.uid, (metri
                       Areas to Improve
                     </h3>
                     <div className="space-y-2">
-                      {engineeringMetrics.weakSubjects.length > 0 ? (
-                        engineeringMetrics.weakSubjects.map((subject: string, idx: number) => (
+                      {studentData?.weaknesses && studentData.weaknesses.length > 0 ? (
+                        studentData.weaknesses.slice(0, 2).map((weakness, idx) => (
                           <div key={idx} className="flex justify-between items-center text-sm">
-                            <span className="text-gray-600">{subject}</span>
+                            <span className="text-gray-600">{weakness.subject}</span>
                             <span className="text-orange-600 font-medium">Needs focus</span>
                           </div>
                         ))
@@ -1434,36 +1587,6 @@ const unsubscribe = extendedAnalyticsService.subscribeToMetrics(user.uid, (metri
                     </div>
                   </div>
                   <PerformanceChart data={performanceData} />
-                </div>
-
-                <div className="bg-white rounded-xl shadow-sm border p-6">
-                  <h3 className="text-lg font-semibold text-gray-900 mb-4">Subject-wise Performance</h3>
-                  <div className="space-y-3">
-                    {engineeringMetrics.subjects.map((subject: SubjectData, idx: number) => (
-                      <div key={idx} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                        <div className="flex items-center space-x-3">
-                          <div className={`h-2 w-2 rounded-full ${
-                            subject.trend === 'up' ? 'bg-green-500' :
-                            subject.trend === 'down' ? 'bg-red-500' :
-                            'bg-gray-500'
-                          }`} />
-                          <span className="font-medium text-gray-700">{subject.name}</span>
-                        </div>
-                        <div className="flex items-center space-x-4">
-                          <span className="text-sm text-gray-600">{subject.credits} credits</span>
-                          <span className={`font-bold ${
-                            subject.score >= 80 ? 'text-green-600' :
-                            subject.score >= 60 ? 'text-yellow-600' :
-                            'text-red-600'
-                          }`}>
-                            {subject.score}%
-                          </span>
-                          {subject.trend === 'up' && <TrendingUp className="h-4 w-4 text-green-500" />}
-                          {subject.trend === 'down' && <TrendingDown className="h-4 w-4 text-red-500" />}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -1553,7 +1676,12 @@ const unsubscribe = extendedAnalyticsService.subscribeToMetrics(user.uid, (metri
                       <ChevronLeft className="w-5 h-5" />
                       <span>Back to Projects</span>
                     </button>
-                    <StudentProjectsUpload />
+                    <StudentProjectsUpload 
+  onAnalysisComplete={(response: ComprehensiveAnalysis) => {
+    handleProjectAnalyzed(response);
+    fetchProjectCount();
+  }}
+                    />
                   </div>
                 )}
               </motion.div>
@@ -1582,6 +1710,7 @@ const unsubscribe = extendedAnalyticsService.subscribeToMetrics(user.uid, (metri
                 <InterestManagement 
                   onInterestsUpdated={() => {
                     fetchDashboardData(false);
+                    fetchRecommendationStats();
                   }}
                 />
               </motion.div>
@@ -1595,7 +1724,8 @@ const unsubscribe = extendedAnalyticsService.subscribeToMetrics(user.uid, (metri
                 exit={{ opacity: 0, y: -20 }}
                 transition={{ duration: 0.3 }}
               >
-                <ElectiveRecommender />
+                {/* Using the new MLRecommendations component */}
+                <MLRecommendations />
               </motion.div>
             )}
 

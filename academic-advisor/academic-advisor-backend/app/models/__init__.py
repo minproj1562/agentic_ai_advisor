@@ -6,13 +6,10 @@ Models package - exports all Beanie document models
 # Import from student.py (primary source for StudentPerformance)
 from .student import StudentPerformance, StudentInfo, Subject, TrendEnum
 
-# Don't import from student_performance.py to avoid duplicate
-# The student_performance.py file has duplicate definitions
-
 # Student projects
 from .student_projects import (
     StudentProject, 
-    StudentInterestProfile as ProjectInterestProfile,  # Rename to avoid conflict
+    StudentInterestProfile as ProjectInterestProfile,
     ProjectType, 
     TeamMember, 
     ProjectFile, 
@@ -62,7 +59,7 @@ from .messages import Message, Conversation
 from .weakness import (
     WeaknessAnalysisResult, 
     TopicAnalysis,
-    StudentInterestProfile,  # This is from weakness.py
+    StudentInterestProfile,
     WeaknessArea,
     SeverityLevel,
     AnalysisBasis
@@ -107,10 +104,23 @@ from .meeting_request import (
     ScheduledMeeting
 )
 
+# Recommendations (NEW)
+from .recommendation import (
+    RecommendationRecord,
+    RecommendationFeedback,
+    TrainingDataPoint,
+    RecommendationType,
+    RecommendationBasis,
+    ElectiveDetail,
+    HonoursDetail,
+    CareerDetail,
+)
+
 __all__ = [
     # Student
     "StudentPerformance", "StudentInfo", "Subject", "TrendEnum",
-    "StudentProject", "ProjectInterestProfile", "ProjectType", "TeamMember", "ProjectFile", "InferredInterest",
+    "StudentProject", "ProjectInterestProfile", "ProjectType", "TeamMember", 
+    "ProjectFile", "InferredInterest",
     "StudentProfile", "SemesterRecord", "SubjectScore", "Branch", "Grade",
     
     # Resources
@@ -123,7 +133,7 @@ __all__ = [
     "Collaborator", "SupplementaryMaterial",
     
     # Academic
-    "Elective", "InstructorInfo", "DifficultyLevel", "ElectiveCategory",
+    "Elective", "DifficultyLevel", "ElectiveCategory",
     
     # Messaging
     "Message", "Conversation",
@@ -148,4 +158,14 @@ __all__ = [
       
     # Meeting Requests
     "MeetingRequest", "MeetingRequestStatus", "ScheduledMeeting",
+    
+    # Recommendations (NEW)
+    "RecommendationRecord",
+    "RecommendationFeedback", 
+    "TrainingDataPoint",
+    "RecommendationType",
+    "RecommendationBasis",
+    "ElectiveDetail",
+    "HonoursDetail",
+    "CareerDetail",
 ]

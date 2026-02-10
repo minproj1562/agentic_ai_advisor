@@ -186,8 +186,8 @@ async def get_student_interests(
     """Get student's current interests and recommendations"""
     try:
         student = await StudentProfile.find_one(
-            {"user_id": current_user.uid}
-    )
+            StudentProfile.user_id == current_user.uid
+        )
         
         if not student:
             raise HTTPException(status_code=404, detail="Student not found")
@@ -259,22 +259,6 @@ async def update_student_interests(
     except Exception as e:
         logger.error(f"Update interests error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
-
-@router.get("/interests/profile")
-async def get_interest_profile(
-    current_user: FirebaseUser = Depends(get_current_user)
-):
-    """Get student's interest profile - alias endpoint"""
-    return await get_student_interests(current_user)
-
-
-@router.post("/interests/update")  
-async def update_interest_profile(
-    request: InterestUpdateRequest,
-    current_user: FirebaseUser = Depends(get_current_user)
-):
-    """Update student interests - alias endpoint"""
-    return await update_student_interests(request, current_user)
 
 # ==================== PERFORMANCE PREDICTION ====================
 

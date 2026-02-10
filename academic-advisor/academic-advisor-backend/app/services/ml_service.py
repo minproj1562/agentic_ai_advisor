@@ -46,7 +46,7 @@ class EnhancedMLService:
         """
         try:
             # Get student profile
-            student = await StudentProfile.get(student_id)
+            student = await StudentProfile.find_one(StudentProfile.user_id == student_id)
             if not student:
                 raise ValueError("Student not found")
             
@@ -149,7 +149,7 @@ class EnhancedMLService:
     ) -> List[Dict[str, Any]]:
         """Get student's performance history"""
         try:
-            student = await StudentProfile.get(student_id)
+            student = await StudentProfile.find_one(StudentProfile.user_id == student_id)
             if not student:
                 return []
             
@@ -518,7 +518,7 @@ class EnhancedMLService:
         This bridges project analysis with academic planning
         """
         try:
-            student = await StudentProfile.get(student_id)
+            student = await StudentProfile.find_one(StudentProfile.user_id == student_id)
             if not student:
                 raise ValueError("Student not found")
             

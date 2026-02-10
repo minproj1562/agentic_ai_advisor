@@ -31,6 +31,7 @@ import { studentProjectsService } from '../../../services/student_projects_cloud
 import { toast } from 'react-hot-toast';
 import { ProjectAnalysisResults } from './ProjectAnalysisResults';
 import { useAuth } from '../../../contexts/AuthContext';
+import { ComprehensiveAnalysis } from '../../../services/student_projects_cloudinary.service';
 
 // =============================================
 // INTERFACES
@@ -68,6 +69,11 @@ interface ProjectFile {
   error?: string;
 }
 
+interface StudentProjectsUploadProps {
+  onAnalysisComplete?: (response: ComprehensiveAnalysis) => void;
+}
+
+
 // =============================================
 // INITIAL FORM STATE
 // =============================================
@@ -96,7 +102,7 @@ const INITIAL_FORM_DATA: ProjectFormData = {
 // MAIN COMPONENT
 // =============================================
 
-export const StudentProjectsUpload: React.FC = () => {
+export const StudentProjectsUpload: React.FC<StudentProjectsUploadProps> = ({ onAnalysisComplete }) => {
   // =============================================
   // STATE
   // =============================================
@@ -328,9 +334,12 @@ export const StudentProjectsUpload: React.FC = () => {
         console.log('Opening analysis modal...');
         setAnalysisData(analysis);
         setShowAnalysisModal(true);
+        // Notify parent dashboard if callback provided
+        if (onAnalysisComplete) {
+          onAnalysisComplete(analysis);
+        }
         // DON'T reset form here - let modal close handler do it
       } else {
-        // No analysis available, just reset and refresh
         console.log('No analysis data, resetting form');
         resetForm();
         window.dispatchEvent(new Event('projectUploaded'));

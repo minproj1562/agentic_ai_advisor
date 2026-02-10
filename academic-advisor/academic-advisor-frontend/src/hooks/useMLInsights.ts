@@ -4,7 +4,6 @@ import {
   mlService,
   PredictionResponse,
   WeaknessAnalysisResponse,
-  CareerPredictionResponse,
   StudentAcademicData,
   SubjectScore
 } from '../services/ml.service';
@@ -34,8 +33,7 @@ export const useMLInsights = ({
   const [error, setError] = useState<string | null>(null);
   const [predictions, setPredictions] = useState<PredictionResponse | null>(null);
   const [weaknessAnalysis, setWeaknessAnalysis] = useState<WeaknessAnalysisResponse | null>(null);
-  const [careerPredictions, setCareerPredictions] = useState<CareerPredictionResponse | null>(null);
-
+const [careerPredictions, setCareerPredictions] = useState<any>(null);
   const fetchPredictions = useCallback(async () => {
     if (!user?.uid || !academicData) return null;
 

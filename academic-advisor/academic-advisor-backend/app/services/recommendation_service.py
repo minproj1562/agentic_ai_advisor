@@ -1,673 +1,341 @@
 # app/services/recommendation_service.py
 """
-Recommendation Service
-AI-powered recommendation engine
+Recommendation Service - Unified orchestrator
+Fetches student data → calls ML engine → stores results → handles feedback
 """
 
+import logging
+import time
+from typing import Dict, Any, List, Optional
 from datetime import datetime
-from typing import Dict, List, Any, Optional
-import numpy as np
-from collections import defaultdict
 
-from app.core.firebase_admin import firebase_manager
-from app.services.ml_performance_analysis import ml_analyzer
-from app.utils.helpers import get_logger
+from app.ml.models.recommendation_engine import recommendation_engine
+from app.models.student_profile import StudentProfile
+from app.models.student_projects import StudentProject, StudentInterestProfile
+from app.models.recommendation import (
+    RecommendationRecord, RecommendationFeedback,
+    ElectiveDetail, HonoursDetail, CareerDetail, RecommendationType
+)
+from app.schemas.recommendation_schemas import (
+    CumulativeRecommendationResponse,
+    ElectiveRecommendationResponse,
+    HonoursRecommendationResponse,
+    CareerRecommendationResponse,
+    RecommendationBasisResponse,
+)
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 class RecommendationService:
-    """
-    Service for generating personalized recommendations
-    """
-    
-    async def get_course_recommendations(
+    """Orchestrates recommendation generation from all data sources."""
+
+    def __init__(self):
+        self.engine = recommendation_engine
+
+    async def get_student_data(self, student_id: str) -> Dict[str, Any]:
+        """Fetch all student data needed for recommendations."""
+        data = {
+            'marks': {},
+            'interests': [],
+            'projects': [],
+            'cgpa': 0.0,
+            'semester': 4,
+            'project_skills': [],
+        }
+
+        try:
+            # 1. Get academic profile
+            profile = await StudentProfile.find_one(
+                StudentProfile.user_id == student_id
+            )
+            if profile:
+                data['cgpa'] = profile.cgpa or 0.0
+                data['semester'] = profile.current_semester or 4
+                data['interests'] = list(profile.interests or [])
+
+                # Extract marks from semester records
+                for sem_record in (profile.semester_records or []):
+                    for subj in (sem_record.subjects or []):
+                        current = data['marks'].get(subj.subject_name, 0)
+                        data['marks'][subj.subject_name] = max(current, subj.total_marks)
+
+            # 2. Get interest profile (separate collection)
+            try:
+                interest_profile = await StudentInterestProfile.find_one(
+                    StudentInterestProfile.student_id == student_id
+                )
+                if interest_profile:
+                    primary = []
+                    for domain in (getattr(interest_profile, 'primary_domains', []) or []):
+                        if isinstance(domain, dict):
+                            primary.append(domain.get('domain', domain.get('name', '')))
+                        elif isinstance(domain, str):
+                            primary.append(domain)
+                    secondary = getattr(interest_profile, 'secondary_interests', []) or []
+                    data['interests'] = list(set(data['interests'] + primary + secondary))
+            except Exception as e:
+                logger.warning(f"Could not fetch interest profile: {e}")
+
+            # 3. Get projects
+            projects = await StudentProject.find(
+                StudentProject.student_id == student_id
+            ).to_list()
+
+            all_project_skills = []
+            data['projects'] = []
+            for p in projects:
+                proj_dict = {
+                    'title': p.title,
+                    'description': p.description or '',
+                    'programming_languages': p.programming_languages or [],
+                    'frameworks': p.frameworks or [],
+                    'tools': p.tools or [],
+                    'technologies': p.technologies or [],
+                    'extracted_skills': p.extracted_skills or [],
+                    'is_team_project': p.is_team_project,
+                    'complexity_score': p.complexity_score or 0.5,
+                    'github_url': p.github_url,
+                    'demo_url': p.demo_url,
+                }
+                data['projects'].append(proj_dict)
+                all_project_skills.extend(p.extracted_skills or [])
+                all_project_skills.extend(p.programming_languages or [])
+                all_project_skills.extend(p.frameworks or [])
+
+            data['project_skills'] = list(set(all_project_skills))
+
+            logger.info(
+                f"Fetched data for {student_id}: {len(data['marks'])} subjects, "
+                f"{len(data['interests'])} interests, {len(data['projects'])} projects"
+            )
+
+        except Exception as e:
+            logger.error(f"Error fetching student data: {e}", exc_info=True)
+
+        return data
+
+    async def generate_recommendations(
         self,
         student_id: str,
         include_electives: bool = True,
-        include_minors: bool = True
-    ) -> List[Dict[str, Any]]:
-        """
-        Get personalized course recommendations
-        """
-        try:
-            # Get student profile
-            student = await firebase_manager.get_document(
-                collection="students",
-                document_id=student_id,
-                subcollections=["performance", "interests"]
+        include_honours: bool = True,
+        include_career: bool = True,
+        force_refresh: bool = False,
+    ) -> CumulativeRecommendationResponse:
+        """Generate cumulative recommendations from all sources."""
+        start_time = time.time()
+
+        # Check for cached recommendations (unless force refresh)
+        if not force_refresh:
+            try:
+                cached = await RecommendationRecord.find_one(
+                    RecommendationRecord.student_id == student_id,
+                    RecommendationRecord.is_active == True,
+                ).sort(-RecommendationRecord.created_at)
+
+                if cached:
+                    age = (datetime.utcnow() - cached.created_at).total_seconds()
+                    if age < 3600:
+                        return self._format_cached(cached)
+            except Exception as e:
+                logger.warning(f"Could not check cache: {e}")
+
+        # Fetch fresh data
+        student_data = await self.get_student_data(student_id)
+
+        electives_resp: List[ElectiveRecommendationResponse] = []
+        honours_resp: List[HonoursRecommendationResponse] = []
+        careers_resp: List[CareerRecommendationResponse] = []
+        models_used = ['Rule-Based']
+
+        # Generate elective recommendations
+        if include_electives:
+            raw_electives = self.engine.recommend_electives(
+                marks=student_data['marks'],
+                interests=student_data['interests'],
+                projects=student_data['projects'],
+                cgpa=student_data['cgpa'],
+                use_ml=self.engine.is_trained,
             )
-            
-            if not student:
-                return []
-            
-            # Get available courses
-            courses = await firebase_manager.get_collection(
-                collection="courses",
-                filters=[
-                    {'field': 'department', 'operator': '==', 'value': student['department']},
-                    {'field': 'semester', 'operator': '>=', 'value': student['current_semester']}
-                ]
-            )
-            
-            recommendations = []
-            
-            for course in courses:
-                # Skip if not matching criteria
-                if not include_electives and course.get('type') == 'elective':
-                    continue
-                if not include_minors and course.get('type') == 'minor':
-                    continue
-                
-                # Calculate recommendation score
-                score = await self._calculate_course_score(student, course)
-                
-                if score > 0.5:  # Threshold for recommendation
-                    recommendations.append({
-                        'course': course,
-                        'score': score,
-                        'reasons': self._get_recommendation_reasons(student, course, score),
-                        'priority': 'high' if score > 0.8 else 'medium' if score > 0.6 else 'low'
-                    })
-            
-            # Sort by score
-            recommendations.sort(key=lambda x: x['score'], reverse=True)
-            
-            return recommendations[:10]  # Top 10 recommendations
-            
-        except Exception as e:
-            logger.error(f"Error getting course recommendations: {str(e)}")
-            return []
-    
-    async def _calculate_course_score(
-        self,
-        student: Dict[str, Any],
-        course: Dict[str, Any]
-    ) -> float:
-        """
-        Calculate recommendation score for a course
-        """
-        score = 0.0
-        
-        # Interest alignment (40%)
-        student_interests = set(student.get('interests', []))
-        course_tags = set(course.get('tags', []))
-        
-        if student_interests and course_tags:
-            overlap = len(student_interests.intersection(course_tags))
-            score += (overlap / len(course_tags)) * 0.4
-        
-        # Performance alignment (30%)
-        required_cgpa = course.get('min_cgpa', 0)
-        student_cgpa = student.get('cgpa', 0)
-        
-        if student_cgpa >= required_cgpa:
-            score += 0.3
-        elif student_cgpa >= required_cgpa - 0.5:
-            score += 0.15
-        
-        # Career alignment (20%)
-        student_career = student.get('career_goal')
-        course_careers = course.get('career_paths', [])
-        
-        if student_career and student_career in course_careers:
-            score += 0.2
-        
-        # Skill development (10%)
-        student_skills = set(student.get('skills', []))
-        course_skills = set(course.get('skills_developed', []))
-        
-        new_skills = course_skills - student_skills
-        if new_skills:
-            score += min(len(new_skills) / 5, 0.1)
-        
-        return min(score, 1.0)
-    
-    def _get_recommendation_reasons(
-        self,
-        student: Dict[str, Any],
-        course: Dict[str, Any],
-        score: float
-    ) -> List[str]:
-        """
-        Get reasons for recommendation
-        """
-        reasons = []
-        
-        if score > 0.8:
-            reasons.append("Highly relevant to your profile")
-        
-        # Check specific alignments
-        student_interests = set(student.get('interests', []))
-        course_tags = set(course.get('tags', []))
-        
-        if student_interests.intersection(course_tags):
-            reasons.append("Matches your interests")
-        
-        if student.get('career_goal') in course.get('career_paths', []):
-            reasons.append("Aligns with career goals")
-        
-        if course.get('difficulty') == 'moderate':
-            reasons.append("Appropriate difficulty level")
-        
-        return reasons
-    
-    async def get_career_paths(
-        self,
-        student_id: str
-    ) -> List[Dict[str, Any]]:
-        """
-        Get career path recommendations
-        """
-        try:
-            # Get student profile
-            student = await firebase_manager.get_document(
-                collection="students",
-                document_id=student_id
-            )
-            
-            # Get career paths
-            career_paths = await firebase_manager.get_collection(
-                collection="career_paths",
-                filters=[
-                    {'field': 'department', 'operator': '==', 'value': student['department']}
-                ]
-            )
-            
-            recommendations = []
-            
-            for path in career_paths:
-                # Calculate fit score
-                fit_score = await self._calculate_career_fit(student, path)
-                
-                recommendations.append({
-                    'career': path,
-                    'fit_score': fit_score,
-                    'requirements_met': self._check_requirements(student, path),
-                    'skill_gaps': self._identify_skill_gaps(student, path),
-                    'recommended_courses': path.get('recommended_courses', []),
-                    'average_salary': path.get('average_salary'),
-                    'growth_rate': path.get('growth_rate')
-                })
-            
-            # Sort by fit score
-            recommendations.sort(key=lambda x: x['fit_score'], reverse=True)
-            
-            return recommendations[:5]
-            
-        except Exception as e:
-            logger.error(f"Error getting career paths: {str(e)}")
-            return []
-    
-    async def _calculate_career_fit(
-        self,
-        student: Dict[str, Any],
-        career_path: Dict[str, Any]
-    ) -> float:
-        """
-        Calculate career fit score
-        """
-        score = 0.0
-        
-        # Skill match (40%)
-        required_skills = set(career_path.get('required_skills', []))
-        student_skills = set(student.get('skills', []))
-        
-        if required_skills:
-            skill_match = len(student_skills.intersection(required_skills)) / len(required_skills)
-            score += skill_match * 0.4
-        
-        # Academic performance (30%)
-        min_cgpa = career_path.get('min_cgpa', 6.0)
-        if student.get('cgpa', 0) >= min_cgpa:
-            score += 0.3
-        elif student.get('cgpa', 0) >= min_cgpa - 0.5:
-            score += 0.15
-        
-        # Interest alignment (30%)
-        career_interests = set(career_path.get('interests', []))
-        student_interests = set(student.get('interests', []))
-        
-        if career_interests and student_interests:
-            interest_match = len(student_interests.intersection(career_interests)) / len(career_interests)
-            score += interest_match * 0.3
-        
-        return min(score, 1.0)
-    
-    def _check_requirements(
-        self,
-        student: Dict[str, Any],
-        career_path: Dict[str, Any]
-    ) -> Dict[str, bool]:
-        """
-        Check if student meets career requirements
-        """
-        requirements = {}
-        
-        # CGPA requirement
-        min_cgpa = career_path.get('min_cgpa', 6.0)
-        requirements['cgpa'] = student.get('cgpa', 0) >= min_cgpa
-        
-        # Skill requirements
-        required_skills = career_path.get('required_skills', [])
-        student_skills = student.get('skills', [])
-        requirements['core_skills'] = all(skill in student_skills for skill in required_skills[:3])
-        
-        # Course requirements
-        required_courses = career_path.get('required_courses', [])
-        completed_courses = student.get('completed_courses', [])
-        requirements['courses'] = all(course in completed_courses for course in required_courses)
-        
-        return requirements
-    
-    def _identify_skill_gaps(
-        self,
-        student: Dict[str, Any],
-        career_path: Dict[str, Any]
-    ) -> List[str]:
-        """
-        Identify skill gaps for career path
-        """
-        required_skills = set(career_path.get('required_skills', []))
-        student_skills = set(student.get('skills', []))
-        
-        return list(required_skills - student_skills)
-    
-    async def get_learning_resources(
-        self,
-        student_id: str,
-        subject: Optional[str] = None,
-        difficulty: Optional[str] = None
-    ) -> List[Dict[str, Any]]:
-        """
-        Get personalized learning resources
-        """
-        try:
-            # Get student data
-            student = await firebase_manager.get_document(
-                collection="students",
-                document_id=student_id,
-                subcollections=["weaknesses"]
-            )
-            
-            # Build filters
-            filters = []
-            
-            if subject:
-                filters.append({'field': 'subject', 'operator': '==', 'value': subject})
-            
-            if difficulty:
-                filters.append({'field': 'difficulty', 'operator': '==', 'value': difficulty})
-            
-            # Get resources
-            resources = await firebase_manager.get_collection(
-                collection="learning_resources",
-                filters=filters
-            )
-            
-            # Personalize recommendations
-            personalized = []
-            
-            for resource in resources:
-                # Calculate relevance score
-                relevance = await self._calculate_resource_relevance(student, resource)
-                
-                if relevance > 0.3:
-                    personalized.append({
-                        'resource': resource,
-                        'relevance_score': relevance,
-                        'estimated_time': resource.get('duration'),
-                        'difficulty': resource.get('difficulty'),
-                        'format': resource.get('format')
-                    })
-            
-            # Sort by relevance
-            personalized.sort(key=lambda x: x['relevance_score'], reverse=True)
-            
-            return personalized[:20]
-            
-        except Exception as e:
-            logger.error(f"Error getting learning resources: {str(e)}")
-            return []
-    
-    async def _calculate_resource_relevance(
-        self,
-        student: Dict[str, Any],
-        resource: Dict[str, Any]
-    ) -> float:
-        """
-        Calculate resource relevance for student
-        """
-        score = 0.5  # Base score
-        
-        # Check if resource addresses weaknesses
-        weaknesses = student.get('weaknesses', [])
-        for weakness in weaknesses:
-            if weakness.get('subject') == resource.get('subject'):
-                score += 0.3
-                break
-        
-        # Difficulty matching
-        student_level = student.get('current_semester', 1)
-        resource_level = resource.get('recommended_semester', 1)
-        
-        if abs(student_level - resource_level) <= 1:
-            score += 0.2
-        
-        return min(score, 1.0)
-    
-    async def get_skill_recommendations(
-        self,
-        student_id: str
-    ) -> List[Dict[str, Any]]:
-        """
-        Get skill development recommendations
-        """
-        try:
-            # Get student profile
-            student = await firebase_manager.get_document(
-                collection="students",
-                document_id=student_id
-            )
-            
-            # Get industry skills
-            industry_skills = await firebase_manager.get_collection(
-                collection="industry_skills",
-                filters=[
-                    {'field': 'department', 'operator': '==', 'value': student['department']}
-                ]
-            )
-            
-            current_skills = set(student.get('skills', []))
-            recommendations = []
-            
-            for skill in industry_skills:
-                if skill['name'] not in current_skills:
-                    recommendations.append({
-                        'skill': skill['name'],
-                        'importance': skill.get('importance', 'medium'),
-                        'demand_level': skill.get('demand_level', 'moderate'),
-                        'learning_resources': skill.get('resources', []),
-                        'estimated_learning_time': skill.get('learning_time', '2-4 weeks'),
-                        'prerequisites': skill.get('prerequisites', [])
-                    })
-            
-            # Sort by importance and demand
-            importance_order = {'critical': 0, 'high': 1, 'medium': 2, 'low': 3}
-            recommendations.sort(
-                key=lambda x: importance_order.get(x['importance'], 4)
-            )
-            
-            return recommendations[:10]
-            
-        except Exception as e:
-            logger.error(f"Error getting skill recommendations: {str(e)}")
-            return []
-    
-    async def get_mentor_recommendations(
-        self,
-        student_id: str
-    ) -> List[Dict[str, Any]]:
-        """
-        Get mentor recommendations
-        """
-        try:
-            # Get student profile
-            student = await firebase_manager.get_document(
-                collection="students",
-                document_id=student_id
-            )
-            
-            # Get available mentors
-            mentors = await firebase_manager.get_collection(
-                collection="mentors",
-                filters=[
-                    {'field': 'department', 'operator': '==', 'value': student['department']},
-                    {'field': 'accepting_mentees', 'operator': '==', 'value': True}
-                ]
-            )
-            
-            recommendations = []
-            
-            for mentor in mentors:
-                # Calculate compatibility score
-                compatibility = await self._calculate_mentor_compatibility(student, mentor)
-                
-                recommendations.append({
-                    'mentor': {
-                        'id': mentor['id'],
-                        'name': mentor['name'],
-                        'expertise': mentor.get('expertise', []),
-                        'experience_years': mentor.get('experience_years'),
-                        'current_mentees': mentor.get('current_mentees', 0)
-                    },
-                    'compatibility_score': compatibility,
-                    'shared_interests': list(
-                        set(student.get('interests', [])).intersection(
-                            set(mentor.get('interests', []))
-                        )
+            for e in raw_electives:
+                electives_resp.append(ElectiveRecommendationResponse(
+                    elective_code=e['elective_code'],
+                    elective_name=e['elective_name'],
+                    credits=e['credits'],
+                    match_score=e['match_score'],
+                    match_explanation=e.get('match_explanation', ''),
+                    prerequisites_met=e.get('prerequisites_met', True),
+                    skill_alignment=e.get('skill_alignment', []),
+                    career_relevance=e.get('career_relevance', []),
+                    recommendation_basis=RecommendationBasisResponse(
+                        interests_weight=e.get('recommendation_basis', {}).get('interests_weight', 0),
+                        performance_weight=e.get('recommendation_basis', {}).get('performance_weight', 0),
+                        projects_weight=e.get('recommendation_basis', {}).get('projects_weight', 0),
                     ),
-                    'availability': mentor.get('availability', 'moderate')
-                })
-            
-            # Sort by compatibility
-            recommendations.sort(key=lambda x: x['compatibility_score'], reverse=True)
-            
-            return recommendations[:5]
-            
+                    pair=e.get('pair'),
+                    skill_gaps=e.get('skill_gaps', []),
+                    score_breakdown=e.get('score_breakdown'),
+                    ranking_explanation=e.get('ranking_explanation'),
+                    confidence=e.get('confidence'),
+                ))
+            if self.engine.is_trained:
+                models_used = ['RandomForest', 'KNN', 'Rule-Based']
+
+        # Generate honours recommendations
+        if include_honours:
+            raw_honours = self.engine.recommend_honours(
+                marks=student_data['marks'],
+                interests=student_data['interests'],
+                projects=student_data['projects'],
+                cgpa=student_data['cgpa'],
+            )
+            for h in raw_honours:
+                honours_resp.append(HonoursRecommendationResponse(**h))
+
+        # Generate career recommendations
+        if include_career:
+            raw_careers = self.engine.recommend_careers(
+                marks=student_data['marks'],
+                interests=student_data['interests'],
+                projects=student_data['projects'],
+                cgpa=student_data['cgpa'],
+            )
+            for c in raw_careers:
+                careers_resp.append(CareerRecommendationResponse(**c))
+
+        computation_time = (time.time() - start_time) * 1000
+
+        # Store recommendation record
+        try:
+            record = RecommendationRecord(
+                student_id=student_id,
+                input_marks=student_data['marks'],
+                input_interests=student_data['interests'],
+                input_project_count=len(student_data['projects']),
+                cgpa=student_data['cgpa'],
+                semester=student_data['semester'],
+                electives=[ElectiveDetail(**e.model_dump()) for e in electives_resp],
+                honours=[HonoursDetail(**h.model_dump()) for h in honours_resp],
+                careers=[CareerDetail(**c.model_dump()) for c in careers_resp],
+                models_used=models_used,
+                computation_time_ms=computation_time,
+            )
+            await record.insert()
         except Exception as e:
-            logger.error(f"Error getting mentor recommendations: {str(e)}")
-            return []
-    
-    async def _calculate_mentor_compatibility(
-        self,
-        student: Dict[str, Any],
-        mentor: Dict[str, Any]
-    ) -> float:
-        """
-        Calculate student-mentor compatibility
-        """
-        score = 0.0
-        
-        # Interest alignment (40%)
-        student_interests = set(student.get('interests', []))
-        mentor_interests = set(mentor.get('interests', []))
-        
-        if student_interests and mentor_interests:
-            overlap = len(student_interests.intersection(mentor_interests))
-            score += (overlap / max(len(student_interests), 1)) * 0.4
-        
-        # Career goal alignment (30%)
-        if student.get('career_goal') in mentor.get('expertise', []):
-            score += 0.3
-        
-        # Availability (20%)
-        if mentor.get('current_mentees', 0) < mentor.get('max_mentees', 5):
-            score += 0.2
-        
-        # Rating (10%)
-        rating = mentor.get('rating', 3.0)
-        score += (rating / 5.0) * 0.1
-        
-        return min(score, 1.0)
-    
+            logger.error(f"Failed to store recommendation record: {e}")
+
+        return CumulativeRecommendationResponse(
+            electives=electives_resp,
+            honours=honours_resp,
+            careers=careers_resp,
+            model_info={
+                'models_used': models_used,
+                'is_ml_trained': self.engine.is_trained,
+                'version': '2.0.0',
+            },
+            computation_time_ms=computation_time,
+            data_summary={
+                'total_marks_subjects': len(student_data['marks']),
+                'total_interests': len(student_data['interests']),
+                'total_projects': len(student_data['projects']),
+                'cgpa': student_data['cgpa'],
+            },
+        )
+
+    def _format_cached(self, cached: RecommendationRecord) -> CumulativeRecommendationResponse:
+        """Format cached record as response."""
+        electives = []
+        for e in (cached.electives or []):
+            basis = e.recommendation_basis or {}
+            electives.append(ElectiveRecommendationResponse(
+                elective_code=e.elective_code,
+                elective_name=e.elective_name,
+                credits=e.credits,
+                match_score=e.match_score,
+                match_explanation=e.match_explanation or '',
+                prerequisites_met=e.prerequisites_met,
+                skill_alignment=e.skill_alignment,
+                career_relevance=e.career_relevance,
+                recommendation_basis=RecommendationBasisResponse(
+                    interests_weight=basis.get('interests_weight', 0),
+                    performance_weight=basis.get('performance_weight', 0),
+                    projects_weight=basis.get('projects_weight', 0),
+                ),
+                pair=e.pair,
+                skill_gaps=e.skill_gaps or [],
+                score_breakdown=e.score_breakdown,
+                ranking_explanation=e.ranking_explanation,
+                confidence=e.confidence,
+            ))
+
+        honours = [HonoursRecommendationResponse(**h.model_dump()) for h in (cached.honours or [])]
+        careers = [CareerRecommendationResponse(**c.model_dump()) for c in (cached.careers or [])]
+
+        return CumulativeRecommendationResponse(
+            electives=electives,
+            honours=honours,
+            careers=careers,
+            model_info={
+                'models_used': cached.models_used,
+                'cached': True,
+                'cached_at': cached.created_at.isoformat(),
+                'is_ml_trained': self.engine.is_trained,
+                'version': '2.0.0',
+            },
+            computation_time_ms=cached.computation_time_ms,
+        )
+
     async def record_feedback(
         self,
-        recommendation_id: str,
         student_id: str,
-        feedback: Dict[str, Any]
-    ):
-        """
-        Record feedback on recommendation
-        """
-        try:
-            feedback_data = {
-                'recommendation_id': recommendation_id,
-                'student_id': student_id,
-                'rating': feedback.get('rating'),
-                'useful': feedback.get('useful'),
-                'comments': feedback.get('comments'),
-                'created_at': datetime.utcnow().isoformat()
-            }
-            
-            await firebase_manager.create_document(
-                collection="recommendation_feedback",
-                data=feedback_data
-            )
-            
-            # Update recommendation effectiveness metrics
-            await self._update_recommendation_metrics(recommendation_id, feedback)
-            
-        except Exception as e:
-            logger.error(f"Error recording feedback: {str(e)}")
-            raise
-    
-    async def _update_recommendation_metrics(
-        self,
+        recommendation_type: str,
         recommendation_id: str,
-        feedback: Dict[str, Any]
-    ):
-        """
-        Update recommendation effectiveness metrics
-        """
-        # This would update ML model training data
-        pass
-    
-    async def generate_personalized_plan(
-        self,
-        student_id: str
-    ) -> Dict[str, Any]:
-        """
-        Generate complete personalized academic plan
-        """
+        rating: int,
+        feedback_text: str = "",
+    ) -> None:
+        """Record user feedback WITH full student context for real retraining."""
         try:
-            # Get all necessary data
-            student = await firebase_manager.get_document(
-                collection="students",
-                document_id=student_id,
-                subcollections=["performance", "weaknesses", "interests"]
+            # Fetch current student data for context
+            student_data = await self.get_student_data(student_id)
+
+            feedback = RecommendationFeedback(
+                student_id=student_id,
+                recommendation_type=RecommendationType(recommendation_type),
+                recommendation_id=recommendation_id,
+                item_name=recommendation_id,
+                rating=rating,
+                feedback_text=feedback_text,
+                student_cgpa=student_data['cgpa'],
+                student_semester=student_data['semester'],
+                student_marks=student_data['marks'],
+                student_interests=student_data['interests'],
+                student_project_skills=student_data.get('project_skills', []),
+                student_project_count=len(student_data['projects']),
             )
-            
-            # Generate different plan components
-            plan = {
-                'student_id': student_id,
-                'generated_at': datetime.utcnow().isoformat(),
-                'validity_period': '1 semester',
-                'components': {}
-            }
-            
-            # Course recommendations
-            plan['components']['courses'] = await self.get_course_recommendations(
-                student_id, True, True
-            )
-            
-            # Skill development plan
-            plan['components']['skills'] = await self.get_skill_recommendations(
-                student_id
-            )
-            
-            # Learning resources
-            plan['components']['resources'] = await self.get_learning_resources(
-                student_id
-            )
-            
-            # Career guidance
-            plan['components']['career_paths'] = await self.get_career_paths(
-                student_id
-            )
-            
-            # Study schedule
-            plan['components']['study_schedule'] = self._generate_study_schedule(
-                student
-            )
-            
-            # Milestones
-            plan['components']['milestones'] = self._generate_milestones(
-                student
-            )
-            
-            return plan
-            
+            await feedback.insert()
+            logger.info(f"Recorded feedback for {student_id}: {recommendation_type} - rating {rating}")
         except Exception as e:
-            logger.error(f"Error generating personalized plan: {str(e)}")
-            return {}
-    
-    def _generate_study_schedule(
-        self,
-        student: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """
-        Generate personalized study schedule
-        """
-        weaknesses = student.get('weaknesses', [])
-        
-        schedule = {
-            'daily_hours': 3 if weaknesses else 2,
-            'weekly_plan': {}
+            logger.error(f"Failed to record feedback: {e}")
+            raise
+
+    async def get_model_info(self) -> Dict[str, Any]:
+        """Get information about the recommendation model."""
+        feedback_count = 0
+        try:
+            feedback_count = await RecommendationFeedback.count()
+        except Exception:
+            pass
+
+        return {
+            'is_trained': self.engine.is_trained,
+            'model_version': '2.0.0',
+            'models_available': ['Rule-Based', 'RandomForest', 'KNN'],
+            'feature_dimension': 35,
+            'electives_supported': ['ML', 'WT', 'DWM', 'CCS'],
+            'total_feedback_collected': feedback_count,
         }
-        
-        # Allocate time based on weaknesses
-        for day in ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']:
-            schedule['weekly_plan'][day] = {
-                'subjects': [],
-                'hours': 2,
-                'focus': 'regular_study'
-            }
-        
-        # Weekend intensive sessions
-        schedule['weekly_plan']['Saturday'] = {
-            'subjects': [w['subject'] for w in weaknesses[:2]],
-            'hours': 4,
-            'focus': 'weakness_improvement'
-        }
-        
-        schedule['weekly_plan']['Sunday'] = {
-            'subjects': ['revision', 'practice'],
-            'hours': 3,
-            'focus': 'consolidation'
-        }
-        
-        return schedule
-    
-    def _generate_milestones(
-        self,
-        student: Dict[str, Any]
-    ) -> List[Dict[str, Any]]:
-        """
-        Generate academic milestones
-        """
-        current_cgpa = student.get('cgpa', 0)
-        target_cgpa = min(current_cgpa + 0.5, 9.0)
-        
-        milestones = [
-            {
-                'title': 'Improve CGPA',
-                'target': f'Achieve {target_cgpa:.1f} CGPA',
-                'deadline': '1 semester',
-                'progress_metric': 'cgpa'
-            },
-            {
-                'title': 'Skill Development',
-                'target': 'Learn 3 new technical skills',
-                'deadline': '6 months',
-                'progress_metric': 'skills_count'
-            },
-            {
-                'title': 'Project Completion',
-                'target': 'Complete 2 major projects',
-                'deadline': '1 semester',
-                'progress_metric': 'projects_count'
-            }
-        ]
-        
-        # Add weakness-specific milestones
-        weaknesses = student.get('weaknesses', [])
-        for weakness in weaknesses[:2]:
-            milestones.append({
-                'title': f'Improve {weakness["subject"]}',
-                'target': f'Achieve 70% in {weakness["subject"]}',
-                'deadline': '2 months',
-                'progress_metric': 'subject_score'
-            })
-        
-        return milestones
+
+
+# Singleton
+recommendation_service = RecommendationService()

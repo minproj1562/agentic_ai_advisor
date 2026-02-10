@@ -1,6 +1,6 @@
 # academic-advisor-backend/app/main.py
 """
-FastAPI Main Application - FIXED
+FastAPI Main Application
 """
 
 from fastapi import FastAPI, Request
@@ -19,15 +19,22 @@ import os
 from app.config import settings
 from app.api.v1.api import api_router
 
-# Import document models - ADD StudentProfile
-from app.models.student_profile import StudentProfile  # ← ADD THIS LINE
+# Import ALL document models (no duplicates)
+from app.models.student_profile import StudentProfile
 from app.models.student_performance import StudentPerformance
+from app.models.student_projects import StudentProject, StudentInterestProfile as ProjectInterestProfile
 from app.models.elective import Elective
 from app.models.resource import StudyResource
 from app.models.weakness import WeaknessAnalysisResult
 from app.models.messages import Message, Conversation
 from app.models.faculty import Faculty
 from app.models.meeting_request import MeetingRequest
+from app.models.analytics import Analytics
+from app.models.recommendation import (
+    RecommendationRecord,
+    RecommendationFeedback,
+    TrainingDataPoint,
+)
 
 # Configure logging
 logging.basicConfig(
@@ -36,28 +43,37 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Document models for Beanie - ADD StudentProfile
+# Document models for Beanie (each model listed ONCE)
 document_models = [
-    StudentProfile,          # ← ADD THIS LINE
+    StudentProfile,
     StudentPerformance,
+    StudentProject,
+    ProjectInterestProfile,
     Elective,
     StudyResource,
     WeaknessAnalysisResult,
     Message,
     Conversation,
     Faculty,
-    MeetingRequest
+    MeetingRequest,
+    Analytics,
+    RecommendationRecord,
+    RecommendationFeedback,
+    TrainingDataPoint,
 ]
 
-# Initialize Firebase Admin (only once)
+
 def init_firebase():
     """Initialize Firebase Admin SDK only if not already initialized"""
     if not firebase_admin._apps:
         try:
-            cred_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS", settings.FIREBASE_CREDENTIALS_PATH)
+            cred_path = os.getenv(
+                "GOOGLE_APPLICATION_CREDENTIALS",
+                settings.FIREBASE_CREDENTIALS_PATH
+            )
             cred = credentials.Certificate(cred_path)
             firebase_admin.initialize_app(
-                cred, 
+                cred,
                 {'storageBucket': settings.FIREBASE_STORAGE_BUCKET}
             )
             logger.info("✅ Firebase Admin SDK initialized successfully")
@@ -65,56 +81,60 @@ def init_firebase():
             logger.error(f"❌ Failed to initialize Firebase: {str(e)}")
             raise
 
-# Initialize Firebase at module load
+
 init_firebase()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan manager"""
-    # Startup
     logger.info("🚀 Starting up Academic Advisor API...")
-    
-    # Initialize MongoDB
+
+    # Initialize MongoDB + Beanie
     try:
         client = AsyncIOMotorClient(settings.MONGODB_URL)
         await init_beanie(
             database=client[settings.MONGODB_DATABASE],
             document_models=document_models
         )
-        logger.info("✅ MongoDB connected successfully")
-        logger.info(f"📊 Initialized {len(document_models)} document models")  # ← OPTIONAL: Add this for debugging
+        logger.info(f"✅ MongoDB connected — {len(document_models)} document models")
     except Exception as e:
         logger.error(f"❌ MongoDB connection failed: {e}")
         raise
-    
-    # Initialize ML models (optional - don't fail if not available)
+
+    # Load ML models (optional)
+    # Auto-train if no saved model exists
     try:
-        from app.ml.elective_recommender import ElectiveRecommender
-        from app.ml.weakness_predictor import WeaknessAnalyzer
-        app.state.elective_recommender = ElectiveRecommender()
-        app.state.weakness_analyzer = WeaknessAnalyzer()
-        logger.info("✅ ML models loaded successfully")
+        from app.ml.models.recommendation_engine import recommendation_engine
+        logger.info(
+            f"✅ Recommendation engine loaded (trained={recommendation_engine.is_trained})"
+        )
+        
+        if not recommendation_engine.is_trained:
+            logger.info("🔄 No pre-trained model found. Training with synthetic data...")
+            try:
+                from app.ml.utils.training import train_recommendation_model
+                metrics = await train_recommendation_model(n_synthetic=150, include_feedback=True)
+                logger.info(f"✅ Auto-training complete! Accuracy: {metrics['accuracy']:.4f}")
+            except Exception as train_err:
+                logger.warning(f"⚠️ Auto-training failed (non-critical): {train_err}")
     except Exception as e:
-        logger.warning(f"⚠️ ML models not loaded: {e}")
-    
+        logger.warning(f"⚠️ Recommendation engine not loaded: {e}")
+
     yield
-    
-    # Shutdown
+
     logger.info("👋 Shutting down Academic Advisor API...")
     client.close()
 
 
-# Create FastAPI app
 app = FastAPI(
     title=settings.APP_NAME,
     version=settings.APP_VERSION,
     lifespan=lifespan,
     docs_url="/docs",
-    redoc_url="/redoc"
+    redoc_url="/redoc",
 )
 
-# CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
@@ -123,25 +143,19 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Trusted host middleware
 if settings.ENVIRONMENT == "production":
     app.add_middleware(
         TrustedHostMiddleware,
-        allowed_hosts=settings.ALLOWED_HOSTS
+        allowed_hosts=settings.ALLOWED_HOSTS,
     )
 
 
-# Global exception handler
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     logger.error(f"Global error: {exc}", exc_info=True)
-    return JSONResponse(
-        status_code=500,
-        content={"detail": "Internal server error"}
-    )
+    return JSONResponse(status_code=500, content={"detail": "Internal server error"})
 
 
-# Health check endpoint
 @app.get("/health")
 async def health_check():
     return {
@@ -149,33 +163,22 @@ async def health_check():
         "app": settings.APP_NAME,
         "version": settings.APP_VERSION,
         "environment": settings.ENVIRONMENT,
-        "timestamp": datetime.utcnow().isoformat()
+        "timestamp": datetime.utcnow().isoformat(),
     }
 
 
-# Root endpoint
 @app.get("/")
 async def read_root():
     return {
-        "message": "Academic Advisor Backend is running", 
-        "status": "ok", 
+        "message": "Academic Advisor Backend is running",
+        "status": "ok",
         "version": settings.APP_VERSION,
         "docs": "/docs",
-        "time": datetime.utcnow().isoformat()
     }
 
 
-# Include API router
 app.include_router(api_router, prefix=settings.API_V1_STR)
 
-
-# Main entry point
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(
-        "app.main:app",
-        host="0.0.0.0",
-        port=8000,
-        reload=settings.DEBUG,
-        log_level="info"
-    )
+    uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=settings.DEBUG)

@@ -7,6 +7,8 @@ import logging
 import os
 import tempfile
 from datetime import datetime
+from app.ml.models.recommendation_engine import recommendation_engine
+from app.services.recommendation_service import recommendation_service
 
 # Remove the problematic ml_service import and use direct functions
 from app.models.student_profile import StudentProfile
@@ -54,128 +56,118 @@ async def analyze_project_comprehensive(
     current_user: FirebaseUser = Depends(get_current_user)
 ):
     """
-    Comprehensive project analysis including:
-    - Interest inference
-    - Elective recommendations
-    - Honours/Minor recommendations
-    - Career path mapping
-    - Skill gap analysis
-    
-    This is triggered when a student uploads a project.
+    Comprehensive project analysis that triggers cumulative recommendations.
+    Returns: Interest inference + Elective/Honours/Career recommendations with full breakdown
     """
     try:
-        # Parse project data
         data = json.loads(project_data)
         logger.info(f"Analyzing project for user: {current_user.uid}")
         
-        # Get student profile for branch/semester if not provided
+        # Get student profile
         student = await StudentProfile.find_one(
             StudentProfile.user_id == current_user.uid
         )
         
         if student:
-            if not student_branch:
-                student_branch = student.branch or "IT"
-            if not student_semester:
-                student_semester = student.current_semester or 5
+            student_branch = student_branch or student.branch or "IT"
+            student_semester = student_semester or student.current_semester or 5
         else:
             student_branch = student_branch or "IT"
             student_semester = student_semester or 5
         
-        # Process uploaded files
-        uploaded_files = []
-        if files:
-            for file in files:
-                if file.filename:  # Check if file is not empty
-                    try:
-                        # Create temp file
-                        temp_dir = tempfile.mkdtemp()
-                        file_path = os.path.join(temp_dir, file.filename)
-                        
-                        content = await file.read()
-                        with open(file_path, 'wb') as f:
-                            f.write(content)
-                        
-                        uploaded_files.append({
-                            'path': file_path,
-                            'type': file.content_type,
-                            'name': file.filename,
-                            'size': len(content)
-                        })
-                    except Exception as e:
-                        logger.warning(f"Error processing file {file.filename}: {e}")
+        # Extract skills from the new project
+        extracted_skills = _extract_skills_from_project(data)
         
-        # Check if inference engine is available
-        if not inference_engine:
-            return {
-                "success": True,
-                "analysis": {
-                    "inferred_interests": [],
-                    "elective_recommendations": [],
-                    "honours_recommendations": [],
-                    "career_paths": [],
-                    "skill_gaps": []
-                },
-                "academic_recommendations": None,
-                "student_info": {
-                    "branch": student_branch,
-                    "semester": student_semester,
-                    "user_id": current_user.uid,
-                    "interests_updated": False
-                },
-                "message": "ML service temporarily unavailable. Using basic analysis.",
-                "generated_at": datetime.utcnow().isoformat()
-            }
+        # Infer interests from project
+        inferred_interests = _infer_interests_from_project(data, extracted_skills)
         
-        # Perform comprehensive analysis
-        analysis_result = inference_engine.analyze_project_comprehensive(
-            project_data=data,
-            student_branch=student_branch,
-            student_semester=student_semester,
-            uploaded_files=uploaded_files
+        # Update student interests if high confidence
+        if student and inferred_interests:
+            await _update_student_interests_from_analysis(student, inferred_interests)
+        
+        # ═══════════════════════════════════════════════════════════
+        #  GENERATE CUMULATIVE RECOMMENDATIONS
+        # ═══════════════════════════════════════════════════════════
+        
+        # Fetch all student data for recommendation
+        student_data = await recommendation_service.get_student_data(current_user.uid)
+        
+        # Add the new project to the list (it might not be saved yet)
+        new_project = {
+            "title": data.get("title", ""),
+            "description": data.get("description", ""),
+            "programming_languages": data.get("programming_languages", []),
+            "frameworks": data.get("frameworks", []),
+            "tools": data.get("tools", []),
+            "technologies": data.get("technologies", []),
+            "extracted_skills": extracted_skills,
+            "is_team_project": data.get("is_team_project", False),
+            "complexity_score": _calculate_complexity(data),
+            "github_url": data.get("github_url"),
+            "demo_url": data.get("demo_url"),
+        }
+        student_data["projects"].append(new_project)
+        
+        # Merge new interests
+        for interest in inferred_interests:
+            if interest["confidence"] > 0.7:
+                domain = interest["domain"]
+                if domain not in student_data["interests"]:
+                    student_data["interests"].append(domain)
+        
+        # Generate recommendations using the engine
+        elective_recommendations = recommendation_engine.recommend_electives(
+            marks=student_data["marks"],
+            interests=student_data["interests"],
+            projects=student_data["projects"],
+            cgpa=student_data["cgpa"],
+            use_ml=recommendation_engine.is_trained,
         )
         
-        # Update student interests based on analysis (if high confidence)
-        if student and analysis_result.get('inferred_interests'):
-            await _update_student_interests_from_analysis(
-                student,
-                analysis_result['inferred_interests']
-            )
+        honours_recommendations = recommendation_engine.recommend_honours(
+            marks=student_data["marks"],
+            interests=student_data["interests"],
+            projects=student_data["projects"],
+            cgpa=student_data["cgpa"],
+        )
         
-        # Generate academic recommendations (if ML service available)
-        academic_recommendations = None
-        if student:
-            try:
-                # Try to generate recommendations using a fallback method
-                academic_recommendations = await _generate_basic_recommendations(
-                    student_id=current_user.uid,
-                    project_data=data,
-                    inferred_interests=analysis_result.get('inferred_interests', []),
-                    student_branch=student_branch
-                )
-            except Exception as e:
-                logger.warning(f"Could not generate academic recommendations: {e}")
-                academic_recommendations = None
+        career_recommendations = recommendation_engine.recommend_careers(
+            marks=student_data["marks"],
+            interests=student_data["interests"],
+            projects=student_data["projects"],
+            cgpa=student_data["cgpa"],
+        )
         
-        # Cleanup temp files
-        for file_info in uploaded_files:
-            try:
-                if os.path.exists(file_info['path']):
-                    os.remove(file_info['path'])
-            except:
-                pass
-        
+        # Build response
         return {
             "success": True,
-            "analysis": analysis_result,
-            "academic_recommendations": academic_recommendations,
+            "project_analysis": {
+                "extracted_skills": extracted_skills,
+                "complexity_score": new_project["complexity_score"],
+                "inferred_interests": inferred_interests,
+            },
+            "cumulative_recommendations": {
+                "electives": elective_recommendations,
+                "honours": honours_recommendations,
+                "careers": career_recommendations,
+            },
+            "data_summary": {
+                "total_marks_subjects": len(student_data["marks"]),
+                "total_interests": len(student_data["interests"]),
+                "total_projects": len(student_data["projects"]),
+                "cgpa": student_data["cgpa"],
+            },
+            "model_info": {
+                "is_ml_trained": recommendation_engine.is_trained,
+                "models_used": ["Rule-Based", "RandomForest", "KNN"] if recommendation_engine.is_trained else ["Rule-Based"],
+                "version": "2.0.0",
+            },
             "student_info": {
                 "branch": student_branch,
                 "semester": student_semester,
                 "user_id": current_user.uid,
-                "interests_updated": bool(analysis_result.get('inferred_interests'))
             },
-            "generated_at": datetime.utcnow().isoformat()
+            "generated_at": datetime.utcnow().isoformat(),
         }
     
     except json.JSONDecodeError as e:
@@ -184,6 +176,113 @@ async def analyze_project_comprehensive(
     except Exception as e:
         logger.error(f"Error in comprehensive analysis: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+def _extract_skills_from_project(data: Dict[str, Any]) -> List[str]:
+    """Extract skills from project data"""
+    skills = set()
+    
+    skills.update(data.get("programming_languages", []))
+    skills.update(data.get("frameworks", []))
+    skills.update(data.get("tools", []))
+    skills.update(data.get("technologies", []))
+    
+    # Extract from description using keywords
+    text = f"{data.get('title', '')} {data.get('description', '')}".lower()
+    
+    skill_keywords = [
+        "machine learning", "deep learning", "neural network", "tensorflow", "pytorch",
+        "react", "angular", "vue", "node.js", "django", "flask", "fastapi",
+        "aws", "azure", "docker", "kubernetes", "ci/cd",
+        "sql", "mongodb", "postgresql", "redis",
+        "python", "javascript", "java", "c++", "rust", "go",
+        "api", "rest", "graphql", "websocket",
+        "nlp", "computer vision", "data science", "analytics",
+    ]
+    
+    for keyword in skill_keywords:
+        if keyword in text:
+            skills.add(keyword.title())
+    
+    return list(skills)
+
+
+def _infer_interests_from_project(data: Dict[str, Any], skills: List[str]) -> List[Dict[str, Any]]:
+    """Infer interest domains from project"""
+    text = f"{data.get('title', '')} {data.get('description', '')} {' '.join(skills)}".lower()
+    
+    interest_patterns = {
+        "Artificial Intelligence & Machine Learning": [
+            "machine learning", "deep learning", "ai", "neural", "tensorflow", 
+            "pytorch", "nlp", "computer vision", "data science"
+        ],
+        "Web Development": [
+            "web", "react", "angular", "vue", "frontend", "backend", 
+            "fullstack", "html", "css", "javascript", "node"
+        ],
+        "Mobile & IoT Development": [
+            "mobile", "android", "ios", "flutter", "react native",
+            "iot", "arduino", "raspberry", "embedded", "sensor"
+        ],
+        "Cloud & Distributed Systems": [
+            "cloud", "aws", "azure", "docker", "kubernetes", 
+            "devops", "microservice", "serverless"
+        ],
+        "Data Science & Analytics": [
+            "data analysis", "analytics", "visualization", "tableau",
+            "pandas", "statistics", "bi", "dashboard"
+        ],
+        "Network & Wireless Systems": [
+            "network", "security", "wireless", "protocol", "firewall",
+            "cryptography", "cyber"
+        ],
+    }
+    
+    inferred = []
+    for domain, keywords in interest_patterns.items():
+        matches = [kw for kw in keywords if kw in text]
+        if matches:
+            confidence = min(len(matches) / 4, 1.0)
+            if confidence >= 0.25:
+                inferred.append({
+                    "domain": domain,
+                    "confidence": round(confidence, 2),
+                    "matched_keywords": matches[:5],
+                    "source": "project_analysis"
+                })
+    
+    inferred.sort(key=lambda x: x["confidence"], reverse=True)
+    return inferred[:3]
+
+
+def _calculate_complexity(data: Dict[str, Any]) -> float:
+    """Calculate project complexity score (0-1)"""
+    score = 0.0
+    
+    # Tech stack size
+    tech_count = (
+        len(data.get("programming_languages", [])) +
+        len(data.get("frameworks", [])) +
+        len(data.get("tools", []))
+    )
+    score += min(tech_count * 0.08, 0.4)
+    
+    # Team project bonus
+    if data.get("is_team_project"):
+        score += 0.15
+    
+    # Description length (proxy for complexity)
+    desc_length = len(data.get("description", ""))
+    score += min(desc_length / 1000, 0.2)
+    
+    # External links (GitHub, demo)
+    if data.get("github_url"):
+        score += 0.1
+    if data.get("demo_url"):
+        score += 0.15
+    
+    return min(round(score, 2), 1.0)
+
 
 
 async def _generate_basic_recommendations(

@@ -1,3 +1,4 @@
+# academic-advisor/academic-advisor-backend/app/models/elective.py
 from typing import List, Optional, Dict, Any
 from beanie import Document
 from pydantic import Field, validator, ConfigDict

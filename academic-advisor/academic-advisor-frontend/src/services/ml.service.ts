@@ -4,7 +4,175 @@ import { auth } from './firebase.config';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
-// ==================== TYPES ====================
+// ==================== NEW: SCORE BREAKDOWN TYPES ====================
+export type CareerPredictionResponse = any;
+
+// ==================== ACADEMIC RECOMMENDATIONS TYPE ====================
+
+export interface WeaknessItem {
+  subject: string;
+  severity: 'critical' | 'high' | 'medium' | 'low';
+  average_score: number;
+  gap: number;
+  trend: string;
+  topics: string[];
+  improvement_plan: any;
+  resources: any[];
+  confidence: number;
+}
+
+export interface ImmediateAction {
+  priority: string;
+  action: string;
+  reason?: string;
+  subjects?: string[];
+  improvement_plan?: any;
+}
+
+export interface HonoursEligibility {
+  eligible: boolean;
+  cgpa: number;
+  required_cgpa?: number;
+  message: string;
+  available_programs?: Array<{ program: string; type: string; credits?: number }>;
+  cgpa_gap?: number;
+  application_deadline?: string;
+  suggestions?: string[];
+}
+
+export interface FocusArea {
+  area: string;
+  reason: string;
+  average_score: number;
+}
+
+export interface InterestBasedRecommendation {
+  elective_name: string;
+  interest: string;
+  match_score: number;
+  reason: string;
+  semester_available?: number[];
+}
+
+export interface CurriculumRecommendations {
+  immediate_actions: ImmediateAction[];
+  elective_suggestions: any[];
+  honours_minor_eligibility: HonoursEligibility;
+  focus_areas: FocusArea[];
+}
+
+export interface AcademicRecommendations {
+  weaknesses: WeaknessItem[];
+  curriculum_recommendations: CurriculumRecommendations;
+  interest_based_recommendations: InterestBasedRecommendation[];
+  student_info: {
+    name: string;
+    branch: string;
+    semester: number;
+    cgpa: number;
+  };
+  curriculum_info?: any;
+}
+
+export interface SubjectContribution {
+  subject: string;
+  score: number;
+  weight: number;
+  contribution: number;
+  status: 'strong' | 'adequate' | 'weak';
+}
+
+export interface MissingSubject {
+  subject: string;
+  weight: number;
+  impact: string;
+}
+
+export interface AcademicComponent {
+  score: number;
+  max_possible: number;
+  percentage: number;
+  contributing_subjects: SubjectContribution[];
+  missing_subjects: MissingSubject[];
+  strong_subjects: string[];
+  weak_subjects: string[];
+}
+
+export interface MatchedInterest {
+  interest: string;
+  strength: number;
+  contribution: number;
+}
+
+export interface UnmatchedInterest {
+  interest: string;
+  potential_boost: number;
+}
+
+export interface InterestComponent {
+  score: number;
+  max_possible: number;
+  percentage: number;
+  matched_interests: MatchedInterest[];
+  unmatched_interests: UnmatchedInterest[];
+  semantic_similarity: number;
+}
+
+export interface RelevantProject {
+  title: string;
+  matched_skills: string[];
+  complexity: number;
+  relevance_score: number;
+}
+
+export interface ProjectComponent {
+  score: number;
+  max_possible: number;
+  percentage: number;
+  relevant_projects: RelevantProject[];
+  keyword_hits: number;
+  missing_project_skills: string[];
+  average_complexity: number;
+  total_projects_analyzed: number;
+}
+
+export interface ScoreBreakdown {
+  academic_component: AcademicComponent;
+  interest_component: InterestComponent;
+  project_component: ProjectComponent;
+}
+
+export interface RankingComparison {
+  compared_to: string;
+  score_difference: number;
+  message: string;
+}
+
+export interface RankingExplanation {
+  rank: number;
+  total_options: number;
+  why_this_rank: string;
+  vs_other_electives: RankingComparison[];
+  improvement_tips: string[];
+}
+
+export interface ConfidenceFactors {
+  has_marks: boolean;
+  has_interests: boolean;
+  has_projects: boolean;
+  marks_count: number;
+  project_count: number;
+  interest_count: number;
+}
+
+export interface ConfidenceMetrics {
+  overall: number;
+  data_completeness: number;
+  model_confidence: number;
+  factors: ConfidenceFactors;
+}
+
+// ==================== LEGACY TYPES (kept for backward compatibility) ====================
 
 export interface SubjectScore {
   subject_code: string;
@@ -108,33 +276,20 @@ export interface WeaknessAnalysisResponse {
   timestamp: string;
 }
 
-export interface CareerPath {
-  career: string;
-  match_score: number;
-  cgpa_eligible: boolean;
-  required_cgpa: number;
-  salary_range: string;
-  growth_potential: string;
-  top_companies: string[];
-  missing_skills: string[];
-  preparation_path: string[];
-  required_certifications: string[];
+// ==================== RECOMMENDATION TYPES ====================
+
+export interface RecommendationBasis {
+  interests_weight: number;
+  performance_weight: number;
+  projects_weight: number;
 }
 
-export interface InternshipRecommendation {
-  role: string;
-  duration: string;
-  skills_to_gain: string[];
-  application_tip: string;
-}
-
-export interface CareerPredictionResponse {
-  student_id: string;
-  recommended_careers: CareerPath[];
-  skill_development_priority: string[];
-  internship_recommendations: InternshipRecommendation[];
-  industry_trends: string[];
-  timestamp: string;
+export interface SkillGap {
+  subject: string;
+  current_score: number;
+  target_score: number;
+  gap: number;
+  importance: 'High' | 'Medium' | 'Low';
 }
 
 export interface ElectiveRecommendation {
@@ -142,15 +297,29 @@ export interface ElectiveRecommendation {
   elective_name: string;
   credits: number;
   match_score: number;
+  
+  // NEW: Structured breakdown
+  score_breakdown?: ScoreBreakdown;
+  ranking_explanation?: RankingExplanation;
+  confidence?: ConfidenceMetrics;
+  
+  // Legacy fields
   match_explanation: string;
   prerequisites_met: boolean;
   skill_alignment: string[];
   career_relevance: string[];
-  recommendation_basis: {
-    interests_weight: number;
-    performance_weight: number;
-    projects_weight: number;
-  };
+  recommendation_basis: RecommendationBasis;
+  pair?: string;
+  skill_gaps: SkillGap[];
+}
+
+export interface HonoursScoreBreakdown {
+  academic_score: number;
+  interest_score: number;
+  project_score: number;
+  matched_subjects: Array<{ subject: string; score: number }>;
+  matched_interests: string[];
+  relevant_projects: RelevantProject[];
 }
 
 export interface HonoursRecommendation {
@@ -162,6 +331,154 @@ export interface HonoursRecommendation {
   career_paths: string[];
   explanation: string;
   skills_gained: string[];
+  score_breakdown?: HonoursScoreBreakdown;
+}
+
+export interface CareerScoreBreakdown {
+  interest_score: number;
+  project_score: number;
+  cgpa_score: number;
+  matched_interests: string[];
+  relevant_projects: RelevantProject[];
+}
+
+export interface CareerRecommendation {
+  career: string;
+  match_score: number;
+  cgpa_eligible: boolean;
+  required_cgpa: number;
+  salary_range: string;
+  growth_potential: string;
+  top_companies: string[];
+  missing_skills: string[];
+  preparation_path: string[];
+  required_certifications: string[];
+  score_breakdown?: CareerScoreBreakdown;
+}
+
+export interface CumulativeRecommendationResponse {
+  electives: ElectiveRecommendation[];
+  honours: HonoursRecommendation[];
+  careers: CareerRecommendation[];
+  model_info: {
+    models_used: string[];
+    is_ml_trained: boolean;
+    version: string;
+    cached?: boolean;
+    cached_at?: string;
+  };
+  computation_time_ms: number;
+  data_summary?: {
+    total_marks_subjects: number;
+    total_interests: number;
+    total_projects: number;
+    cgpa: number;
+  };
+}
+
+// ==================== PROJECT ANALYSIS TYPES ====================
+
+export interface InferredInterest {
+  domain: string;
+  confidence: number;
+  matched_keywords: string[];
+  source: string;
+  relatedSkills?: string[];
+  careerPaths?: string[];
+  industryRelevance?: number;
+  keywords?: string[];
+}
+
+export interface ProjectAnalysisResult {
+  extracted_skills: string[];
+  complexity_score: number;
+  inferred_interests: InferredInterest[];
+}
+
+export interface ComprehensiveProjectAnalysisResponse {
+  success: boolean;
+  project_analysis: ProjectAnalysisResult;
+  cumulative_recommendations: CumulativeRecommendationResponse;
+  data_summary: {
+    total_marks_subjects: number;
+    total_interests: number;
+    total_projects: number;
+    cgpa: number;
+  };
+  model_info: {
+    is_ml_trained: boolean;
+    models_used: string[];
+    version: string;
+  };
+  student_info: {
+    branch: string;
+    semester: number;
+    user_id: string;
+  };
+  generated_at: string;
+}
+
+// Legacy type for backward compatibility
+export interface LegacyProjectAnalysisResult {
+  inferred_interests: Array<{
+    domain: string;
+    confidence: number;
+    keywords: string[];
+    relatedSkills: string[];
+    careerPaths: string[];
+    industryRelevance: number;
+  }>;
+  elective_recommendations: Array<{
+    elective: string;
+    code: string;
+    match_score: number;
+    reasons: string[];
+    skills_to_gain: string[];
+    career_relevance: string;
+    difficulty_level: string;
+  }>;
+  honours_minor_recommendations: Array<{
+    program: string;
+    type: string;
+    match_score: number;
+    courses: string[];
+    career_paths: string[];
+    credits: number;
+    semester_commitment: string;
+    reasons: string[];
+  }>;
+  career_paths: Array<{
+    title: string;
+    match_score: number;
+    salary_range: string;
+    market_demand: string;
+    growth_potential: string;
+    required_skills: string[];
+    companies_hiring: string[];
+    honours_program?: string;
+    preparation_path: string[];
+  }>;
+  skill_gap_analysis: {
+    current_skills: string[];
+    skill_gaps: string[];
+    priority_skills: string[];
+    learning_resources: Record<string, Array<{ platform: string; course: string }>>;
+    completeness_percentage: number;
+    estimated_learning_time: string;
+  };
+  next_steps: Array<{
+    action: string;
+    category: string;
+    priority: string;
+    deadline: string;
+    details: string;
+  }>;
+  metadata: {
+    analysis_date: string;
+    confidence_score: number;
+    model_version: string;
+    data_sources: string[];
+  };
 }
 
 export interface InterestProfile {
@@ -178,50 +495,32 @@ export interface InterestProfile {
   recommendations?: {
     electives: ElectiveRecommendation[];
     honours_programs: HonoursRecommendation[];
-    career_paths: CareerPath[];
+    career_paths: CareerRecommendation[];
   };
 }
 
-// Add this interface after the existing interfaces (around line 70)
-export interface AcademicRecommendations {
-  student_info: {
-    name: string;
-    branch: string;
-    semester: number;
-    cgpa: number;
-  };
-  weaknesses: Array<{
-    subject: string;
-    severity: 'low' | 'medium' | 'high' | 'critical';
-    average_score: number;
-    gap: number;
-    topics: string[];
-  }>;
-  curriculum_recommendations: {
-    immediate_actions: Array<{
-      action: string;
-      reason: string;
-      priority: string;
-    }>;
-    focus_areas: Array<{
-      area: string;
-      average_score: number;
-    }>;
-    honours_minor_eligibility: {
-      eligible: boolean;
-      message: string;
-      cgpa_gap?: number;
-      available_programs?: Array<{
-        program: string;
-        type: string;
-      }>;
-    };
-  };
-  interest_based_recommendations: Array<{
-    elective_name: string;
-    match_score: number;
-    interest: string;
-  }>;
+export interface ModelInfo {
+  is_trained: boolean;
+  model_version: string;
+  models_available: string[];
+  last_trained?: string;
+  training_accuracy?: number;
+  feature_dimension?: number;
+  electives_supported?: string[];
+}
+
+export interface TrainingMetrics {
+  accuracy: number;
+  f1_macro: number;
+  f1_weighted: number;
+  per_class: Record<string, { precision: number; recall: number; f1: number }>;
+  cross_val_mean: number;
+  cross_val_std: number;
+  confusion_matrix: number[][];
+  n_training_samples: number;
+  n_test_samples: number;
+  model_type: string;
+  timestamp: string;
 }
 
 // ==================== ML SERVICE CLASS ====================
@@ -231,7 +530,7 @@ class MLService {
 
   constructor() {
     this.api = axios.create({
-      baseURL: `${API_BASE_URL}/api/v1/ml-insights`,  // Changed from /ml to /ml-insights
+      baseURL: `${API_BASE_URL}/api/v1`,
       timeout: 30000,
       headers: {
         'Content-Type': 'application/json',
@@ -257,7 +556,231 @@ class MLService {
     );
   }
 
-  // ==================== PREDICTION METHODS ====================
+  // ==================== CUMULATIVE RECOMMENDATIONS ====================
+    // ==================== ACADEMIC RECOMMENDATIONS ====================
+
+  async getAcademicRecommendations(): Promise<AcademicRecommendations> {
+    try {
+      const response = await this.api.get('/ml-insights/academic-recommendations');
+      return response.data?.data || response.data;
+    } catch (error: any) {
+      console.error('Error getting academic recommendations:', error);
+      // Re-throw with meaningful message for the component to handle
+      if (error.response?.status === 404) {
+        const err = new Error('Student profile not found');
+        (err as any).response = error.response;
+        throw err;
+      }
+      throw error;
+    }
+  }
+    // ==================== CAREER PREDICTION ====================
+
+  async predictCareer(
+    studentId: string,
+    skills: string[],
+    interests: string[],
+    currentCGPA: number,
+    projects: string[]
+  ): Promise<any> {
+    try {
+      const response = await this.api.post('/ml-insights/career-path-analysis', {
+        skills,
+        interests,
+        academicPerformance: { cgpa: currentCGPA },
+        careerGoals: [],
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Error predicting career:', error);
+      return {
+        recommended_paths: [],
+        skill_matches: {},
+        preparation_timeline: {}
+      };
+    }
+  }
+
+  async getRecommendations(
+    includeElectives: boolean = true,
+    includeHonours: boolean = true,
+    includeCareer: boolean = true,
+    forceRefresh: boolean = false
+  ): Promise<CumulativeRecommendationResponse> {
+    try {
+      const response = await this.api.post<CumulativeRecommendationResponse>(
+        '/recommendations/generate',
+        {
+          include_electives: includeElectives,
+          include_honours: includeHonours,
+          include_career: includeCareer,
+          use_transformer: true,
+          use_knn: true,
+          use_logistic: true,
+          force_refresh: forceRefresh
+        }
+      );
+      return response.data;
+    } catch (error) {
+      console.error('Error getting recommendations:', error);
+      return this.getDefaultRecommendations();
+    }
+  }
+
+  async submitRecommendationFeedback(
+    type: 'elective' | 'honours' | 'career',
+    itemId: string,
+    rating: number,
+    feedback: string
+  ): Promise<void> {
+    try {
+      await this.api.post('/recommendations/feedback', {
+        type,
+        recommendation_id: itemId,
+        rating,
+        feedback,
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      console.error('Error submitting feedback:', error);
+      throw error;
+    }
+  }
+
+  async refreshRecommendations(): Promise<CumulativeRecommendationResponse> {
+    try {
+      const response = await this.api.post<CumulativeRecommendationResponse>(
+        '/recommendations/refresh'
+      );
+      return response.data;
+    } catch (error) {
+      console.error('Error refreshing recommendations:', error);
+      throw error;
+    }
+  }
+
+  async getModelInfo(): Promise<ModelInfo> {
+    try {
+      const response = await this.api.get<ModelInfo>('/recommendations/model-info');
+      return response.data;
+    } catch (error) {
+      console.error('Error getting model info:', error);
+      return {
+        is_trained: false,
+        model_version: '1.0.0',
+        models_available: ['Rule-Based']
+      };
+    }
+  }
+
+  // ==================== PROJECT ANALYSIS ====================
+
+  async analyzeProjectComprehensive(
+    projectData: Record<string, any>,
+    studentBranch?: string,
+    studentSemester?: number,
+    files?: File[]
+  ): Promise<ComprehensiveProjectAnalysisResponse> {
+    try {
+      const formData = new FormData();
+      formData.append('project_data', JSON.stringify(projectData));
+      
+      if (studentBranch) {
+        formData.append('student_branch', studentBranch);
+      }
+      if (studentSemester) {
+        formData.append('student_semester', studentSemester.toString());
+      }
+      if (files && files.length > 0) {
+        files.forEach(file => {
+          formData.append('files', file);
+        });
+      }
+
+      const response = await this.api.post<ComprehensiveProjectAnalysisResponse>(
+        '/projects/analyze-comprehensive',
+        formData,
+        {
+          headers: {
+            'Content-Type': 'multipart/form-data',
+          },
+        }
+      );
+      
+      return response.data;
+    } catch (error) {
+      console.error('Error analyzing project:', error);
+      throw error;
+    }
+  }
+
+  // Convert new response to legacy format for backward compatibility
+  convertToLegacyFormat(response: ComprehensiveProjectAnalysisResponse): LegacyProjectAnalysisResult {
+    const { project_analysis, cumulative_recommendations } = response;
+    
+    return {
+      inferred_interests: project_analysis.inferred_interests.map(i => ({
+        domain: i.domain,
+        confidence: i.confidence,
+        keywords: i.matched_keywords || [],
+        relatedSkills: i.relatedSkills || [],
+        careerPaths: i.careerPaths || [],
+        industryRelevance: i.industryRelevance || i.confidence * 0.9,
+      })),
+      elective_recommendations: cumulative_recommendations.electives.map(e => ({
+        elective: e.elective_name,
+        code: e.elective_code,
+        match_score: e.match_score,
+        reasons: [e.match_explanation],
+        skills_to_gain: e.skill_alignment,
+        career_relevance: e.career_relevance.join(', '),
+        difficulty_level: 'Intermediate',
+      })),
+      honours_minor_recommendations: cumulative_recommendations.honours.map(h => ({
+        program: h.program,
+        type: h.type,
+        match_score: h.match_score,
+        courses: h.skills_gained,
+        career_paths: h.career_paths,
+        credits: 18,
+        semester_commitment: '4 semesters',
+        reasons: [h.explanation],
+      })),
+      career_paths: cumulative_recommendations.careers.map(c => ({
+        title: c.career,
+        match_score: c.match_score,
+        salary_range: c.salary_range,
+        market_demand: c.growth_potential === 'Very High' ? 'Very High' : 'High',
+        growth_potential: c.growth_potential,
+        required_skills: c.missing_skills,
+        companies_hiring: c.top_companies,
+        preparation_path: c.preparation_path,
+      })),
+      skill_gap_analysis: {
+        current_skills: project_analysis.extracted_skills,
+        skill_gaps: cumulative_recommendations.electives[0]?.skill_gaps?.map(g => g.subject) || [],
+        priority_skills: cumulative_recommendations.electives[0]?.skill_alignment?.slice(0, 3) || [],
+        learning_resources: {},
+        completeness_percentage: Math.round(response.data_summary?.cgpa ? (response.data_summary.cgpa / 10) * 100 : 70),
+        estimated_learning_time: '2-3 months',
+      },
+      next_steps: cumulative_recommendations.electives[0]?.ranking_explanation?.improvement_tips?.map((tip, i) => ({
+        action: tip,
+        category: 'Skills',
+        priority: i === 0 ? 'high' : 'medium',
+        deadline: 'This semester',
+        details: tip,
+      })) || [],
+      metadata: {
+        analysis_date: response.generated_at,
+        confidence_score: cumulative_recommendations.electives[0]?.confidence?.overall || 0.75,
+        model_version: response.model_info.version,
+        data_sources: ['marks', 'interests', 'projects'],
+      },
+    };
+  }
+
+  // ==================== PREDICTIONS ====================
 
   async getPredictions(
     studentId: string,
@@ -266,7 +789,7 @@ class MLService {
     currentSemester: number
   ): Promise<PredictionResponse> {
     try {
-      const response = await this.api.post<PredictionResponse>('/predictions/performance', {
+      const response = await this.api.post<PredictionResponse>('/ml-insights/predictions/performance', {
         student_id: studentId,
         academic_data: academicData,
         historical_scores: historicalScores,
@@ -275,7 +798,6 @@ class MLService {
       return response.data;
     } catch (error) {
       console.error('Error getting predictions:', error);
-      // Return default prediction if API fails
       return this.getDefaultPrediction(studentId, academicData);
     }
   }
@@ -296,14 +818,10 @@ class MLService {
         trend: 'stable',
         average_gpa: cgpa
       },
-      risk_factors: cgpa < 7 ? ['CGPA below target', 'Need improvement in core subjects'] : [],
-      recommendations: [
-        'Focus on weak subjects identified in analysis',
-        'Maintain consistent study schedule',
-        'Participate in practical labs actively'
-      ],
+      risk_factors: cgpa < 7 ? ['CGPA below target'] : [],
+      recommendations: ['Focus on weak subjects', 'Maintain study schedule'],
       model_info: {
-        model_type: 'Ensemble (KNN + Logistic Regression)',
+        model_type: 'Ensemble',
         accuracy: 0.85,
         last_trained: new Date().toISOString()
       }
@@ -318,7 +836,7 @@ class MLService {
     currentCGPA: number
   ): Promise<WeaknessAnalysisResponse> {
     try {
-      const response = await this.api.post<WeaknessAnalysisResponse>('/analysis/weaknesses', {
+      const response = await this.api.post<WeaknessAnalysisResponse>('/ml-insights/analysis/weaknesses', {
         student_id: studentId,
         subject_scores: subjectScores,
         current_cgpa: currentCGPA
@@ -335,7 +853,6 @@ class MLService {
     subjectScores: SubjectScore[],
     currentCGPA: number
   ): WeaknessAnalysisResponse {
-    // Identify weak subjects (below 60%)
     const weakSubjects = subjectScores
       .filter(s => (s.total_marks / 100) < 0.6)
       .map(s => ({
@@ -346,397 +863,33 @@ class MLService {
         gap: 60 - s.total_marks,
         credits: s.credits,
         performance: s.total_marks < 40 ? 'poor' as const : 'below_average' as const,
-        topics: this.getWeakTopicsForSubject(s.subject_code),
-        improvement_strategy: this.getImprovementStrategy(s.subject_name)
+        topics: ['Core Concepts', 'Problem Solving'],
+        improvement_strategy: [`Review ${s.subject_name} fundamentals`]
       }));
 
     return {
       student_id: studentId,
       analysis: {
-        overall_performance: currentCGPA >= 8 ? 'excellent' : currentCGPA >= 7 ? 'good' : currentCGPA >= 6 ? 'average' : 'below_average',
+        overall_performance: currentCGPA >= 8 ? 'excellent' : currentCGPA >= 7 ? 'good' : 'average',
         success_probability: Math.min(0.95, currentCGPA / 10),
         weaknesses: weakSubjects,
         priority_subjects: weakSubjects.slice(0, 3),
         cgpa_improvement_needed: Math.max(0, 7 - currentCGPA),
         estimated_effort_hours: weakSubjects.length * 20,
         study_plan: {
-          weekly_hours: 15 + weakSubjects.length * 5,
-          daily_hours: 2 + weakSubjects.length,
-          focus_distribution: this.getFocusDistribution(weakSubjects),
-          recommended_resources: [
-            'NPTEL Video Lectures',
-            'GeeksforGeeks Practice',
-            'Previous Year Question Papers',
-            'Lab Practice Sessions'
-          ],
-          milestones: [
-            { week: 1, target: 'Complete revision of fundamentals' },
-            { week: 2, target: 'Practice numerical problems' },
-            { week: 3, target: 'Solve previous year papers' },
-            { week: 4, target: 'Mock tests and evaluation' }
-          ]
+          weekly_hours: 15,
+          daily_hours: 2,
+          focus_distribution: {},
+          recommended_resources: ['NPTEL', 'GeeksforGeeks'],
+          milestones: []
         }
       },
-      recommendations: this.generateRecommendations(weakSubjects, currentCGPA),
+      recommendations: ['Focus on weak subjects'],
       timestamp: new Date().toISOString()
     };
   }
 
-  private getWeakTopicsForSubject(subjectCode: string): string[] {
-    const topicMap: Record<string, string[]> = {
-      'ITPCC301': ['Vector Spaces', 'Linear Mappings', 'Numerical Methods'],
-      'ITPCC302': ['8086 Programming', 'Cache Memory', 'Pipelining'],
-      'ITPCC303': ['Trees', 'Graphs', 'Sorting Algorithms'],
-      'ITPCC304': ['Normalization', 'SQL Queries', 'Transaction Management'],
-      'ITPCC406': ['TCP/IP', 'Routing Algorithms', 'Network Security'],
-      'ITPCC407': ['Process Scheduling', 'Memory Management', 'Deadlocks'],
-      'ITPCC408': ['Design Patterns', 'Testing', 'Agile Methodology']
-    };
-    return topicMap[subjectCode] || ['Core Concepts', 'Problem Solving', 'Applications'];
-  }
-
-  private getImprovementStrategy(subjectName: string): string[] {
-    return [
-      `Review ${subjectName} fundamentals from textbook`,
-      `Watch NPTEL lectures on ${subjectName}`,
-      `Practice problems daily for 1 hour`,
-      `Discuss concepts with peers and faculty`,
-      `Attempt previous year questions`
-    ];
-  }
-
-  private getFocusDistribution(weakSubjects: WeaknessData[]): Record<string, string> {
-    const distribution: Record<string, string> = {};
-    const total = weakSubjects.reduce((sum, s) => sum + s.gap, 0);
-    
-    weakSubjects.forEach(s => {
-      const percentage = Math.round((s.gap / total) * 100);
-      distribution[s.subject] = `${percentage}%`;
-    });
-    
-    return distribution;
-  }
-
-  private generateRecommendations(weakSubjects: WeaknessData[], cgpa: number): string[] {
-    const recommendations: string[] = [];
-    
-    if (cgpa < 6) {
-      recommendations.push('⚠️ Critical: Focus intensively on core subjects to avoid backlog');
-    }
-    
-    weakSubjects.forEach(s => {
-      recommendations.push(`📚 ${s.subject}: Focus on ${s.topics.slice(0, 2).join(', ')}`);
-    });
-    
-    recommendations.push('🎯 Create a weekly study schedule and stick to it');
-    recommendations.push('👥 Form study groups for difficult subjects');
-    recommendations.push('💻 Practice coding/numericals daily');
-    
-    return recommendations;
-  }
-
-  // ==================== CAREER PREDICTIONS ====================
-
-  async predictCareer(
-    studentId: string,
-    skills: string[],
-    interests: string[],
-    cgpa: number,
-    projects: string[]
-  ): Promise<CareerPredictionResponse> {
-    try {
-      const response = await this.api.post<CareerPredictionResponse>('/predictions/career', {
-        student_id: studentId,
-        skills,
-        interests,
-        cgpa,
-        projects
-      });
-      return response.data;
-    } catch (error) {
-      console.error('Error predicting career:', error);
-      return this.getDefaultCareerPrediction(studentId, skills, interests, cgpa);
-    }
-  }
-
-  private getDefaultCareerPrediction(
-    studentId: string,
-    skills: string[],
-    interests: string[],
-    cgpa: number
-  ): CareerPredictionResponse {
-    const careerPaths = this.matchCareersToProfile(skills, interests, cgpa);
-    
-    return {
-      student_id: studentId,
-      recommended_careers: careerPaths,
-      skill_development_priority: this.getPrioritySkills(skills, interests),
-      internship_recommendations: this.getInternshipRecommendations(interests),
-      industry_trends: [
-        'AI/ML skills are in high demand',
-        'Cloud computing certifications valued',
-        'Full-stack development opportunities growing',
-        'Cybersecurity roles increasing'
-      ],
-      timestamp: new Date().toISOString()
-    };
-  }
-
-  private matchCareersToProfile(skills: string[], interests: string[], cgpa: number): CareerPath[] {
-    const allCareers: CareerPath[] = [
-      {
-        career: 'Software Development Engineer',
-        match_score: 85,
-        cgpa_eligible: cgpa >= 7,
-        required_cgpa: 7,
-        salary_range: '₹6-15 LPA',
-        growth_potential: 'High',
-        top_companies: ['Google', 'Microsoft', 'Amazon', 'Flipkart', 'Paytm'],
-        missing_skills: ['System Design', 'DSA Advanced'],
-        preparation_path: [
-          'Master Data Structures & Algorithms',
-          'Build 3-4 full-stack projects',
-          'Practice on LeetCode/CodeForces',
-          'Prepare for system design interviews'
-        ],
-        required_certifications: ['AWS Cloud Practitioner', 'Meta Frontend Developer']
-      },
-      {
-        career: 'Data Scientist',
-        match_score: 78,
-        cgpa_eligible: cgpa >= 7.5,
-        required_cgpa: 7.5,
-        salary_range: '₹8-20 LPA',
-        growth_potential: 'Very High',
-        top_companies: ['Google', 'Amazon', 'Netflix', 'Uber', 'Swiggy'],
-        missing_skills: ['Machine Learning', 'Statistics', 'Python'],
-        preparation_path: [
-          'Complete ML/DL courses on Coursera',
-          'Build ML projects with real datasets',
-          'Learn SQL and data visualization',
-          'Participate in Kaggle competitions'
-        ],
-        required_certifications: ['Google Data Analytics', 'IBM Data Science']
-      },
-      {
-        career: 'Cloud Engineer',
-        match_score: 72,
-        cgpa_eligible: cgpa >= 6.5,
-        required_cgpa: 6.5,
-        salary_range: '₹7-18 LPA',
-        growth_potential: 'High',
-        top_companies: ['AWS', 'Microsoft Azure', 'Google Cloud', 'IBM'],
-        missing_skills: ['Docker', 'Kubernetes', 'Terraform'],
-        preparation_path: [
-          'Get AWS/Azure certification',
-          'Learn containerization with Docker',
-          'Practice infrastructure as code',
-          'Build CI/CD pipelines'
-        ],
-        required_certifications: ['AWS Solutions Architect', 'Azure Administrator']
-      },
-      {
-        career: 'Full Stack Developer',
-        match_score: 80,
-        cgpa_eligible: cgpa >= 6,
-        required_cgpa: 6,
-        salary_range: '₹5-12 LPA',
-        growth_potential: 'High',
-        top_companies: ['Startups', 'Product Companies', 'Consulting Firms'],
-        missing_skills: ['React/Angular', 'Node.js', 'MongoDB'],
-        preparation_path: [
-          'Master HTML, CSS, JavaScript',
-          'Learn React/Angular frontend',
-          'Build Node.js/Express backend',
-          'Create 2-3 full-stack projects'
-        ],
-        required_certifications: ['Meta Frontend', 'MongoDB Developer']
-      }
-    ];
-
-    // Adjust match scores based on interests and skills
-    return allCareers.map(career => {
-      let adjustedScore = career.match_score;
-      
-      if (interests.some(i => career.career.toLowerCase().includes(i.toLowerCase()))) {
-        adjustedScore += 10;
-      }
-      
-      const matchingSkills = career.missing_skills.filter(s => 
-        skills.some(sk => sk.toLowerCase().includes(s.toLowerCase()))
-      );
-      adjustedScore += matchingSkills.length * 5;
-      
-      return {
-        ...career,
-        match_score: Math.min(100, adjustedScore),
-        missing_skills: career.missing_skills.filter(s => 
-          !skills.some(sk => sk.toLowerCase().includes(s.toLowerCase()))
-        )
-      };
-    }).sort((a, b) => b.match_score - a.match_score);
-  }
-
-  private getPrioritySkills(skills: string[], interests: string[]): string[] {
-    const allPrioritySkills = [
-      'Data Structures & Algorithms',
-      'System Design',
-      'Python',
-      'JavaScript',
-      'SQL',
-      'Git',
-      'Docker',
-      'AWS/Cloud',
-      'Machine Learning',
-      'React/Angular'
-    ];
-    
-    return allPrioritySkills.filter(s => 
-      !skills.some(sk => sk.toLowerCase().includes(s.toLowerCase()))
-    ).slice(0, 5);
-  }
-
-  private getInternshipRecommendations(interests: string[]): InternshipRecommendation[] {
-    return [
-      {
-        role: 'Software Development Intern',
-        duration: '2-3 months',
-        skills_to_gain: ['Industry coding practices', 'Team collaboration', 'Version control'],
-        application_tip: 'Apply through LinkedIn and company career pages early in semester 5'
-      },
-      {
-        role: 'Data Science Intern',
-        duration: '3-6 months',
-        skills_to_gain: ['Data analysis', 'ML model deployment', 'Business analytics'],
-        application_tip: 'Build a strong portfolio with Kaggle projects before applying'
-      },
-      {
-        role: 'Cloud Engineering Intern',
-        duration: '2-4 months',
-        skills_to_gain: ['Cloud infrastructure', 'DevOps', 'Automation'],
-        application_tip: 'Get AWS/Azure certification to stand out'
-      }
-    ];
-  }
-
-  
-  // ==================== ELECTIVE & HONOURS RECOMMENDATIONS ====================
-
-  async getRecommendations(
-    includeElectives: boolean = true,
-    includeHonours: boolean = true,
-    includeCareer: boolean = true
-  ): Promise<{
-    electives: ElectiveRecommendation[];
-    honours: HonoursRecommendation[];
-    careers: CareerPath[];
-  }> {
-    try {
-      const response = await this.api.post('/recommendations/generate', {
-        include_electives: includeElectives,
-        include_honours: includeHonours,
-        include_career: includeCareer,
-        use_transformer: true,
-        use_knn: true,
-        use_logistic: true
-      });
-      return response.data;
-    } catch (error) {
-      console.error('Error getting recommendations:', error);
-      return {
-        electives: this.getDefaultElectives(),
-        honours: this.getDefaultHonours(),
-        careers: []
-      };
-    }
-  }
-
-  private getDefaultElectives(): ElectiveRecommendation[] {
-    return [
-      {
-        elective_code: 'ITPEC5012',
-        elective_name: 'Cloud Computing Services',
-        credits: 3,
-        match_score: 88,
-        match_explanation: 'Aligns with industry demand and your interest in web technologies. Cloud skills are essential for modern software development.',
-        prerequisites_met: true,
-        skill_alignment: ['AWS', 'Azure', 'Docker', 'Kubernetes'],
-        career_relevance: ['Cloud Engineer', 'DevOps Engineer', 'Solutions Architect'],
-        recommendation_basis: {
-          interests_weight: 40,
-          performance_weight: 35,
-          projects_weight: 25
-        }
-      },
-      {
-        elective_code: 'ITPEC6022',
-        elective_name: 'Machine Learning',
-        credits: 3,
-        match_score: 82,
-        match_explanation: 'Strong foundation in mathematics and programming makes you a good fit. ML is one of the highest-paying specializations.',
-        prerequisites_met: true,
-        skill_alignment: ['Python', 'TensorFlow', 'Scikit-learn', 'Data Analysis'],
-        career_relevance: ['Data Scientist', 'ML Engineer', 'AI Researcher'],
-        recommendation_basis: {
-          interests_weight: 35,
-          performance_weight: 40,
-          projects_weight: 25
-        }
-      },
-      {
-        elective_code: 'ITPEC5013',
-        elective_name: 'Data Warehousing & Mining',
-        credits: 3,
-        match_score: 75,
-        match_explanation: 'Builds on your DBMS knowledge. Essential for data-driven decision making in enterprises.',
-        prerequisites_met: true,
-        skill_alignment: ['SQL', 'ETL', 'Business Intelligence', 'Analytics'],
-        career_relevance: ['Data Analyst', 'BI Developer', 'Data Engineer'],
-        recommendation_basis: {
-          interests_weight: 30,
-          performance_weight: 45,
-          projects_weight: 25
-        }
-      }
-    ];
-  }
-
-  private getDefaultHonours(): HonoursRecommendation[] {
-    return [
-      {
-        program: 'AI/ML Honours',
-        type: 'honours',
-        match_score: 85,
-        eligibility: true,
-        required_cgpa: 7.5,
-        career_paths: ['ML Engineer', 'Data Scientist', 'AI Researcher'],
-        explanation: 'Based on your interests and performance in mathematics/programming, this honours program will significantly boost your career prospects.',
-        skills_gained: ['Deep Learning', 'NLP', 'Computer Vision', 'MLOps']
-      },
-      {
-        program: 'Cybersecurity Minor',
-        type: 'minor',
-        match_score: 72,
-        eligibility: true,
-        required_cgpa: 7.0,
-        career_paths: ['Security Analyst', 'Penetration Tester', 'Security Architect'],
-        explanation: 'Growing field with high demand. Complements your IT knowledge well.',
-        skills_gained: ['Network Security', 'Cryptography', 'Ethical Hacking', 'Security Auditing']
-      },
-      {
-        program: 'Data Science Honours',
-        type: 'honours',
-        match_score: 78,
-        eligibility: true,
-        required_cgpa: 7.5,
-        career_paths: ['Data Scientist', 'Analytics Manager', 'Research Scientist'],
-        explanation: 'Combines statistics, programming, and domain knowledge for data-driven insights.',
-        skills_gained: ['Statistical Analysis', 'Big Data', 'Data Visualization', 'Machine Learning']
-      }
-    ];
-  }
-
-  // ==================== INTEREST PROFILE MANAGEMENT ====================
+  // ==================== INTEREST PROFILE ====================
 
   async updateInterests(
     interests: string[],
@@ -744,15 +897,12 @@ class MLService {
     skills: string[]
   ): Promise<InterestProfile> {
     try {
-      const response = await this.api.post('/interests/update', {
+      const response = await this.api.post('/ml-insights/interests/update', {
         interests,
         career_goals: careerGoals,
         skills
       });
-
-      // Trigger recommendation refresh
-      await this.triggerRecommendationUpdate();
-
+      await this.refreshRecommendations();
       return response.data;
     } catch (error) {
       console.error('Error updating interests:', error);
@@ -762,7 +912,7 @@ class MLService {
 
   async getInterestProfile(): Promise<InterestProfile> {
     try {
-      const response = await this.api.get<InterestProfile>('/interests/profile');
+      const response = await this.api.get<InterestProfile>('/ml-insights/interests/profile');
       return response.data;
     } catch (error) {
       console.error('Error getting interest profile:', error);
@@ -778,115 +928,167 @@ class MLService {
     }
   }
 
-  async triggerRecommendationUpdate(): Promise<void> {
-    try {
-      await this.api.post('/recommendations/refresh', {
-        update_basis: ['interests', 'marks', 'projects']
-      });
-    } catch (error) {
-      console.error('Error triggering recommendation update:', error);
-    }
+  // ==================== DEFAULT DATA ====================
+
+  private getDefaultRecommendations(): CumulativeRecommendationResponse {
+    return {
+      electives: this.getDefaultElectives(),
+      honours: this.getDefaultHonours(),
+      careers: this.getDefaultCareers(),
+      model_info: {
+        models_used: ['Rule-Based (Fallback)'],
+        is_ml_trained: false,
+        version: '2.0.0'
+      },
+      computation_time_ms: 0
+    };
   }
 
-  // ==================== FEEDBACK ====================
-
-  async submitRecommendationFeedback(
-    recommendationType: 'elective' | 'honours' | 'career',
-    recommendationId: string,
-    rating: number,
-    feedback: string
-  ): Promise<void> {
-    try {
-      await this.api.post('/recommendations/feedback', {
-        type: recommendationType,
-        recommendation_id: recommendationId,
-        rating,
-        feedback,
-        timestamp: new Date().toISOString()
-      });
-    } catch (error) {
-      console.error('Error submitting feedback:', error);
-      throw error;
-    }
-  }
-
-  // ==================== ACADEMIC RECOMMENDATIONS ====================
-
-  async getAcademicRecommendations(): Promise<AcademicRecommendations> {
-    try {
-      const response = await this.api.get<{ data: AcademicRecommendations }>('/academic-recommendations');
-      return response.data.data;
-    } catch (error: any) {
-      console.error('Error getting academic recommendations:', error);
-      
-      if (error.response?.status === 404) {
-        throw new Error('Please complete your profile and add academic data first.');
+  private getDefaultElectives(): ElectiveRecommendation[] {
+    return [
+      {
+        elective_code: 'ITPEC5012',
+        elective_name: 'Machine Learning',
+        credits: 3,
+        match_score: 85,
+        score_breakdown: {
+          academic_component: {
+            score: 34,
+            max_possible: 40,
+            percentage: 85,
+            contributing_subjects: [
+              { subject: 'Python', score: 85, weight: 3.0, contribution: 8.5, status: 'strong' },
+              { subject: 'DSA', score: 78, weight: 2.5, contribution: 6.5, status: 'adequate' }
+            ],
+            missing_subjects: [],
+            strong_subjects: ['Python', 'Mathematics'],
+            weak_subjects: []
+          },
+          interest_component: {
+            score: 27,
+            max_possible: 30,
+            percentage: 90,
+            matched_interests: [
+              { interest: 'AI/ML', strength: 100, contribution: 20 }
+            ],
+            unmatched_interests: [],
+            semantic_similarity: 0.85
+          },
+          project_component: {
+            score: 24,
+            max_possible: 30,
+            percentage: 80,
+            relevant_projects: [
+              { title: 'Sentiment Analyzer', matched_skills: ['Python', 'NLP'], complexity: 0.8, relevance_score: 90 }
+            ],
+            keyword_hits: 8,
+            missing_project_skills: ['PyTorch', 'Computer Vision'],
+            average_complexity: 0.75,
+            total_projects_analyzed: 3
+          }
+        },
+        ranking_explanation: {
+          rank: 1,
+          total_options: 4,
+          why_this_rank: 'Strongest combined alignment across academics, interests, and projects',
+          vs_other_electives: [
+            { compared_to: 'Cloud Computing', score_difference: 12, message: '12 points higher than second choice' }
+          ],
+          improvement_tips: [
+            'Add a Computer Vision project to boost score by ~5%',
+            'Take AI course next semester for +8% academic alignment'
+          ]
+        },
+        confidence: {
+          overall: 0.87,
+          data_completeness: 0.92,
+          model_confidence: 0.85,
+          factors: {
+            has_marks: true,
+            has_interests: true,
+            has_projects: true,
+            marks_count: 12,
+            project_count: 3,
+            interest_count: 4
+          }
+        },
+        match_explanation: 'Ranked #1 of 4 electives with a cumulative score of 85%.',
+        prerequisites_met: true,
+        skill_alignment: ['TensorFlow', 'PyTorch', 'Scikit-learn', 'Neural Networks'],
+        career_relevance: ['ML Engineer', 'Data Scientist', 'AI Researcher'],
+        recommendation_basis: {
+          interests_weight: 27,
+          performance_weight: 34,
+          projects_weight: 24
+        },
+        pair: 'Pair 1 (ML vs WT)',
+        skill_gaps: []
+      },
+      {
+        elective_code: 'ITPEC5015',
+        elective_name: 'Cloud Computing Services',
+        credits: 3,
+        match_score: 73,
+        match_explanation: 'Good performance in Networks and OS. Cloud skills are highly demanded.',
+        prerequisites_met: true,
+        skill_alignment: ['AWS', 'Azure', 'Docker', 'Kubernetes'],
+        career_relevance: ['Cloud Architect', 'DevOps Engineer', 'SRE'],
+        recommendation_basis: {
+          interests_weight: 20,
+          performance_weight: 30,
+          projects_weight: 23
+        },
+        pair: 'Pair 2 (DWM vs CCS)',
+        skill_gaps: []
       }
-      
-      throw error;
-    }
+    ];
   }
 
-  async getComprehensiveAnalysis(
-    includeTrends: boolean = true,
-    includeComparisons: boolean = true,
-    includeInterests: boolean = true
-  ): Promise<any> {
-    try {
-      const response = await this.api.get('/comprehensive-analysis', {
-        params: {
-          include_trends: includeTrends,
-          include_comparisons: includeComparisons,
-          include_interests: includeInterests
+  private getDefaultHonours(): HonoursRecommendation[] {
+    return [
+      {
+        program: 'AI / ML Honours',
+        type: 'honours',
+        match_score: 82,
+        eligibility: true,
+        required_cgpa: 7.5,
+        career_paths: ['ML Engineer', 'Data Scientist', 'AI Researcher'],
+        explanation: 'Based on your interests and performance in mathematics/programming.',
+        skills_gained: ['Deep Learning', 'NLP', 'Computer Vision', 'MLOps'],
+        score_breakdown: {
+          academic_score: 35,
+          interest_score: 27,
+          project_score: 20,
+          matched_subjects: [{ subject: 'Python', score: 85 }],
+          matched_interests: ['AI/ML'],
+          relevant_projects: []
         }
-      });
-      return response.data;
-    } catch (error) {
-      console.error('Error getting comprehensive analysis:', error);
-      throw error;
-    }
+      }
+    ];
   }
 
-  async getElectiveRecommendations(semester?: number): Promise<{
-    target_semester: number;
-    interest_based_recommendations: ElectiveRecommendation[];
-    available_electives: any[];
-    student_interests: string[];
-  }> {
-    try {
-      const response = await this.api.get('/elective-recommendations', {
-        params: semester ? { semester } : {}
-      });
-      return response.data.data;
-    } catch (error) {
-      console.error('Error getting elective recommendations:', error);
-      // Return default structure
-      return {
-        target_semester: semester || 5,
-        interest_based_recommendations: this.getDefaultElectives(),
-        available_electives: [],
-        student_interests: []
-      };
-    }
-  }
-
-  async checkHonoursEligibility(): Promise<{
-    eligible: boolean;
-    current_semester: number;
-    current_cgpa: number;
-    required_cgpa: number;
-    required_semester: number;
-    message: string;
-    cgpa_gap?: number;
-    eligible_programs?: HonoursRecommendation[];
-  }> {
-    try {
-      const response = await this.api.get('/honours-minor-eligibility');
-      return response.data.data;
-    } catch (error) {
-      console.error('Error checking honours eligibility:', error);
-      throw error;
-    }
+  private getDefaultCareers(): CareerRecommendation[] {
+    return [
+      {
+        career: 'Software Development Engineer',
+        match_score: 85,
+        cgpa_eligible: true,
+        required_cgpa: 7.0,
+        salary_range: '₹6-15 LPA',
+        growth_potential: 'High',
+        top_companies: ['Google', 'Microsoft', 'Amazon', 'Flipkart'],
+        missing_skills: ['System Design'],
+        preparation_path: ['Master DSA', 'Build full-stack projects', 'Practice LeetCode'],
+        required_certifications: ['AWS Cloud Practitioner'],
+        score_breakdown: {
+          interest_score: 35,
+          project_score: 30,
+          cgpa_score: 20,
+          matched_interests: ['Web Development'],
+          relevant_projects: []
+        }
+      }
+    ];
   }
 }
 

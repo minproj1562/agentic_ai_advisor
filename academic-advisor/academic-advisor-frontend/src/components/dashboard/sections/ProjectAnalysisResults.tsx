@@ -21,10 +21,10 @@ import {
   Download,
   Share2
 } from 'lucide-react';
-import { ProjectAnalysisResult } from '../../../services/ml.service';
+import { LegacyProjectAnalysisResult } from '../../../services/ml.service';
 
 interface ProjectAnalysisResultsProps {
-  analysis: ProjectAnalysisResult;
+  analysis: LegacyProjectAnalysisResult;
   onClose: () => void;
   studentBranch: string;
   studentSemester: number;
