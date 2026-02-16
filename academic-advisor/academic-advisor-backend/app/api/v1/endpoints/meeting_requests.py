@@ -118,7 +118,57 @@ async def get_student_requests(
         logger.error(f"Error getting student requests: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to fetch requests")
 
+@router.post("/student/cancel/{request_id}")
+async def cancel_meeting_request(
+    request_id: str,
+    current_user: FirebaseUser = Depends(get_current_user)
+):
+    """
+    Student cancels their own meeting request
+    """
+    try:
+        student_id = current_user.uid
 
+        meeting_request = await MeetingRequest.find_one(
+            MeetingRequest.request_id == request_id,
+            MeetingRequest.student_id == student_id
+        )
+
+        if not meeting_request:
+            raise HTTPException(status_code=404, detail="Meeting request not found")
+
+        if meeting_request.status not in [MeetingRequestStatus.PENDING, MeetingRequestStatus.ACCEPTED]:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot cancel a request with status: {meeting_request.status.value}"
+            )
+
+        meeting_request.status = MeetingRequestStatus.CANCELLED
+        meeting_request.updated_at = datetime.utcnow()
+        await meeting_request.save()
+
+        # Notify faculty about cancellation
+        try:
+            await notification_service.send_notification(
+                user_id=meeting_request.faculty_id,
+                notification_type='meeting_cancelled',
+                title='Meeting Cancelled',
+                message=f'{meeting_request.student_name} has cancelled their meeting request: {meeting_request.subject}',
+                data={'request_id': request_id}
+            )
+        except Exception as e:
+            logger.warning(f"Failed to send cancellation notification: {e}")
+
+        return {
+            "success": True,
+            "message": "Meeting request cancelled successfully"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error cancelling request: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to cancel request")
 # ==================== Faculty Endpoints ====================
 
 @router.get("/faculty/requests")

@@ -1,3 +1,4 @@
+// academic-advisor/academic-advisor-frontend/src/components/meetings/StudentMeetingRequest.tsx
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useForm, Controller } from 'react-hook-form';
@@ -535,7 +536,7 @@ const StudentMeetingRequest: React.FC = () => {
     if (!confirm('Are you sure you want to cancel this request?')) return;
     
     try {
-      await apiClient.delete(`/meetings/request/${requestId}`);
+      await apiClient.post(`/meetings/student/cancel/${requestId}`);
       setMyRequests(prev => prev.filter(r => r.request_id !== requestId));
       toast.success('Request cancelled');
     } catch (error: any) {

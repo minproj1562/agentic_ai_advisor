@@ -65,6 +65,7 @@ import { AcademicDataEntry } from '../../components/dashboard/AcademicDataEntry'
 import { InterestManagement } from '../../components/dashboard/InterestManagement';
 import { AcademicInsights } from '../../components/dashboard/AcademicInsights';
 import { auth } from '../../services/firebase.config';
+import MeetingsCalendar from '../../components/meetings/MeetingsCalendar';
 import { ComprehensiveAnalysis } from '../../services/student_projects_cloudinary.service';
 interface SubjectData {
   name: string;
@@ -244,7 +245,7 @@ const StudentDashboard: React.FC = () => {
   const [showProjectAnalysis, setShowProjectAnalysis] = useState(false);
   const [projectAnalysisResult, setProjectAnalysisResult] = useState<LegacyProjectAnalysisResult | null>(null);
   const [analysisLoading, setAnalysisLoading] = useState(false);
-  
+  const [meetingsView, setMeetingsView] = useState<'requests' | 'calendar'>('requests');
   // Recommendation stats for overview
   const [recommendationStats, setRecommendationStats] = useState({
     careerPaths: 0,
@@ -839,7 +840,7 @@ const handleProjectAnalysisComplete = (event: CustomEvent<ComprehensiveAnalysis>
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 flex">
       {/* Project Analysis Results Modal */}
       <AnimatePresence>
         {showProjectAnalysis && projectAnalysisResult && (
@@ -854,6 +855,18 @@ const handleProjectAnalysisComplete = (event: CustomEvent<ComprehensiveAnalysis>
           />
         )}
       </AnimatePresence>
+      {/* Mobile Backdrop Overlay */}
+      <AnimatePresence>
+        {sidebarOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 z-40 lg:hidden"
+            onClick={() => setSidebarOpen(false)}
+          />
+        )}
+      </AnimatePresence>
 
       {/* Sidebar */}
       <AnimatePresence>
@@ -863,7 +876,7 @@ const handleProjectAnalysisComplete = (event: CustomEvent<ComprehensiveAnalysis>
             animate={{ x: 0 }}
             exit={{ x: -300 }}
             transition={{ type: "spring", damping: 25 }}
-            className="fixed inset-y-0 left-0 z-50 w-72 bg-white shadow-2xl lg:relative lg:shadow-none"
+                        className="fixed inset-y-0 left-0 z-50 w-72 bg-white shadow-2xl lg:relative lg:z-auto lg:shadow-none lg:border-r flex-shrink-0"
           >
             <div className="h-full flex flex-col">
               {/* Sidebar Header */}
@@ -1136,8 +1149,8 @@ const handleProjectAnalysisComplete = (event: CustomEvent<ComprehensiveAnalysis>
         )}
       </AnimatePresence>
 
-      {/* Main Content */}
-      <div className={`flex-1 ${sidebarOpen ? 'lg:ml-72' : ''}`}>
+            {/* Main Content */}
+      <div className="flex-1 min-w-0">
         {/* Top Navigation */}
         <header className="bg-white shadow-sm border-b sticky top-0 z-40">
           <div className="px-4 sm:px-6 lg:px-8">
@@ -1158,7 +1171,7 @@ const handleProjectAnalysisComplete = (event: CustomEvent<ComprehensiveAnalysis>
                   {activeTab === 'electives' && 'AI-Powered Recommendations'}
                   {activeTab === 'weaknesses' && 'Weakness Analysis & Improvement'}
                   {activeTab === 'resources' && 'Smart Study Resources'}
-                  {activeTab === 'meetings' && 'Meeting Requests'}
+                  {activeTab === 'meetings' && (meetingsView === 'calendar' ? 'Meeting Calendar' : 'Meeting Requests')}
                 </h1>
               </div>
 
@@ -1753,6 +1766,33 @@ const handleProjectAnalysisComplete = (event: CustomEvent<ComprehensiveAnalysis>
               </motion.div>
             )}
 
+{activeTab === 'meetings' && (
+  <motion.div
+    key="meetings"
+    initial={{ opacity: 0, y: 20 }}
+    animate={{ opacity: 1, y: 0 }}
+    exit={{ opacity: 0, y: -20 }}
+    transition={{ duration: 0.3 }}
+  >
+    <StudentMeetingRequest />
+  </motion.div>
+)}
+Replace with:
+
+React
+
+            {activeTab === 'resources' && (
+              <motion.div
+                key="resources"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+                transition={{ duration: 0.3 }}
+              >
+                <StudyResources />
+              </motion.div>
+            )}
+
             {activeTab === 'meetings' && (
               <motion.div
                 key="meetings"
@@ -1760,8 +1800,72 @@ const handleProjectAnalysisComplete = (event: CustomEvent<ComprehensiveAnalysis>
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -20 }}
                 transition={{ duration: 0.3 }}
+                className="space-y-6"
               >
-                <StudentMeetingRequest />
+                {/* Sub-navigation: Requests | Calendar */}
+                <div className="flex gap-1 border-b border-gray-200 bg-white rounded-t-xl px-2 pt-2">
+                  <button
+                    onClick={() => setMeetingsView('requests')}
+                    className={`px-5 py-3 font-medium text-sm transition-colors relative rounded-t-lg ${
+                      meetingsView === 'requests'
+                        ? 'text-indigo-600 bg-indigo-50'
+                        : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+                    }`}
+                  >
+                    <span className="flex items-center gap-2">
+                      <FileText className="h-4 w-4" />
+                      Meeting Requests
+                    </span>
+                    {meetingsView === 'requests' && (
+                      <motion.div
+                        layoutId="meetingsSubTab"
+                        className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-600"
+                      />
+                    )}
+                  </button>
+                  <button
+                    onClick={() => setMeetingsView('calendar')}
+                    className={`px-5 py-3 font-medium text-sm transition-colors relative rounded-t-lg ${
+                      meetingsView === 'calendar'
+                        ? 'text-indigo-600 bg-indigo-50'
+                        : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+                    }`}
+                  >
+                    <span className="flex items-center gap-2">
+                      <Calendar className="h-4 w-4" />
+                      Calendar View
+                    </span>
+                    {meetingsView === 'calendar' && (
+                      <motion.div
+                        layoutId="meetingsSubTab"
+                        className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-600"
+                      />
+                    )}
+                  </button>
+                </div>
+
+                {/* Content */}
+                <AnimatePresence mode="wait">
+                  {meetingsView === 'requests' ? (
+                    <motion.div
+                      key="requests-view"
+                      initial={{ opacity: 0, x: -10 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      exit={{ opacity: 0, x: 10 }}
+                    >
+                      <StudentMeetingRequest />
+                    </motion.div>
+                  ) : (
+                    <motion.div
+                      key="calendar-view"
+                      initial={{ opacity: 0, x: 10 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      exit={{ opacity: 0, x: -10 }}
+                    >
+                      <MeetingsCalendar />
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </motion.div>
             )}
           </AnimatePresence>
