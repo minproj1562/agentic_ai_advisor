@@ -1,6 +1,10 @@
 # academic-advisor-backend/app/api/v1/api.py
 """
 API v1 Router - Aggregates all endpoint routers
+
+FIXED: The old code imported `from app.api.v1.students` which only had
+basic profile/CV endpoints (no /{student_id}/performance, /weaknesses, etc.)
+Now imports from `app.api.v1.endpoints.students` which has ALL endpoints.
 """
 
 from fastapi import APIRouter
@@ -16,7 +20,11 @@ api_router = APIRouter()
 from app.api.v1.auth import router as auth_router
 api_router.include_router(auth_router, prefix="/auth", tags=["Authentication"])
 
-from app.api.v1.students import router as students_router
+# ✅ FIXED: Import from endpoints.students which has ALL student endpoints
+# including /{student_id}/performance, /{student_id}/weaknesses,
+# /{student_id}/electives/recommendations, /{student_id}/resources, etc.
+# The old app/api/v1/students.py only had /profile, /upload-cv, /performance (different auth)
+from app.api.v1.endpoints.students import router as students_router
 api_router.include_router(students_router, prefix="/students", tags=["Students"])
 
 from app.api.v1.faculty import router as faculty_router
@@ -62,6 +70,9 @@ api_router.include_router(notifications_router, prefix="/notifications", tags=["
 
 from app.api.v1.endpoints.meeting_requests import router as meeting_requests_router
 api_router.include_router(meeting_requests_router, prefix="/meetings", tags=["Meeting Requests"])
+
+from app.api.v1.endpoints import readiness as readiness_endpoints
+api_router.include_router(readiness_endpoints.router, prefix="/readiness", tags=["Readiness Analysis"])
 
 # ==================== OPTIONAL ROUTERS ====================
 

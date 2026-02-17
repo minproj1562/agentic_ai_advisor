@@ -1,4 +1,6 @@
-// StudentDashboard.tsx
+// src/pages/Dashboard/StudentDashboard.tsx
+// COMPLETE FILE — All dynamic data fixes applied
+
 import React, { useState, useEffect } from 'react';
 import StudentMeetingRequest from '../../components/meetings/StudentMeetingRequest';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -41,9 +43,11 @@ import {
   FolderOpen,
   ChevronLeft,
   Loader2,
-  Heart
+  Heart,
+  Zap
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
+import { useQueryClient } from '@tanstack/react-query';
 import PerformanceChart from '../../components/dashboard/PerformanceChart';
 import StatCard from '../../components/common/StatCard';
 import { analyticsService, extendedAnalyticsService } from '../../services/analytics.service';
@@ -66,6 +70,13 @@ import { InterestManagement } from '../../components/dashboard/InterestManagemen
 import { AcademicInsights } from '../../components/dashboard/AcademicInsights';
 import { auth } from '../../services/firebase.config';
 import { ComprehensiveAnalysis } from '../../services/student_projects_cloudinary.service';
+import { ReadinessAnalysis } from '../../components/dashboard/ReadinessAnalysis';
+import { useStudentInterests, useSyncInterests } from '../../hooks/useEngineeringGuidance';
+import ReadinessIndicator from '../../components/dashboard/ReadinessIndicator';
+import { getWeaknessService } from '../../services/weakness.service';
+
+// ==================== Interfaces ====================
+
 interface SubjectData {
   name: string;
   score: number;
@@ -74,36 +85,6 @@ interface SubjectData {
   weakness: string[];
 }
 
-const BACKEND_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-
-// Add localStorage persistence for user profile data
-const PROFILE_STORAGE_KEY = 'academic_advisor_profile';
-
-const saveProfileToStorage = (profile: any) => {
-  if (profile) {
-    localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify({
-      ...profile,
-      timestamp: Date.now()
-    }));
-  }
-};
-
-const loadProfileFromStorage = (): any => {
-  try {
-    const stored = localStorage.getItem(PROFILE_STORAGE_KEY);
-    if (stored) {
-      const data = JSON.parse(stored);
-      if (Date.now() - data.timestamp < 3600000) {
-        return data;
-      }
-    }
-  } catch (error) {
-    console.error('Error loading profile from storage:', error);
-  }
-  return null;
-};
-
-// Define user type for better TypeScript support
 interface AuthUser {
   uid: string;
   displayName?: string;
@@ -111,7 +92,6 @@ interface AuthUser {
   getIdToken?: () => Promise<string>;
 }
 
-// Extended types to include missing properties
 interface ExtendedDetailedAnalysis {
   weaknesses?: WeaknessData[];
   performance_data?: {
@@ -150,7 +130,6 @@ interface ExtendedPredictionResult {
   expected_graduation_cgpa?: number;
 }
 
-// Define DashboardStats type
 interface DashboardStats {
   currentSGPI: number;
   previousSGPI: number;
@@ -167,7 +146,37 @@ interface DashboardStats {
   cgpa?: number;
 }
 
-// Helper functions for data transformation
+// ==================== Constants ====================
+
+const BACKEND_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const PROFILE_STORAGE_KEY = 'academic_advisor_profile';
+
+// ==================== Helper Functions ====================
+
+const saveProfileToStorage = (profile: any) => {
+  if (profile) {
+    localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify({
+      ...profile,
+      timestamp: Date.now()
+    }));
+  }
+};
+
+const loadProfileFromStorage = (): any => {
+  try {
+    const stored = localStorage.getItem(PROFILE_STORAGE_KEY);
+    if (stored) {
+      const data = JSON.parse(stored);
+      if (Date.now() - data.timestamp < 3600000) {
+        return data;
+      }
+    }
+  } catch (error) {
+    console.error('Error loading profile from storage:', error);
+  }
+  return null;
+};
+
 const transformWeaknessData = (weakness: WeaknessData): ExtendedWeaknessData => {
   return {
     subject: weakness.subject,
@@ -204,7 +213,7 @@ const transformPredictionData = (mlPredictions: any): ExtendedPredictionResult =
   };
 };
 
-// Performance metrics hook with real data structure
+// Performance metrics hook
 const usePerformanceMetrics = () => {
   const [metrics] = useState({
     studentInfo: {
@@ -227,40 +236,55 @@ const usePerformanceMetrics = () => {
   return metrics;
 };
 
+// ==================== Main Component ====================
+
 const StudentDashboard: React.FC = () => {
   const { user, logout } = useAuth();
+  const queryClient = useQueryClient();
+
+  // ==================== State ====================
+
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState<
-    'overview' | 'performance' | 'electives' | 'weaknesses' | 'resources' | 'projects' | 'academic' | 'interests' | 'meetings'
+    'overview' | 'performance' | 'electives' | 'weaknesses' | 'resources' | 'projects' | 'academic' | 'interests' | 'meetings' | 'readiness'
   >('overview');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [projectsView, setProjectsView] = useState<'list' | 'upload'>('list');
   const [projectCount, setProjectCount] = useState(0);
   const [projectsLoading, setProjectsLoading] = useState(false);
-  
+
   // Project analysis state
   const [showProjectAnalysis, setShowProjectAnalysis] = useState(false);
   const [projectAnalysisResult, setProjectAnalysisResult] = useState<LegacyProjectAnalysisResult | null>(null);
   const [analysisLoading, setAnalysisLoading] = useState(false);
-  
+
   // Recommendation stats for overview
   const [recommendationStats, setRecommendationStats] = useState({
     careerPaths: 0,
     honoursProgramsMatch: 0,
     electivesRecommended: 0
   });
-  
-  // Integrated dashboard data with proper typing
+
+  // Readiness Analysis State
+  const [readinessData, setReadinessData] = useState<any>(null);
+  const [loadingReadiness, setLoadingReadiness] = useState(false);
+
+  // Student interests/electives/honours for passing to components
+  const [studentInterests, setStudentInterests] = useState<string[]>([]);
+  const [studentElectives, setStudentElectives] = useState<string[]>([]);
+  const [studentHonours, setStudentHonours] = useState<string[]>([]);
+
+  // Integrated dashboard data
   const [studentData, setStudentData] = useState<ExtendedDetailedAnalysis | null>(null);
   const [predictions, setPredictions] = useState<ExtendedPredictionResult | null>(null);
   const [performanceData, setPerformanceData] = useState<any>(null);
   const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(null);
   const [insights, setInsights] = useState<any>(null);
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
-  
-  // Add user profile state
+
+  // User profile state
   const [userProfile, setUserProfile] = useState<any>(null);
 
   // Get performance metrics for engineering guidance
@@ -269,7 +293,18 @@ const StudentDashboard: React.FC = () => {
   // Type-safe user display name
   const userDisplayName = (user as AuthUser)?.displayName || 'Student';
 
-  // Fetch recommendation stats
+  // ==================== Helper: Invalidate All Caches ====================
+
+  const invalidateAllCaches = () => {
+    queryClient.invalidateQueries({ queryKey: ['weakness-analysis'] });
+    queryClient.invalidateQueries({ queryKey: ['student-interests'] });
+    queryClient.invalidateQueries({ queryKey: ['performance-metrics'] });
+    queryClient.invalidateQueries({ queryKey: ['study-resources'] });
+    queryClient.invalidateQueries({ queryKey: ['elective-recommendations'] });
+  };
+
+  // ==================== Data Fetching Functions ====================
+
   const fetchRecommendationStats = async () => {
     try {
       const data = await mlService.getRecommendations(true, true, true, false);
@@ -283,168 +318,143 @@ const StudentDashboard: React.FC = () => {
     }
   };
 
-  // Handle project analysis after upload
-  // Handle project analysis after upload
-const handleProjectAnalyzed = async (analysisResponse: ComprehensiveAnalysis) => {
-  try {
-    // ComprehensiveAnalysis is compatible with LegacyProjectAnalysisResult
-    // Add any missing fields with defaults for type safety
-    const legacyFormat: LegacyProjectAnalysisResult = {
-      inferred_interests: analysisResponse.inferred_interests.map(i => ({
-        domain: i.domain,
-        confidence: i.confidence,
-        keywords: i.keywords || [],
-        relatedSkills: i.relatedSkills || [],
-        careerPaths: i.careerPaths || [],
-        industryRelevance: i.industryRelevance || i.confidence * 0.9,
-      })),
-      elective_recommendations: analysisResponse.elective_recommendations.map(e => ({
-        elective: e.elective,
-        code: '', // Not present in ComprehensiveAnalysis
-        match_score: e.match_score,
-        reasons: e.reasons,
-        skills_to_gain: e.skills_to_gain,
-        career_relevance: e.career_relevance,
-        difficulty_level: e.difficulty_level,
-      })),
-      honours_minor_recommendations: analysisResponse.honours_minor_recommendations.map(h => ({
-        program: h.program,
-        type: h.type,
-        match_score: h.match_score,
-        courses: h.courses,
-        career_paths: h.career_paths,
-        credits: h.credits,
-        semester_commitment: h.semester_commitment,
-        reasons: h.reasons,
-      })),
-      career_paths: analysisResponse.career_paths.map(c => ({
-        title: c.title,
-        match_score: c.match_score,
-        salary_range: c.salary_range,
-        market_demand: c.market_demand,
-        growth_potential: c.growth_potential,
-        required_skills: c.required_skills,
-        companies_hiring: [], // Not present in ComprehensiveAnalysis
-        honours_program: c.honours_program,
-        preparation_path: c.preparation_path,
-      })),
-      skill_gap_analysis: {
-        current_skills: analysisResponse.skill_gap_analysis.current_skills,
-        skill_gaps: analysisResponse.skill_gap_analysis.skill_gaps,
-        priority_skills: analysisResponse.skill_gap_analysis.priority_skills,
-        learning_resources: Object.fromEntries(
-          Object.entries(analysisResponse.skill_gap_analysis.learning_resources).map(
-            ([skill, resources]) => [
-              skill,
-              (resources as string[]).map(r => ({ platform: 'Online', course: r }))
-            ]
-          )
-        ),
-        completeness_percentage: 70, // Default since not in ComprehensiveAnalysis
-        estimated_learning_time: analysisResponse.skill_gap_analysis.estimated_learning_time,
-      },
-      next_steps: analysisResponse.next_steps.map(s => ({
-        action: s.action,
-        category: s.category,
-        priority: s.priority,
-        deadline: s.deadline,
-        details: s.details,
-      })),
-      metadata: {
-        analysis_date: analysisResponse.metadata?.analysis_date || new Date().toISOString(),
-        confidence_score: analysisResponse.metadata?.confidence_score || 0.75,
-        model_version: '2.0.0',
-        data_sources: ['projects'],
-      },
-    };
+  const fetchReadiness = async () => {
+    if (!user?.uid) return;
 
-    setProjectAnalysisResult(legacyFormat);
-    setShowProjectAnalysis(true);
-    
-    // Update recommendation stats
-    setRecommendationStats({
-      careerPaths: analysisResponse.career_paths?.length || 0,
-      honoursProgramsMatch: analysisResponse.honours_minor_recommendations?.filter(h => h.eligibility_met)?.length || 0,
-      electivesRecommended: analysisResponse.elective_recommendations?.length || 0
-    });
-    
-    toast.success('Project analyzed! View your personalized recommendations.');
-  } catch (error) {
-    console.error('Error processing analysis:', error);
-    toast.error('Failed to process analysis results');
-  }
-};
-  // Event listeners for profile and academic data updates
-  useEffect(() => {
-    const handleProfileSaved = (event: CustomEvent) => {
-      console.log('Profile saved event received:', event.detail);
-      setUserProfile(event.detail);
-      saveProfileToStorage(event.detail);
-      updateDashboardWithProfile(event.detail);
-      toast.success('Profile data updated!');
-    };
+    setLoadingReadiness(true);
+    try {
+      const service = getWeaknessService();
+      const data = await service.getReadiness(
+        user.uid,
+        studentInterests.length > 0 ? studentInterests : undefined,
+        studentElectives.length > 0 ? studentElectives : undefined,
+        studentHonours.length > 0 ? studentHonours : undefined,
+      );
+      setReadinessData(data);
+      console.log('✅ Readiness data loaded:', {
+        score: data.overall_readiness_score,
+        level: data.readiness_level,
+        interests_used: studentInterests,
+        weaknesses_count: data.weaknesses?.length
+      });
+    } catch (error) {
+      console.error('Error fetching readiness:', error);
+      toast.error('Failed to load readiness analysis');
+    } finally {
+      setLoadingReadiness(false);
+    }
+  };
 
-    const handleProfileUpdated = async () => {
-      extendedAnalyticsService.clearCache();
-      await fetchUserProfile();
-      await fetchDashboardData(false);
-    };
+  const handleProjectAnalyzed = async (analysisResponse: ComprehensiveAnalysis) => {
+    try {
+      const legacyFormat: LegacyProjectAnalysisResult = {
+        inferred_interests: analysisResponse.inferred_interests.map(i => ({
+          domain: i.domain,
+          confidence: i.confidence,
+          keywords: i.keywords || [],
+          relatedSkills: i.relatedSkills || [],
+          careerPaths: i.careerPaths || [],
+          industryRelevance: i.industryRelevance || i.confidence * 0.9,
+        })),
+        elective_recommendations: analysisResponse.elective_recommendations.map(e => ({
+          elective: e.elective,
+          code: '',
+          match_score: e.match_score,
+          reasons: e.reasons,
+          skills_to_gain: e.skills_to_gain,
+          career_relevance: e.career_relevance,
+          difficulty_level: e.difficulty_level,
+        })),
+        honours_minor_recommendations: analysisResponse.honours_minor_recommendations.map(h => ({
+          program: h.program,
+          type: h.type,
+          match_score: h.match_score,
+          courses: h.courses,
+          career_paths: h.career_paths,
+          credits: h.credits,
+          semester_commitment: h.semester_commitment,
+          reasons: h.reasons,
+        })),
+        career_paths: analysisResponse.career_paths.map(c => ({
+          title: c.title,
+          match_score: c.match_score,
+          salary_range: c.salary_range,
+          market_demand: c.market_demand,
+          growth_potential: c.growth_potential,
+          required_skills: c.required_skills,
+          companies_hiring: [],
+          honours_program: c.honours_program,
+          preparation_path: c.preparation_path,
+        })),
+        skill_gap_analysis: {
+          current_skills: analysisResponse.skill_gap_analysis.current_skills,
+          skill_gaps: analysisResponse.skill_gap_analysis.skill_gaps,
+          priority_skills: analysisResponse.skill_gap_analysis.priority_skills,
+          learning_resources: Object.fromEntries(
+            Object.entries(analysisResponse.skill_gap_analysis.learning_resources).map(
+              ([skill, resources]) => [
+                skill,
+                (resources as string[]).map(r => ({ platform: 'Online', course: r }))
+              ]
+            )
+          ),
+          completeness_percentage: 70,
+          estimated_learning_time: analysisResponse.skill_gap_analysis.estimated_learning_time,
+        },
+        next_steps: analysisResponse.next_steps.map(s => ({
+          action: s.action,
+          category: s.category,
+          priority: s.priority,
+          deadline: s.deadline,
+          details: s.details,
+        })),
+        metadata: {
+          analysis_date: analysisResponse.metadata?.analysis_date || new Date().toISOString(),
+          confidence_score: analysisResponse.metadata?.confidence_score || 0.75,
+          model_version: '2.0.0',
+          data_sources: ['projects'],
+        },
+      };
 
-    const handleAcademicDataUpdated = async () => {
-      console.log('Academic data updated — refreshing everything');
-      extendedAnalyticsService.clearCache();
-      setPerformanceData(null);
-      setStudentData(null);
-      setDashboardStats(null);
-      await fetchUserProfile();
-      await fetchDashboardData(true);
-      // Also refresh recommendations
-      await fetchRecommendationStats();
-      toast.success('Dashboard updated with new academic data!');
-    };
+      setProjectAnalysisResult(legacyFormat);
+      setShowProjectAnalysis(true);
 
-    // Listen for project analysis completion
-// Listen for project analysis completion
-const handleProjectAnalysisComplete = (event: CustomEvent<ComprehensiveAnalysis>) => {
-  handleProjectAnalyzed(event.detail);
-};
+      setRecommendationStats({
+        careerPaths: analysisResponse.career_paths?.length || 0,
+        honoursProgramsMatch: analysisResponse.honours_minor_recommendations?.filter(h => h.eligibility_met)?.length || 0,
+        electivesRecommended: analysisResponse.elective_recommendations?.length || 0
+      });
 
-    window.addEventListener('profileSaved', handleProfileSaved as EventListener);
-    window.addEventListener('profileUpdated', handleProfileUpdated);
-    window.addEventListener('academicDataUpdated', handleAcademicDataUpdated);
-    window.addEventListener('projectAnalysisComplete', handleProjectAnalysisComplete as EventListener);
-
-    return () => {
-      window.removeEventListener('profileSaved', handleProfileSaved as EventListener);
-      window.removeEventListener('profileUpdated', handleProfileUpdated);
-      window.removeEventListener('academicDataUpdated', handleAcademicDataUpdated);
-      window.removeEventListener('projectAnalysisComplete', handleProjectAnalysisComplete as EventListener);
-    };
-  }, [user]);
+      toast.success('Project analyzed! View your personalized recommendations.');
+    } catch (error) {
+      console.error('Error processing analysis:', error);
+      toast.error('Failed to process analysis results');
+    }
+  };
 
   const fetchUserProfile = async () => {
     if (!user?.uid) return;
-    
+
     const cachedProfile = loadProfileFromStorage();
     if (cachedProfile) {
       setUserProfile(cachedProfile);
       updateDashboardWithProfile(cachedProfile);
     }
-    
+
     try {
       const currentUser = auth.currentUser;
       if (!currentUser) {
         console.error('No authenticated user found');
         return;
       }
-      
+
       const token = await currentUser.getIdToken(true);
-      
+
       if (!token) {
         console.error('Failed to get auth token');
         return;
       }
-      
+
       let response = await fetch(`${BACKEND_URL}/api/v1/student-profile/me`, {
         method: 'GET',
         headers: {
@@ -452,7 +462,7 @@ const handleProjectAnalysisComplete = (event: CustomEvent<ComprehensiveAnalysis>
           'Content-Type': 'application/json'
         }
       });
-      
+
       if (response.status === 404) {
         response = await fetch(`${BACKEND_URL}/api/v1/student-profile/profile`, {
           method: 'GET',
@@ -462,10 +472,10 @@ const handleProjectAnalysisComplete = (event: CustomEvent<ComprehensiveAnalysis>
           }
         });
       }
-      
+
       if (response.ok) {
         const data = await response.json();
-        
+
         const profile = {
           name: data.name,
           branch: data.branch,
@@ -474,18 +484,20 @@ const handleProjectAnalysisComplete = (event: CustomEvent<ComprehensiveAnalysis>
           admission_year: data.admission_year,
           academic_year: data.current_academic_year,
           total_credits: data.total_credits_earned,
-          roll_number: data.roll_number
+          roll_number: data.roll_number,
+          interests: data.interests || [],
+          career_goals: data.career_goals || []
         };
-        
+
         setUserProfile(profile);
         saveProfileToStorage(profile);
         updateDashboardWithProfile(profile);
-        
+
         localStorage.setItem('userBranch', profile.branch);
         localStorage.setItem('userSemester', profile.semester.toString());
-        
+
         window.dispatchEvent(new CustomEvent('profileLoaded', { detail: profile }));
-        
+
       } else if (response.status === 404) {
         console.log('Profile not found - user needs to create profile');
         localStorage.removeItem(PROFILE_STORAGE_KEY);
@@ -528,7 +540,7 @@ const handleProjectAnalysisComplete = (event: CustomEvent<ComprehensiveAnalysis>
   const calculatePercentageChange = (data: ExtendedDetailedAnalysis): number => {
     const sgpaTrend = data.performance_data?.sgpa_trend;
     if (!sgpaTrend || sgpaTrend.length < 2) return 0;
-    
+
     const current = sgpaTrend[sgpaTrend.length - 1].sgpa;
     const previous = sgpaTrend[sgpaTrend.length - 2].sgpa;
     return previous ? ((current - previous) / previous) * 100 : 0;
@@ -542,9 +554,9 @@ const handleProjectAnalysisComplete = (event: CustomEvent<ComprehensiveAnalysis>
   const generateRealInsights = (data: ExtendedDetailedAnalysis, preds: ExtendedPredictionResult) => {
     const weaknesses = data.weaknesses || [];
     const performanceTrend = data.improvement_trend;
-    
+
     const recommendations: Array<{ message: string; priority: string; type: string }> = [];
-    
+
     weaknesses.forEach((weakness) => {
       const extendedWeakness = transformWeaknessData(weakness);
       if (extendedWeakness.severity === 'high' || extendedWeakness.severity === 'critical') {
@@ -609,7 +621,7 @@ const handleProjectAnalysisComplete = (event: CustomEvent<ComprehensiveAnalysis>
       },
       predictions: {
         nextSGPI: preds.next_semester_sgpa,
-        confidence: preds.confidence_score && preds.confidence_score > 0.8 ? 'high' : 
+        confidence: preds.confidence_score && preds.confidence_score > 0.8 ? 'high' :
                    preds.confidence_score && preds.confidence_score > 0.6 ? 'medium' : 'low',
         rSquared: 0.76
       },
@@ -619,7 +631,7 @@ const handleProjectAnalysisComplete = (event: CustomEvent<ComprehensiveAnalysis>
 
   const fetchProjectCount = async () => {
     if (!user) return;
-    
+
     try {
       setProjectsLoading(true);
       console.log('Fetching project count for user:', user.uid);
@@ -682,6 +694,206 @@ const handleProjectAnalysisComplete = (event: CustomEvent<ComprehensiveAnalysis>
     }
   };
 
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    invalidateAllCaches();
+    await Promise.all([
+      fetchDashboardData(false),
+      fetchRecommendationStats(),
+      fetchReadiness(),
+    ]);
+    toast.success('Dashboard refreshed!');
+  };
+
+  const handleDownloadReport = () => {
+    const reportData = {
+      student: userDisplayName,
+      date: new Date().toLocaleDateString(),
+      studentId: user?.uid,
+      department: userProfile?.branch || studentData?.department || engineeringMetrics.studentInfo.branch,
+      currentSemester: userProfile?.semester ? `Semester ${userProfile.semester}` : (studentData?.current_semester ? `Semester ${studentData.current_semester}` : engineeringMetrics.studentInfo.semester),
+      currentSGPI: dashboardStats?.currentSGPI,
+      cgpa: studentData?.cgpa || engineeringMetrics.overallCGPA,
+      trend: dashboardStats?.trend,
+      performanceHistory: studentData?.performance_data?.sgpa_trend || performanceData?.semesterWiseData,
+      weaknesses: studentData?.weaknesses || [],
+      predictions: predictions,
+      insights: insights,
+      recommendationStats: recommendationStats,
+      readiness: readinessData ? {
+        score: readinessData.overall_readiness_score,
+        level: readinessData.readiness_level,
+        recommendation: readinessData.primary_recommendation
+      } : null,
+      lastUpdated: lastUpdated.toISOString()
+    };
+
+    const dataStr = JSON.stringify(reportData, null, 2);
+    const dataUri = 'data:application/json;charset=utf-8,' + encodeURIComponent(dataStr);
+
+    const exportFileDefaultName = `academic_report_${new Date().toISOString().split('T')[0]}.json`;
+
+    const linkElement = document.createElement('a');
+    linkElement.setAttribute('href', dataUri);
+    linkElement.setAttribute('download', exportFileDefaultName);
+    linkElement.click();
+
+    toast.success('Report downloaded!');
+  };
+
+  // ==================== Effects ====================
+
+  // Effect 1: Event listeners (with full cache invalidation)
+  // ==================== Replace Effect 1 entirely ====================
+
+useEffect(() => {
+  // ✅ FIX: Accept Event, cast inside
+  const handleProfileSaved = (event: Event) => {
+    const detail = (event as CustomEvent).detail;
+    console.log('Profile saved event received:', detail);
+    setUserProfile(detail);
+    saveProfileToStorage(detail);
+    updateDashboardWithProfile(detail);
+    toast.success('Profile data updated!');
+  };
+
+  const handleProfileUpdated = async () => {
+    extendedAnalyticsService.clearCache();
+    await fetchUserProfile();
+    await fetchDashboardData(false);
+  };
+
+  const handleAcademicDataUpdated = async () => {
+    console.log('📊 Academic data updated — refreshing everything');
+
+    extendedAnalyticsService.clearCache();
+    invalidateAllCaches();
+
+    setPerformanceData(null);
+    setStudentData(null);
+    setDashboardStats(null);
+    setReadinessData(null);
+
+    await fetchUserProfile();
+    await fetchDashboardData(true);
+    await fetchRecommendationStats();
+    await fetchReadiness();
+
+    toast.success('Dashboard updated with new academic data!');
+  };
+
+  // ✅ FIX: Accept Event, cast inside — no more "as EventListener"
+  const handleInterestsUpdated = async (event: Event) => {
+    const detail = (event as CustomEvent).detail;
+    console.log('🎯 Interests updated event received:', detail);
+
+    if (detail?.interests) {
+      setStudentInterests(detail.interests);
+    }
+
+    invalidateAllCaches();
+    setReadinessData(null);
+
+    setTimeout(async () => {
+      await fetchReadiness();
+      await fetchRecommendationStats();
+    }, 500);
+  };
+
+  // ✅ FIX: Accept Event, cast inside
+  const handleProjectAnalysisComplete = (event: Event) => {
+    const detail = (event as CustomEvent<ComprehensiveAnalysis>).detail;
+    handleProjectAnalyzed(detail);
+  };
+
+  // ✅ No more "as EventListener" needed anywhere
+  window.addEventListener('profileSaved', handleProfileSaved);
+  window.addEventListener('profileUpdated', handleProfileUpdated);
+  window.addEventListener('academicDataUpdated', handleAcademicDataUpdated);
+  window.addEventListener('interestsUpdated', handleInterestsUpdated);
+  window.addEventListener('projectAnalysisComplete', handleProjectAnalysisComplete);
+
+  return () => {
+    window.removeEventListener('profileSaved', handleProfileSaved);
+    window.removeEventListener('profileUpdated', handleProfileUpdated);
+    window.removeEventListener('academicDataUpdated', handleAcademicDataUpdated);
+    window.removeEventListener('interestsUpdated', handleInterestsUpdated);
+    window.removeEventListener('projectAnalysisComplete', handleProjectAnalysisComplete);
+  };
+}, [user, queryClient]);  // Effect 2: Fetch and sync interests
+  useEffect(() => {
+    const fetchAndSyncInterests = async () => {
+      if (!user?.uid) return;
+
+      try {
+        const service = getWeaknessService();
+
+        try {
+          const interestProfile = await service.getInterests(user.uid);
+          if (interestProfile.interests?.length) {
+            console.log('✅ Found interests in profile:', interestProfile.interests);
+            setStudentInterests(interestProfile.interests);
+          }
+          if (interestProfile.preferred_electives?.length) {
+            setStudentElectives(interestProfile.preferred_electives);
+          }
+          if (interestProfile.honours_minors_interest?.length) {
+            setStudentHonours(interestProfile.honours_minors_interest);
+          }
+          if (interestProfile.interests?.length) return;
+        } catch (e) {
+          console.warn('Could not fetch interest profile directly:', e);
+        }
+
+        console.log('⚠️ No interests found, attempting sync...');
+        try {
+          const syncResult = await service.syncInterests(user.uid);
+          if (syncResult.status === 'success' && syncResult.interests?.length) {
+            console.log('✅ Synced interests:', syncResult.interests);
+            setStudentInterests(syncResult.interests);
+            return;
+          }
+        } catch (e) {
+          console.warn('Sync failed:', e);
+        }
+
+        if (userProfile?.interests?.length) {
+          console.log('📝 Using interests from userProfile');
+          setStudentInterests(userProfile.interests);
+        }
+      } catch (error) {
+        console.error('Error fetching interests:', error);
+        if (userProfile?.interests?.length) {
+          setStudentInterests(userProfile.interests);
+        }
+      }
+    };
+
+    fetchAndSyncInterests();
+  }, [user?.uid, userProfile?.interests]);
+
+  // Effect 3: Re-fetch readiness when interests/electives/honours change
+  useEffect(() => {
+    if (user?.uid && (studentInterests.length > 0 || studentElectives.length > 0 || studentHonours.length > 0)) {
+      console.log('📊 Goals changed, re-fetching readiness...', {
+        interests: studentInterests.length,
+        electives: studentElectives.length,
+        honours: studentHonours.length
+      });
+      fetchReadiness();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    user?.uid,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    studentInterests.join(','),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    studentElectives.join(','),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    studentHonours.join(',')
+  ]);
+
+  // Effect 4: Project uploaded event
   useEffect(() => {
     const handleProjectUploaded = () => {
       console.log('Project uploaded event received');
@@ -690,23 +902,26 @@ const handleProjectAnalysisComplete = (event: CustomEvent<ComprehensiveAnalysis>
     };
 
     window.addEventListener('projectUploaded', handleProjectUploaded);
-    
+
     return () => {
       window.removeEventListener('projectUploaded', handleProjectUploaded);
     };
   }, []);
 
+  // Effect 5: Initial data load
   useEffect(() => {
     if (user) {
       fetchUserProfile();
       fetchDashboardData();
       fetchProjectCount();
       fetchRecommendationStats();
+      fetchReadiness();
     } else {
       setLoading(false);
     }
   }, [user]);
 
+  // Effect 6: Tab-based data refresh
   useEffect(() => {
     if (activeTab === 'projects' || activeTab === 'overview') {
       fetchProjectCount();
@@ -716,6 +931,7 @@ const handleProjectAnalysisComplete = (event: CustomEvent<ComprehensiveAnalysis>
     }
   }, [activeTab]);
 
+  // Effect 7: Real-time subscriptions
   useEffect(() => {
     if (!user?.uid) return;
 
@@ -755,6 +971,7 @@ const handleProjectAnalysisComplete = (event: CustomEvent<ComprehensiveAnalysis>
     };
   }, [user]);
 
+  // Effect 8: Periodic refresh
   useEffect(() => {
     if (!user) return;
 
@@ -765,45 +982,7 @@ const handleProjectAnalysisComplete = (event: CustomEvent<ComprehensiveAnalysis>
     return () => clearInterval(interval);
   }, [user]);
 
-  const handleRefresh = async () => {
-    setRefreshing(true);
-    await Promise.all([
-      fetchDashboardData(false),
-      fetchRecommendationStats()
-    ]);
-    toast.success('Dashboard refreshed!');
-  };
-
-  const handleDownloadReport = () => {
-    const reportData = {
-      student: userDisplayName,
-      date: new Date().toLocaleDateString(),
-      studentId: user?.uid,
-      department: userProfile?.branch || studentData?.department || engineeringMetrics.studentInfo.branch,
-      currentSemester: userProfile?.semester ? `Semester ${userProfile.semester}` : (studentData?.current_semester ? `Semester ${studentData.current_semester}` : engineeringMetrics.studentInfo.semester),
-      currentSGPI: dashboardStats?.currentSGPI,
-      cgpa: studentData?.cgpa || engineeringMetrics.overallCGPA,
-      trend: dashboardStats?.trend,
-      performanceHistory: studentData?.performance_data?.sgpa_trend || performanceData?.semesterWiseData,
-      weaknesses: studentData?.weaknesses || [],
-      predictions: predictions,
-      insights: insights,
-      recommendationStats: recommendationStats,
-      lastUpdated: lastUpdated.toISOString()
-    };
-
-    const dataStr = JSON.stringify(reportData, null, 2);
-    const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
-    
-    const exportFileDefaultName = `academic_report_${new Date().toISOString().split('T')[0]}.json`;
-    
-    const linkElement = document.createElement('a');
-    linkElement.setAttribute('href', dataUri);
-    linkElement.setAttribute('download', exportFileDefaultName);
-    linkElement.click();
-    
-    toast.success('Report downloaded!');
-  };
+  // ==================== Loading State ====================
 
   if (loading) {
     return (
@@ -838,6 +1017,8 @@ const handleProjectAnalysisComplete = (event: CustomEvent<ComprehensiveAnalysis>
     );
   }
 
+  // ==================== Main Render ====================
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
       {/* Project Analysis Results Modal */}
@@ -855,7 +1036,7 @@ const handleProjectAnalysisComplete = (event: CustomEvent<ComprehensiveAnalysis>
         )}
       </AnimatePresence>
 
-      {/* Sidebar */}
+      {/* ==================== SIDEBAR ==================== */}
       <AnimatePresence>
         {sidebarOpen && (
           <motion.div
@@ -914,14 +1095,9 @@ const handleProjectAnalysisComplete = (event: CustomEvent<ComprehensiveAnalysis>
                 <ul className="space-y-2">
                   <li>
                     <button
-                      onClick={() => {
-                        setActiveTab('overview');
-                        analyticsService.trackEvent('tab_switched', { tab: 'overview' });
-                      }}
+                      onClick={() => { setActiveTab('overview'); analyticsService.trackEvent('tab_switched', { tab: 'overview' }); }}
                       className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-all ${
-                        activeTab === 'overview'
-                          ? 'bg-gradient-to-r from-blue-50 to-purple-50 text-blue-600 shadow-sm'
-                          : 'hover:bg-gray-50 text-gray-700'
+                        activeTab === 'overview' ? 'bg-gradient-to-r from-blue-50 to-purple-50 text-blue-600 shadow-sm' : 'hover:bg-gray-50 text-gray-700'
                       }`}
                     >
                       <BarChart3 className="h-5 w-5" />
@@ -930,14 +1106,9 @@ const handleProjectAnalysisComplete = (event: CustomEvent<ComprehensiveAnalysis>
                   </li>
                   <li>
                     <button
-                      onClick={() => {
-                        setActiveTab('performance');
-                        analyticsService.trackEvent('tab_switched', { tab: 'performance' });
-                      }}
+                      onClick={() => { setActiveTab('performance'); analyticsService.trackEvent('tab_switched', { tab: 'performance' }); }}
                       className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-all ${
-                        activeTab === 'performance'
-                          ? 'bg-gradient-to-r from-blue-50 to-purple-50 text-blue-600 shadow-sm'
-                          : 'hover:bg-gray-50 text-gray-700'
+                        activeTab === 'performance' ? 'bg-gradient-to-r from-blue-50 to-purple-50 text-blue-600 shadow-sm' : 'hover:bg-gray-50 text-gray-700'
                       }`}
                     >
                       <Activity className="h-5 w-5" />
@@ -947,143 +1118,106 @@ const handleProjectAnalysisComplete = (event: CustomEvent<ComprehensiveAnalysis>
                       )}
                     </button>
                   </li>
-                  
                   <li>
                     <button
-                      onClick={() => {
-                        setActiveTab('projects');
-                        analyticsService.trackEvent('tab_switched', { tab: 'projects' });
-                      }}
+                      onClick={() => { setActiveTab('projects'); analyticsService.trackEvent('tab_switched', { tab: 'projects' }); }}
                       className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-all ${
-                        activeTab === 'projects'
-                          ? 'bg-gradient-to-r from-blue-50 to-purple-50 text-blue-600 shadow-sm'
-                          : 'hover:bg-gray-50 text-gray-700'
+                        activeTab === 'projects' ? 'bg-gradient-to-r from-blue-50 to-purple-50 text-blue-600 shadow-sm' : 'hover:bg-gray-50 text-gray-700'
                       }`}
                     >
                       <FolderOpen className="h-5 w-5" />
                       <span className="font-medium">My Projects</span>
-                      <span className="ml-auto bg-green-100 text-green-700 text-xs px-2 py-1 rounded-full font-semibold">
-                        AI Insights
-                      </span>
+                      <span className="ml-auto bg-green-100 text-green-700 text-xs px-2 py-1 rounded-full font-semibold">AI Insights</span>
                     </button>
                   </li>
                   <li>
                     <button
-                      onClick={() => {
-                        setActiveTab('academic');
-                        analyticsService.trackEvent('tab_switched', { tab: 'academic' });
-                      }}
+                      onClick={() => { setActiveTab('academic'); analyticsService.trackEvent('tab_switched', { tab: 'academic' }); }}
                       className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-all ${
-                        activeTab === 'academic'
-                          ? 'bg-gradient-to-r from-blue-50 to-purple-50 text-blue-600 shadow-sm'
-                          : 'hover:bg-gray-50 text-gray-700'
+                        activeTab === 'academic' ? 'bg-gradient-to-r from-blue-50 to-purple-50 text-blue-600 shadow-sm' : 'hover:bg-gray-50 text-gray-700'
                       }`}
                     >
                       <GraduationCap className="h-5 w-5" />
                       <span className="font-medium">Academic Data Entry</span>
-                      <span className="ml-auto bg-yellow-100 text-yellow-700 text-xs px-2 py-1 rounded-full">
-                        Setup
-                      </span>
+                      <span className="ml-auto bg-yellow-100 text-yellow-700 text-xs px-2 py-1 rounded-full">Setup</span>
                     </button>
                   </li>
-
                   <li>
                     <button
-                      onClick={() => {
-                        setActiveTab('meetings');
-                        analyticsService.trackEvent('tab_switched', { tab: 'meetings' });
-                      }}
+                      onClick={() => { setActiveTab('meetings'); analyticsService.trackEvent('tab_switched', { tab: 'meetings' }); }}
                       className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-all ${
-                        activeTab === 'meetings'
-                          ? 'bg-gradient-to-r from-blue-50 to-purple-50 text-blue-600 shadow-sm'
-                          : 'hover:bg-gray-50 text-gray-700'
+                        activeTab === 'meetings' ? 'bg-gradient-to-r from-blue-50 to-purple-50 text-blue-600 shadow-sm' : 'hover:bg-gray-50 text-gray-700'
                       }`}
                     >
                       <Calendar className="h-5 w-5" />
                       <span className="font-medium">Meeting Requests</span>
-                      <span className="ml-auto bg-indigo-100 text-indigo-700 text-xs px-2 py-1 rounded-full">
-                        Faculty
-                      </span>
+                      <span className="ml-auto bg-indigo-100 text-indigo-700 text-xs px-2 py-1 rounded-full">Faculty</span>
                     </button>
                   </li>
-
                   <li>
                     <button
-                      onClick={() => {
-                        setActiveTab('interests');
-                        analyticsService.trackEvent('tab_switched', { tab: 'interests' });
-                      }}
+                      onClick={() => { setActiveTab('interests'); analyticsService.trackEvent('tab_switched', { tab: 'interests' }); }}
                       className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-all ${
-                        activeTab === 'interests'
-                          ? 'bg-gradient-to-r from-blue-50 to-purple-50 text-blue-600 shadow-sm'
-                          : 'hover:bg-gray-50 text-gray-700'
+                        activeTab === 'interests' ? 'bg-gradient-to-r from-blue-50 to-purple-50 text-blue-600 shadow-sm' : 'hover:bg-gray-50 text-gray-700'
                       }`}
                     >
                       <Heart className="h-5 w-5" />
                       <span className="font-medium">My Interests</span>
-                      <span className="ml-auto bg-pink-100 text-pink-700 text-xs px-2 py-1 rounded-full">
-                        Setup
-                      </span>
+                      <span className="ml-auto bg-pink-100 text-pink-700 text-xs px-2 py-1 rounded-full">Setup</span>
                     </button>
                   </li>
-
                   <li>
                     <button
-                      onClick={() => {
-                        setActiveTab('electives');
-                        analyticsService.trackEvent('tab_switched', { tab: 'electives' });
-                      }}
+                      onClick={() => { setActiveTab('electives'); analyticsService.trackEvent('tab_switched', { tab: 'electives' }); }}
                       className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-all ${
-                        activeTab === 'electives'
-                          ? 'bg-gradient-to-r from-blue-50 to-purple-50 text-blue-600 shadow-sm'
-                          : 'hover:bg-gray-50 text-gray-700'
+                        activeTab === 'electives' ? 'bg-gradient-to-r from-blue-50 to-purple-50 text-blue-600 shadow-sm' : 'hover:bg-gray-50 text-gray-700'
                       }`}
                     >
                       <Sparkles className="h-5 w-5" />
                       <span className="font-medium">AI Recommendations</span>
-                      <span className="ml-auto bg-purple-100 text-purple-700 text-xs px-2 py-1 rounded-full font-semibold">
-                        {recommendationStats.electivesRecommended}
-                      </span>
+                      <span className="ml-auto bg-purple-100 text-purple-700 text-xs px-2 py-1 rounded-full font-semibold">{recommendationStats.electivesRecommended}</span>
                     </button>
                   </li>
                   <li>
                     <button
-                      onClick={() => {
-                        setActiveTab('weaknesses');
-                        analyticsService.trackEvent('tab_switched', { tab: 'weaknesses' });
-                      }}
+                      onClick={() => { setActiveTab('weaknesses'); analyticsService.trackEvent('tab_switched', { tab: 'weaknesses' }); }}
                       className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-all ${
-                        activeTab === 'weaknesses'
-                          ? 'bg-gradient-to-r from-blue-50 to-purple-50 text-blue-600 shadow-sm'
-                          : 'hover:bg-gray-50 text-gray-700'
+                        activeTab === 'weaknesses' ? 'bg-gradient-to-r from-blue-50 to-purple-50 text-blue-600 shadow-sm' : 'hover:bg-gray-50 text-gray-700'
                       }`}
                     >
                       <AlertCircle className="h-5 w-5" />
                       <span className="font-medium">Weakness Analysis</span>
                       {studentData?.weakness_count && studentData.weakness_count > 0 && (
-                        <span className="ml-auto bg-orange-100 text-orange-700 text-xs px-2 py-1 rounded-full">
-                          {studentData.weakness_count}
+                        <span className="ml-auto bg-orange-100 text-orange-700 text-xs px-2 py-1 rounded-full">{studentData.weakness_count}</span>
+                      )}
+                    </button>
+                  </li>
+                  <li>
+                    <button
+                      onClick={() => { setActiveTab('readiness'); analyticsService.trackEvent('tab_switched', { tab: 'readiness' }); }}
+                      className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-all ${
+                        activeTab === 'readiness' ? 'bg-gradient-to-r from-blue-50 to-purple-50 text-blue-600 shadow-sm' : 'hover:bg-gray-50 text-gray-700'
+                      }`}
+                    >
+                      <Target className="h-5 w-5" />
+                      <span className="font-medium">Readiness Analysis</span>
+                      {readinessData && (
+                        <span className="ml-auto bg-purple-100 text-purple-700 text-xs px-2 py-1 rounded-full">
+                          {Math.round(readinessData.overall_readiness_score)}%
                         </span>
                       )}
                     </button>
                   </li>
                   <li>
                     <button
-                      onClick={() => {
-                        setActiveTab('resources');
-                        analyticsService.trackEvent('tab_switched', { tab: 'resources' });
-                      }}
+                      onClick={() => { setActiveTab('resources'); analyticsService.trackEvent('tab_switched', { tab: 'resources' }); }}
                       className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-all ${
-                        activeTab === 'resources'
-                          ? 'bg-gradient-to-r from-blue-50 to-purple-50 text-blue-600 shadow-sm'
-                          : 'hover:bg-gray-50 text-gray-700'
+                        activeTab === 'resources' ? 'bg-gradient-to-r from-blue-50 to-purple-50 text-blue-600 shadow-sm' : 'hover:bg-gray-50 text-gray-700'
                       }`}
                     >
                       <BookOpen className="h-5 w-5" />
                       <span className="font-medium">Study Resources</span>
-                      <span className="ml-auto bg-green-100 text-green-700 text-xs px-2 py-1 rounded-full">
-                        New
-                      </span>
+                      <span className="ml-auto bg-green-100 text-green-700 text-xs px-2 py-1 rounded-full">New</span>
                     </button>
                   </li>
                 </ul>
@@ -1092,7 +1226,7 @@ const handleProjectAnalysisComplete = (event: CustomEvent<ComprehensiveAnalysis>
                   <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">Quick Actions</p>
                   <ul className="space-y-2">
                     <li>
-                      <button 
+                      <button
                         onClick={handleRefresh}
                         disabled={refreshing}
                         className="w-full flex items-center space-x-3 px-4 py-3 rounded-lg hover:bg-gray-50 text-gray-700 transition-colors"
@@ -1102,7 +1236,7 @@ const handleProjectAnalysisComplete = (event: CustomEvent<ComprehensiveAnalysis>
                       </button>
                     </li>
                     <li>
-                      <button 
+                      <button
                         onClick={handleDownloadReport}
                         className="w-full flex items-center space-x-3 px-4 py-3 rounded-lg hover:bg-gray-50 text-gray-700 transition-colors"
                       >
@@ -1136,7 +1270,7 @@ const handleProjectAnalysisComplete = (event: CustomEvent<ComprehensiveAnalysis>
         )}
       </AnimatePresence>
 
-      {/* Main Content */}
+      {/* ==================== MAIN CONTENT ==================== */}
       <div className={`flex-1 ${sidebarOpen ? 'lg:ml-72' : ''}`}>
         {/* Top Navigation */}
         <header className="bg-white shadow-sm border-b sticky top-0 z-40">
@@ -1159,11 +1293,11 @@ const handleProjectAnalysisComplete = (event: CustomEvent<ComprehensiveAnalysis>
                   {activeTab === 'weaknesses' && 'Weakness Analysis & Improvement'}
                   {activeTab === 'resources' && 'Smart Study Resources'}
                   {activeTab === 'meetings' && 'Meeting Requests'}
+                  {activeTab === 'readiness' && 'Academic Readiness Analysis'}
                 </h1>
               </div>
 
               <div className="flex items-center space-x-4">
-                {/* Refresh Button */}
                 <button
                   onClick={handleRefresh}
                   disabled={refreshing}
@@ -1173,7 +1307,6 @@ const handleProjectAnalysisComplete = (event: CustomEvent<ComprehensiveAnalysis>
                   <RefreshCw className={`h-5 w-5 text-gray-600 ${refreshing ? 'animate-spin' : ''}`} />
                 </button>
 
-                {/* User Menu */}
                 <div className="flex items-center space-x-3">
                   <div className="text-right">
                     <p className="text-sm font-medium text-gray-900">{userDisplayName}</p>
@@ -1188,9 +1321,11 @@ const handleProjectAnalysisComplete = (event: CustomEvent<ComprehensiveAnalysis>
           </div>
         </header>
 
-        {/* Page Content */}
+        {/* ==================== PAGE CONTENT ==================== */}
         <main className="p-4 sm:p-6 lg:p-8">
           <AnimatePresence mode="wait">
+
+            {/* ==================== OVERVIEW TAB ==================== */}
             {activeTab === 'overview' && (
               <motion.div
                 key="overview"
@@ -1237,7 +1372,7 @@ const handleProjectAnalysisComplete = (event: CustomEvent<ComprehensiveAnalysis>
                   </div>
                 </motion.div>
 
-                {/* AI Analysis Summary Card - Now with real data */}
+                {/* AI Analysis Summary Card */}
                 <motion.div
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
@@ -1256,7 +1391,7 @@ const handleProjectAnalysisComplete = (event: CustomEvent<ComprehensiveAnalysis>
                       <ChevronRight className="w-4 h-4" />
                     </button>
                   </div>
-                  
+
                   <div className="grid grid-cols-3 gap-4">
                     <div className="text-center p-3 bg-white rounded-lg shadow-sm">
                       <div className="flex items-center justify-center gap-2 mb-1">
@@ -1280,7 +1415,7 @@ const handleProjectAnalysisComplete = (event: CustomEvent<ComprehensiveAnalysis>
                       <p className="text-xs text-gray-600">Electives Recommended</p>
                     </div>
                   </div>
-                  
+
                   <p className="text-xs text-gray-500 mt-4 text-center">
                     Based on your academic performance (40%), interests (30%), and projects (30%)
                   </p>
@@ -1314,7 +1449,7 @@ const handleProjectAnalysisComplete = (event: CustomEvent<ComprehensiveAnalysis>
                     </div>
                   </div>
                 </motion.div>
-                
+
                 {/* Academic Details Setup Alert */}
                 {!userProfile && (
                   <motion.div
@@ -1343,7 +1478,7 @@ const handleProjectAnalysisComplete = (event: CustomEvent<ComprehensiveAnalysis>
                 )}
 
                 {/* Academic Insights Component */}
-                <AcademicInsights 
+                <AcademicInsights
                   onViewElectives={() => setActiveTab('electives')}
                   onViewWeaknesses={() => setActiveTab('weaknesses')}
                 />
@@ -1377,7 +1512,6 @@ const handleProjectAnalysisComplete = (event: CustomEvent<ComprehensiveAnalysis>
                     color="blue"
                     onClick={() => setActiveTab('performance')}
                   />
-                  
                   <StatCard
                     title="Weak Subjects"
                     value={studentData?.weakness_count?.toString() || engineeringMetrics.weakSubjects.length.toString()}
@@ -1385,21 +1519,18 @@ const handleProjectAnalysisComplete = (event: CustomEvent<ComprehensiveAnalysis>
                     color="orange"
                     onClick={() => setActiveTab('weaknesses')}
                   />
-                  
                   <StatCard
                     title="Strong Subjects"
                     value={engineeringMetrics.strongSubjects.length.toString()}
                     icon={<Star className="h-6 w-6 text-green-600" />}
                     color="green"
                   />
-                  
                   <StatCard
                     title="Credits Progress"
                     value={`${engineeringMetrics.completedCredits}/${engineeringMetrics.totalCredits}`}
                     icon={<Award className="h-6 w-6 text-purple-600" />}
                     color="purple"
                   />
-                  
                   <StatCard
                     title="AI Recommendations"
                     value={recommendationStats.electivesRecommended.toString()}
@@ -1431,6 +1562,7 @@ const handleProjectAnalysisComplete = (event: CustomEvent<ComprehensiveAnalysis>
 
                 {/* Quick Access Cards */}
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                  {/* Upload Project Card */}
                   <motion.div
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -1459,6 +1591,61 @@ const handleProjectAnalysisComplete = (event: CustomEvent<ComprehensiveAnalysis>
                     </button>
                   </motion.div>
 
+                  {/* Readiness Preview Card */}
+                  <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.15 }}
+                    whileHover={{ scale: 1.02 }}
+                    className="bg-gradient-to-br from-purple-50 to-blue-50 border border-purple-200 rounded-xl shadow-sm p-6 cursor-pointer"
+                    onClick={() => setActiveTab('readiness')}
+                  >
+                    <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+                      <Target className="h-5 w-5 mr-2 text-purple-600" />
+                      Readiness Score
+                    </h3>
+                    {readinessData ? (
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                          <span className="text-3xl font-bold text-purple-700">
+                            {Math.round(readinessData.overall_readiness_score)}%
+                          </span>
+                          <span className={`px-3 py-1 rounded-full text-xs font-medium ${
+                            readinessData.overall_readiness_score >= 75
+                              ? 'bg-green-100 text-green-700'
+                              : readinessData.overall_readiness_score >= 50
+                              ? 'bg-yellow-100 text-yellow-700'
+                              : 'bg-red-100 text-red-700'
+                          }`}>
+                            {readinessData.readiness_level}
+                          </span>
+                        </div>
+                        <p className="text-sm text-gray-600">
+                          {readinessData.primary_recommendation?.substring(0, 80)}...
+                        </p>
+                        <button className="text-sm text-purple-600 hover:text-purple-700 font-medium flex items-center">
+                          View full analysis
+                          <ChevronRight className="h-4 w-4 ml-1" />
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="text-center py-4">
+                        {studentInterests.length === 0 ? (
+                          <>
+                            <Heart className="w-8 h-8 text-purple-300 mx-auto mb-2" />
+                            <p className="text-sm text-gray-500">Set interests first</p>
+                          </>
+                        ) : (
+                          <>
+                            <Loader2 className="w-8 h-8 animate-spin text-purple-400 mx-auto mb-2" />
+                            <p className="text-sm text-gray-500">Loading analysis...</p>
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </motion.div>
+
+                  {/* AI Recommendations Card */}
                   <motion.div
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -1487,6 +1674,7 @@ const handleProjectAnalysisComplete = (event: CustomEvent<ComprehensiveAnalysis>
                     </button>
                   </motion.div>
 
+                  {/* Areas to Improve Card */}
                   <motion.div
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -1508,7 +1696,9 @@ const handleProjectAnalysisComplete = (event: CustomEvent<ComprehensiveAnalysis>
                           </div>
                         ))
                       ) : (
-                        <p className="text-sm text-gray-500">No weak subjects identified</p>
+                        <p className="text-sm text-gray-500">
+                          {studentInterests.length > 0 ? 'Loading weakness analysis...' : 'Set interests to see analysis'}
+                        </p>
                       )}
                     </div>
                     <button className="mt-4 text-sm text-orange-600 hover:text-orange-700 font-medium flex items-center">
@@ -1516,38 +1706,40 @@ const handleProjectAnalysisComplete = (event: CustomEvent<ComprehensiveAnalysis>
                       <ChevronRight className="h-4 w-4 ml-1" />
                     </button>
                   </motion.div>
-
-                  <motion.div
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.4 }}
-                    whileHover={{ scale: 1.02 }}
-                    className="bg-white rounded-xl shadow-sm border p-6 cursor-pointer"
-                    onClick={() => setActiveTab('resources')}
-                  >
-                    <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
-                      <BookOpen className="h-5 w-5 mr-2 text-green-600" />
-                      Study Resources
-                    </h3>
-                    <div className="space-y-2">
-                      <div className="flex items-center text-sm text-gray-600">
-                        <span className="mr-2">🎥</span>
-                        <span>6 recommended videos</span>
-                      </div>
-                      <div className="flex items-center text-sm text-gray-600">
-                        <span className="mr-2">📚</span>
-                        <span>4 study materials</span>
-                      </div>
-                    </div>
-                    <button className="mt-4 text-sm text-green-600 hover:text-green-700 font-medium flex items-center">
-                      Browse resources
-                      <ChevronRight className="h-4 w-4 ml-1" />
-                    </button>
-                  </motion.div>
                 </div>
+
+                {/* Study Resources Quick Card */}
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.4 }}
+                  whileHover={{ scale: 1.01 }}
+                  className="bg-white rounded-xl shadow-sm border p-6 cursor-pointer"
+                  onClick={() => setActiveTab('resources')}
+                >
+                  <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+                    <BookOpen className="h-5 w-5 mr-2 text-green-600" />
+                    Study Resources
+                  </h3>
+                  <div className="space-y-2">
+                    <div className="flex items-center text-sm text-gray-600">
+                      <span className="mr-2">🎥</span>
+                      <span>6 recommended videos</span>
+                    </div>
+                    <div className="flex items-center text-sm text-gray-600">
+                      <span className="mr-2">📚</span>
+                      <span>4 study materials</span>
+                    </div>
+                  </div>
+                  <button className="mt-4 text-sm text-green-600 hover:text-green-700 font-medium flex items-center">
+                    Browse resources
+                    <ChevronRight className="h-4 w-4 ml-1" />
+                  </button>
+                </motion.div>
               </motion.div>
             )}
 
+            {/* ==================== PERFORMANCE TAB ==================== */}
             {activeTab === 'performance' && (
               <motion.div
                 key="performance"
@@ -1557,15 +1749,15 @@ const handleProjectAnalysisComplete = (event: CustomEvent<ComprehensiveAnalysis>
                 transition={{ duration: 0.3 }}
                 className="space-y-6"
               >
-                <TrendAnalyzer 
-                  studentId={user?.uid || 'student-123'} 
+                <TrendAnalyzer
+                  studentId={user?.uid || 'student-123'}
                   className="bg-white rounded-xl shadow-sm border p-6"
                   onTrendChange={(trend) => {
                     console.log('Trend analysis updated:', trend);
                   }}
                 />
-                
-                <SubjectPerformance 
+
+                <SubjectPerformance
                   studentId={user?.uid || 'student-123'}
                   className="bg-white rounded-xl shadow-sm border p-6"
                   onSubjectSelect={(subject) => {
@@ -1577,7 +1769,7 @@ const handleProjectAnalysisComplete = (event: CustomEvent<ComprehensiveAnalysis>
                   <div className="flex items-center justify-between mb-6">
                     <h2 className="text-xl font-bold text-gray-900">Detailed Performance Analysis</h2>
                     <div className="flex items-center space-x-2">
-                      <button 
+                      <button
                         onClick={handleDownloadReport}
                         className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center space-x-2"
                       >
@@ -1621,7 +1813,7 @@ const handleProjectAnalysisComplete = (event: CustomEvent<ComprehensiveAnalysis>
                     <Brain className="h-5 w-5 mr-2 text-purple-600" />
                     AI-Generated Insights
                   </h3>
-                  
+
                   {insights?.recommendations && insights.recommendations.length > 0 ? (
                     <div className="space-y-3">
                       {insights.recommendations.map((rec: any, index: number) => (
@@ -1652,6 +1844,7 @@ const handleProjectAnalysisComplete = (event: CustomEvent<ComprehensiveAnalysis>
               </motion.div>
             )}
 
+            {/* ==================== PROJECTS TAB ==================== */}
             {activeTab === 'projects' && (
               <motion.div
                 key="projects"
@@ -1661,8 +1854,8 @@ const handleProjectAnalysisComplete = (event: CustomEvent<ComprehensiveAnalysis>
                 transition={{ duration: 0.3 }}
               >
                 {projectsView === 'list' ? (
-                  <StudentProjectsList 
-                    onAddProject={() => setProjectsView('upload')} 
+                  <StudentProjectsList
+                    onAddProject={() => setProjectsView('upload')}
                   />
                 ) : (
                   <div className="space-y-4">
@@ -1676,17 +1869,18 @@ const handleProjectAnalysisComplete = (event: CustomEvent<ComprehensiveAnalysis>
                       <ChevronLeft className="w-5 h-5" />
                       <span>Back to Projects</span>
                     </button>
-                    <StudentProjectsUpload 
-  onAnalysisComplete={(response: ComprehensiveAnalysis) => {
-    handleProjectAnalyzed(response);
-    fetchProjectCount();
-  }}
+                    <StudentProjectsUpload
+                      onAnalysisComplete={(response: ComprehensiveAnalysis) => {
+                        handleProjectAnalyzed(response);
+                        fetchProjectCount();
+                      }}
                     />
                   </div>
                 )}
               </motion.div>
             )}
 
+            {/* ==================== ACADEMIC TAB ==================== */}
             {activeTab === 'academic' && (
               <motion.div
                 key="academic"
@@ -1699,6 +1893,7 @@ const handleProjectAnalysisComplete = (event: CustomEvent<ComprehensiveAnalysis>
               </motion.div>
             )}
 
+            {/* ==================== INTERESTS TAB ==================== */}
             {activeTab === 'interests' && (
               <motion.div
                 key="interests"
@@ -1707,7 +1902,7 @@ const handleProjectAnalysisComplete = (event: CustomEvent<ComprehensiveAnalysis>
                 exit={{ opacity: 0, y: -20 }}
                 transition={{ duration: 0.3 }}
               >
-                <InterestManagement 
+                <InterestManagement
                   onInterestsUpdated={() => {
                     fetchDashboardData(false);
                     fetchRecommendationStats();
@@ -1716,6 +1911,7 @@ const handleProjectAnalysisComplete = (event: CustomEvent<ComprehensiveAnalysis>
               </motion.div>
             )}
 
+            {/* ==================== ELECTIVES TAB ==================== */}
             {activeTab === 'electives' && (
               <motion.div
                 key="electives"
@@ -1724,11 +1920,11 @@ const handleProjectAnalysisComplete = (event: CustomEvent<ComprehensiveAnalysis>
                 exit={{ opacity: 0, y: -20 }}
                 transition={{ duration: 0.3 }}
               >
-                {/* Using the new MLRecommendations component */}
                 <MLRecommendations />
               </motion.div>
             )}
 
+            {/* ==================== WEAKNESSES TAB ==================== */}
             {activeTab === 'weaknesses' && (
               <motion.div
                 key="weaknesses"
@@ -1737,10 +1933,14 @@ const handleProjectAnalysisComplete = (event: CustomEvent<ComprehensiveAnalysis>
                 exit={{ opacity: 0, y: -20 }}
                 transition={{ duration: 0.3 }}
               >
-                <WeaknessAnalyzer />
+                <WeaknessAnalyzer
+                  interests={studentInterests}
+                  electives={studentElectives}
+                />
               </motion.div>
             )}
 
+            {/* ==================== RESOURCES TAB ==================== */}
             {activeTab === 'resources' && (
               <motion.div
                 key="resources"
@@ -1753,6 +1953,7 @@ const handleProjectAnalysisComplete = (event: CustomEvent<ComprehensiveAnalysis>
               </motion.div>
             )}
 
+            {/* ==================== MEETINGS TAB ==================== */}
             {activeTab === 'meetings' && (
               <motion.div
                 key="meetings"
@@ -1764,6 +1965,70 @@ const handleProjectAnalysisComplete = (event: CustomEvent<ComprehensiveAnalysis>
                 <StudentMeetingRequest />
               </motion.div>
             )}
+
+            {/* ==================== READINESS TAB ==================== */}
+            {activeTab === 'readiness' && (
+              <motion.div
+                key="readiness"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+                transition={{ duration: 0.3 }}
+              >
+                {loadingReadiness ? (
+                  <div className="bg-white rounded-xl shadow-sm border p-12 text-center">
+                    <Loader2 className="w-12 h-12 animate-spin text-purple-600 mx-auto mb-4" />
+                    <p className="text-gray-600">Analyzing your academic readiness...</p>
+                    <p className="text-sm text-gray-400 mt-1">
+                      Checking {studentInterests.length} interests, {studentElectives.length} electives
+                    </p>
+                  </div>
+                ) : readinessData ? (
+                  <ReadinessAnalysis
+                    studentId={user?.uid}
+                    interests={studentInterests}
+                    electives={studentElectives}
+                    honours={studentHonours}
+                    onAnalysisComplete={(data) => {
+                      setReadinessData(data);
+                      toast.success('Readiness analysis updated!');
+                    }}
+                  />
+                ) : (
+                  <div className="bg-white rounded-xl shadow-sm border p-12 text-center">
+                    <Target className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+                    <h3 className="text-xl font-semibold text-gray-700 mb-2">
+                      No Readiness Data
+                    </h3>
+                    <p className="text-gray-500 mb-6">
+                      {studentInterests.length === 0
+                        ? 'Set your interests first in the "My Interests" tab, then run analysis.'
+                        : 'Run an analysis to see your readiness for electives and honours programs'
+                      }
+                    </p>
+                    <div className="flex gap-3 justify-center">
+                      {studentInterests.length === 0 && (
+                        <button
+                          onClick={() => setActiveTab('interests')}
+                          className="px-6 py-3 bg-purple-100 text-purple-700 rounded-lg hover:bg-purple-200 transition-all flex items-center gap-2"
+                        >
+                          <Heart className="w-5 h-5" />
+                          Set Interests First
+                        </button>
+                      )}
+                      <button
+                        onClick={fetchReadiness}
+                        className="px-6 py-3 bg-gradient-to-r from-purple-600 to-blue-600 text-white rounded-lg hover:shadow-lg transition-all flex items-center gap-2"
+                      >
+                        <Zap className="w-5 h-5" />
+                        Run Readiness Analysis
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </motion.div>
+            )}
+
           </AnimatePresence>
         </main>
       </div>

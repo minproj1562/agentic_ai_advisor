@@ -31,7 +31,7 @@ class WeaknessAnalysisService:
     2. Recommended electives and honours/minors
     3. Academic performance (grades, scores, history)
     """
-    
+
     # Mapping of interests to required foundational subjects with weights
     INTEREST_SUBJECT_MAP: Dict[str, Dict[str, float]] = {
         "Machine Learning": {
@@ -117,7 +117,7 @@ class WeaknessAnalysisService:
             "CI/CD": 0.8
         }
     }
-    
+
     # Mapping of electives to prerequisites with importance weights
     ELECTIVE_PREREQUISITES: Dict[str, Dict[str, Tuple[float, str]]] = {
         "Machine Learning": {
@@ -186,7 +186,7 @@ class WeaknessAnalysisService:
             "Python": (0.85, "High")
         }
     }
-    
+
     # Mapping of honours/minors to required subjects
     HONOURS_PREREQUISITES: Dict[str, Dict[str, Tuple[float, str]]] = {
         "Data Science Honours": {
@@ -218,10 +218,10 @@ class WeaknessAnalysisService:
             "DevOps": (0.75, "Medium")
         }
     }
-    
+
     def __init__(self):
         self.logger = logger
-    
+
     async def analyze_weaknesses(
         self,
         request: WeaknessAnalysisRequest
@@ -231,32 +231,48 @@ class WeaknessAnalysisService:
         """
         try:
             student_id = request.student_id
-            
+
             # Get student academic data
             student_data = await self._get_student_data(student_id)
-            
+
             # Get student interests if analyzing by interest
             interests = request.interests
-            if not interests and request.analysis_basis in [AnalysisBasis.INTEREST, AnalysisBasis.COMBINED]:
+            if not interests and request.analysis_basis in [
+                AnalysisBasis.INTEREST, AnalysisBasis.COMBINED
+            ]:
                 interests = await self._get_student_interests(student_id)
-            
+
             # Get recommended electives if analyzing by electives
             electives = request.recommended_electives
-            if not electives and request.analysis_basis in [AnalysisBasis.ELECTIVES, AnalysisBasis.COMBINED]:
-                electives = await self._get_recommended_electives(student_id, student_data)
-            
+            if not electives and request.analysis_basis in [
+                AnalysisBasis.ELECTIVES, AnalysisBasis.COMBINED
+            ]:
+                electives = await self._get_recommended_electives(
+                    student_id, student_data
+                )
+
             # Get honours/minors if analyzing by honours
             honours_minors = request.honours_minors
-            if not honours_minors and request.analysis_basis in [AnalysisBasis.HONOURS_MINORS, AnalysisBasis.COMBINED]:
-                honours_minors = await self._get_recommended_honours(student_id, student_data)
-            
+            if not honours_minors and request.analysis_basis in [
+                AnalysisBasis.HONOURS_MINORS, AnalysisBasis.COMBINED
+            ]:
+                honours_minors = await self._get_recommended_honours(
+                    student_id, student_data
+                )
+
             # Perform analysis based on the specified basis
             if request.analysis_basis == AnalysisBasis.INTEREST:
-                weaknesses = await self._analyze_by_interests(student_data, interests or [])
+                weaknesses = await self._analyze_by_interests(
+                    student_data, interests or []
+                )
             elif request.analysis_basis == AnalysisBasis.ELECTIVES:
-                weaknesses = await self._analyze_by_electives(student_data, electives or [])
+                weaknesses = await self._analyze_by_electives(
+                    student_data, electives or []
+                )
             elif request.analysis_basis == AnalysisBasis.HONOURS_MINORS:
-                weaknesses = await self._analyze_by_honours(student_data, honours_minors or [])
+                weaknesses = await self._analyze_by_honours(
+                    student_data, honours_minors or []
+                )
             elif request.analysis_basis == AnalysisBasis.PERFORMANCE:
                 weaknesses = await self._analyze_by_performance(student_data)
             else:  # COMBINED
@@ -266,7 +282,7 @@ class WeaknessAnalysisService:
                     electives or [],
                     honours_minors or []
                 )
-            
+
             # Calculate overall metrics
             response = self._build_response(
                 student_id=student_id,
@@ -275,40 +291,44 @@ class WeaknessAnalysisService:
                 include_resources=request.include_resources,
                 include_study_plan=request.include_study_plan
             )
-            
+
             # Save analysis to database
-            await self._save_analysis_result(response, interests, electives, honours_minors)
-            
+            await self._save_analysis_result(
+                response, interests, electives, honours_minors
+            )
+
             return response
-            
+
         except Exception as e:
             self.logger.error(f"Error analyzing weaknesses: {e}")
             raise
-    
+
     async def _get_student_data(self, student_id: str) -> Dict[str, Any]:
         """Fetch student academic data from database"""
         try:
-            # Import here to avoid circular imports
             from app.models.student import StudentPerformance
             from app.models.student_profile import StudentProfile
-            
+
             # Try to get from StudentPerformance collection
             performance = await StudentPerformance.find_one(
                 StudentPerformance.student_info.uid == student_id
             )
-            
+
             if performance:
-                # Convert subjects to score dictionary
                 subject_scores = {}
                 for subject in performance.subjects:
                     subject_scores[subject.name] = {
                         'score': subject.score,
                         'credits': subject.credits,
-                        'trend': subject.trend.value if hasattr(subject.trend, 'value') else subject.trend,
+                        'trend': (
+                            subject.trend.value
+                            if hasattr(subject.trend, 'value')
+                            else subject.trend
+                        ),
                         'weakness': subject.weakness,
                         'strength': subject.strength
                     }
-                
+
                 return {
                     'student_id': student_id,
                     'cgpa': performance.overall_cgpa,
@@ -322,46 +342,65 @@ class WeaknessAnalysisService:
                     'career_goals': performance.career_goals,
                     'skills_matrix': performance.skills_matrix
                 }
-            
-            # Try StudentProfile as fallback
+
+            # Try StudentProfile as fallback - USE TOTAL_MARKS DIRECTLY
             profile = await StudentProfile.find_one(
                 StudentProfile.user_id == student_id
             )
-            
+
             if profile:
                 subject_scores = {}
                 for semester in profile.semester_records:
                     for subject in semester.subjects:
-                        # Convert grade to score
-                        score = self._grade_to_score(subject.grade)
-                        subject_scores[subject.subject_name] = {
-                            'score': score,
-                            'credits': subject.credits,
-                            'grade': subject.grade,
-                            'trend': 'stable'
-                        }
-                
+                        # Use total_marks directly (already 0-100 from AcademicDataEntry)
+                        # AcademicDataEntry calculates: total = internal + external
+                        # and stores in total_marks field
+                        score = subject.total_marks
+
+                        # Normalize if somehow > 100
+                        if score > 100:
+                            score = min(score, 100)
+
+                        # Only keep the best score per subject (across semesters)
+                        existing = subject_scores.get(subject.subject_name)
+                        if not existing or score > existing['score']:
+                            subject_scores[subject.subject_name] = {
+                                'score': score,
+                                'credits': subject.credits,
+                                'grade': subject.grade,
+                                'code': subject.subject_code,
+                                'trend': 'stable'
+                            }
+
                 return {
                     'student_id': student_id,
                     'cgpa': profile.cgpa,
-                    'sgpa': profile.semester_records[-1].sgpa if profile.semester_records else 0,
+                    'sgpa': (
+                        profile.semester_records[-1].sgpa
+                        if profile.semester_records
+                        else 0
+                    ),
                     'semester': profile.current_semester,
                     'branch': profile.branch,
                     'subjects': subject_scores,
                     'strong_subjects': [],
                     'weak_subjects': [],
-                    'interests': profile.interests,
-                    'career_goals': profile.career_goals,
+                    'interests': getattr(profile, 'interests', []) or [],
+                    'career_goals': getattr(profile, 'career_goals', []) or [],
                     'skills_matrix': {}
                 }
-            
+
             # Return default data if nothing found
+            self.logger.warning(
+                f"⚠️ No student data found for {student_id}, using defaults"
+            )
             return self._get_default_student_data(student_id)
-            
+
         except Exception as e:
             self.logger.error(f"Error fetching student data: {e}")
+            traceback.print_exc()
             return self._get_default_student_data(student_id)
-    
+
     def _get_default_student_data(self, student_id: str) -> Dict[str, Any]:
         """Return default student data structure"""
         return {
@@ -371,13 +410,27 @@ class WeaknessAnalysisService:
             'semester': '5',
             'branch': 'IT',
             'subjects': {
-                'Data Structures and Algorithms': {'score': 75, 'credits': 4, 'trend': 'up'},
-                'Database Management System': {'score': 68, 'credits': 4, 'trend': 'stable'},
-                'Computer Networks': {'score': 72, 'credits': 3, 'trend': 'up'},
-                'Operating System': {'score': 70, 'credits': 4, 'trend': 'stable'},
-                'Python': {'score': 82, 'credits': 3, 'trend': 'up'},
-                'Mathematics': {'score': 65, 'credits': 4, 'trend': 'down'},
-                'Statistics': {'score': 60, 'credits': 3, 'trend': 'stable'},
+                'Data Structures and Algorithms': {
+                    'score': 75, 'credits': 4, 'trend': 'up'
+                },
+                'Database Management System': {
+                    'score': 68, 'credits': 4, 'trend': 'stable'
+                },
+                'Computer Networks': {
+                    'score': 72, 'credits': 3, 'trend': 'up'
+                },
+                'Operating System': {
+                    'score': 70, 'credits': 4, 'trend': 'stable'
+                },
+                'Python': {
+                    'score': 82, 'credits': 3, 'trend': 'up'
+                },
+                'Mathematics': {
+                    'score': 65, 'credits': 4, 'trend': 'down'
+                },
+                'Statistics': {
+                    'score': 60, 'credits': 3, 'trend': 'stable'
+                },
             },
             'strong_subjects': ['Python', 'Data Structures and Algorithms'],
             'weak_subjects': ['Mathematics', 'Statistics'],
@@ -385,7 +438,7 @@ class WeaknessAnalysisService:
             'career_goals': ['Software Engineer'],
             'skills_matrix': {'Python': 0.8, 'JavaScript': 0.6, 'SQL': 0.7}
         }
-    
+
     def _grade_to_score(self, grade: str) -> float:
         """Convert grade to numerical score"""
         grade_map = {
@@ -393,7 +446,7 @@ class WeaknessAnalysisService:
             'B': 55, 'C': 45, 'P': 40, 'F': 30
         }
         return grade_map.get(grade, 50)
-    
+
     async def _get_student_interests(self, student_id: str) -> List[str]:
         """Fetch student interests from database (checks multiple sources)"""
         try:
@@ -402,65 +455,81 @@ class WeaknessAnalysisService:
                 StudentInterestProfile.user_id == student_id
             )
             if interest_profile and interest_profile.interests:
-                self.logger.info(f"✅ Found {len(interest_profile.interests)} interests in StudentInterestProfile")
+                self.logger.info(
+                    f"✅ Found {len(interest_profile.interests)} interests "
+                    f"in StudentInterestProfile"
+                )
                 return interest_profile.interests
-            
+
             # Fallback: Try StudentProfile (where student profile saves interests)
             from app.models.student_profile import StudentProfile
             profile = await StudentProfile.find_one(
                 StudentProfile.user_id == student_id
             )
             if profile and profile.interests:
-                self.logger.info(f"✅ Found {len(profile.interests)} interests in StudentProfile")
-                
+                self.logger.info(
+                    f"✅ Found {len(profile.interests)} interests in StudentProfile"
+                )
+
                 # Sync to StudentInterestProfile for future use
                 interest_profile = StudentInterestProfile(
                     user_id=student_id,
                     interests=profile.interests,
-                    career_goals=profile.career_goals if profile.career_goals else []
+                    career_goals=(
+                        profile.career_goals if profile.career_goals else []
+                    )
                 )
                 await interest_profile.save()
                 self.logger.info(f"📝 Synced interests to StudentInterestProfile")
-                
+
                 return profile.interests
-            
+
             # Also try StudentPerformance (where ML service saves interests)
             from app.models.student import StudentPerformance
             performance = await StudentPerformance.find_one(
                 StudentPerformance.student_info.uid == student_id
             )
             if performance and performance.interests:
-                self.logger.info(f"✅ Found {len(performance.interests)} interests in StudentPerformance (ML)")
-                
+                self.logger.info(
+                    f"✅ Found {len(performance.interests)} interests "
+                    f"in StudentPerformance (ML)"
+                )
+
                 # Sync to StudentInterestProfile
                 interest_profile = StudentInterestProfile(
                     user_id=student_id,
                     interests=performance.interests,
-                    career_goals=performance.career_goals if hasattr(performance, 'career_goals') else []
+                    career_goals=(
+                        performance.career_goals
+                        if hasattr(performance, 'career_goals')
+                        else []
+                    )
                 )
                 await interest_profile.save()
-                self.logger.info(f"📝 Synced ML interests to StudentInterestProfile")
-                
+                self.logger.info(
+                    f"📝 Synced ML interests to StudentInterestProfile"
+                )
+
                 return performance.interests
-            
-            self.logger.warning(f"⚠️ No interests found for student {student_id}")
+
+            self.logger.warning(
+                f"⚠️ No interests found for student {student_id}"
+            )
             return []
-            
+
         except Exception as e:
             self.logger.error(f"❌ Error fetching interests: {e}")
             traceback.print_exc()
             return []
-    
+
     async def _get_recommended_electives(
-        self, 
-        student_id: str, 
+        self,
+        student_id: str,
         student_data: Dict[str, Any]
     ) -> List[str]:
         """Get recommended electives based on student performance"""
-        # This would typically call ElectiveRecommendationService
-        # For now, return based on branch and interests
         interests = student_data.get('interests', [])
-        
+
         elective_suggestions = []
         if 'Machine Learning' in interests or 'AI' in interests:
             elective_suggestions.append('ML')
@@ -470,36 +539,42 @@ class WeaknessAnalysisService:
             elective_suggestions.append('DWM')
         if 'Cloud' in interests or 'DevOps' in interests:
             elective_suggestions.append('CCS')
-        
+
         # Default to ML if no matches
         if not elective_suggestions:
             elective_suggestions = ['ML', 'CCS']
-        
+
         return elective_suggestions
-    
+
     async def _get_recommended_honours(
-        self, 
-        student_id: str, 
+        self,
+        student_id: str,
         student_data: Dict[str, Any]
     ) -> List[str]:
         """Get recommended honours/minors based on student profile"""
         cgpa = student_data.get('cgpa', 0)
         interests = student_data.get('interests', [])
-        
+
         recommendations = []
-        
+
         # Only recommend honours for students with good CGPA
         if cgpa >= 7.5:
-            if any(i in interests for i in ['Machine Learning', 'AI', 'Data Science']):
+            if any(
+                i in interests
+                for i in ['Machine Learning', 'AI', 'Data Science']
+            ):
                 recommendations.append('Data Science Honours')
                 recommendations.append('AI Minor')
-            if any(i in interests for i in ['Security', 'Cybersecurity', 'Networking']):
+            if any(
+                i in interests
+                for i in ['Security', 'Cybersecurity', 'Networking']
+            ):
                 recommendations.append('Cybersecurity Minor')
             if any(i in interests for i in ['Cloud', 'DevOps']):
                 recommendations.append('Cloud Computing Minor')
-        
+
         return recommendations[:2]  # Return top 2
-    
+
     async def _analyze_by_interests(
         self,
         student_data: Dict[str, Any],
@@ -508,17 +583,17 @@ class WeaknessAnalysisService:
         """Analyze weaknesses based on chosen interests"""
         weaknesses = []
         subjects = student_data.get('subjects', {})
-        
+
         for interest in interests:
             if interest not in self.INTEREST_SUBJECT_MAP:
                 continue
-            
+
             required_subjects = self.INTEREST_SUBJECT_MAP[interest]
-            
+
             for req_subject, weight in required_subjects.items():
                 # Find matching subject in student data
                 student_score = self._find_subject_score(subjects, req_subject)
-                
+
                 if student_score is None:
                     # Subject not taken yet - flag as potential weakness
                     weaknesses.append(self._create_weakness_area(
@@ -529,7 +604,9 @@ class WeaknessAnalysisService:
                         topic=f"Prerequisite for {interest}",
                         severity=SeverityLevel.MEDIUM,
                         confidence=0.7,
-                        impact_on_interest=f"Required foundation for {interest}"
+                        impact_on_interest=(
+                            f"Required foundation for {interest}"
+                        )
                     ))
                 elif student_score < 60:
                     # Low score - definite weakness
@@ -542,7 +619,9 @@ class WeaknessAnalysisService:
                         topic=f"Foundation for {interest}",
                         severity=severity,
                         confidence=0.85 * weight,
-                        impact_on_interest=f"Will affect ability to excel in {interest}"
+                        impact_on_interest=(
+                            f"Will affect ability to excel in {interest}"
+                        )
                     ))
                 elif student_score < 75 and weight >= 0.8:
                     # Moderate score in high-weight subject
@@ -554,11 +633,13 @@ class WeaknessAnalysisService:
                         topic=f"Important for {interest}",
                         severity=SeverityLevel.LOW,
                         confidence=0.75,
-                        impact_on_interest=f"Improvement recommended for {interest}"
+                        impact_on_interest=(
+                            f"Improvement recommended for {interest}"
+                        )
                     ))
-        
+
         return weaknesses
-    
+
     async def _analyze_by_electives(
         self,
         student_data: Dict[str, Any],
@@ -567,18 +648,22 @@ class WeaknessAnalysisService:
         """Analyze weaknesses based on recommended electives"""
         weaknesses = []
         subjects = student_data.get('subjects', {})
-        
+
         for elective in electives:
             if elective not in self.ELECTIVE_PREREQUISITES:
                 continue
-            
+
             prerequisites = self.ELECTIVE_PREREQUISITES[elective]
-            
+
             for prereq, (weight, importance) in prerequisites.items():
                 student_score = self._find_subject_score(subjects, prereq)
-                
-                threshold = 70 if importance == "Critical" else 60 if importance == "High" else 50
-                
+
+                threshold = (
+                    70 if importance == "Critical"
+                    else 60 if importance == "High"
+                    else 50
+                )
+
                 if student_score is None:
                     weaknesses.append(self._create_weakness_area(
                         subject=prereq,
@@ -586,15 +671,27 @@ class WeaknessAnalysisService:
                         related_to=f"{elective} elective",
                         analysis_basis=AnalysisBasis.ELECTIVES,
                         topic=f"Prerequisite for {elective}",
-                        severity=SeverityLevel.HIGH if importance == "Critical" else SeverityLevel.MEDIUM,
+                        severity=(
+                            SeverityLevel.HIGH
+                            if importance == "Critical"
+                            else SeverityLevel.MEDIUM
+                        ),
                         confidence=0.8,
-                        impact_on_elective=f"Required before taking {elective}"
+                        impact_on_elective=(
+                            f"Required before taking {elective}"
+                        )
                     ))
                 elif student_score < threshold:
-                    severity = SeverityLevel.CRITICAL if importance == "Critical" and student_score < 50 else \
-                               SeverityLevel.HIGH if importance == "Critical" else \
-                               SeverityLevel.MEDIUM if importance == "High" else SeverityLevel.LOW
-                    
+                    severity = (
+                        SeverityLevel.CRITICAL
+                        if importance == "Critical" and student_score < 50
+                        else SeverityLevel.HIGH
+                        if importance == "Critical"
+                        else SeverityLevel.MEDIUM
+                        if importance == "High"
+                        else SeverityLevel.LOW
+                    )
+
                     weaknesses.append(self._create_weakness_area(
                         subject=prereq,
                         current_score=student_score,
@@ -603,11 +700,13 @@ class WeaknessAnalysisService:
                         topic=f"Prerequisite for {elective}",
                         severity=severity,
                         confidence=0.85 * weight,
-                        impact_on_elective=f"May struggle with {elective} if not improved"
+                        impact_on_elective=(
+                            f"May struggle with {elective} if not improved"
+                        )
                     ))
-        
+
         return weaknesses
-    
+
     async def _analyze_by_honours(
         self,
         student_data: Dict[str, Any],
@@ -616,19 +715,19 @@ class WeaknessAnalysisService:
         """Analyze weaknesses based on honours/minors programs"""
         weaknesses = []
         subjects = student_data.get('subjects', {})
-        
+
         for program in honours_minors:
             if program not in self.HONOURS_PREREQUISITES:
                 continue
-            
+
             prerequisites = self.HONOURS_PREREQUISITES[program]
-            
+
             for prereq, (weight, importance) in prerequisites.items():
                 student_score = self._find_subject_score(subjects, prereq)
-                
+
                 # Honours require higher scores
                 threshold = 75 if importance == "Critical" else 65
-                
+
                 if student_score is None:
                     weaknesses.append(self._create_weakness_area(
                         subject=prereq,
@@ -638,12 +737,17 @@ class WeaknessAnalysisService:
                         topic=f"Required for {program}",
                         severity=SeverityLevel.HIGH,
                         confidence=0.85,
-                        impact_on_career=f"Essential for {program} eligibility"
+                        impact_on_career=(
+                            f"Essential for {program} eligibility"
+                        )
                     ))
                 elif student_score < threshold:
-                    severity = SeverityLevel.CRITICAL if student_score < 50 else \
-                               SeverityLevel.HIGH if student_score < 60 else SeverityLevel.MEDIUM
-                    
+                    severity = (
+                        SeverityLevel.CRITICAL if student_score < 50
+                        else SeverityLevel.HIGH if student_score < 60
+                        else SeverityLevel.MEDIUM
+                    )
+
                     weaknesses.append(self._create_weakness_area(
                         subject=prereq,
                         current_score=student_score,
@@ -652,11 +756,13 @@ class WeaknessAnalysisService:
                         topic=f"Required for {program}",
                         severity=severity,
                         confidence=0.9 * weight,
-                        impact_on_career=f"Must improve to {threshold}% for {program}"
+                        impact_on_career=(
+                            f"Must improve to {threshold}% for {program}"
+                        )
                     ))
-        
+
         return weaknesses
-    
+
     async def _analyze_by_performance(
         self,
         student_data: Dict[str, Any]
@@ -664,15 +770,18 @@ class WeaknessAnalysisService:
         """Analyze weaknesses based on pure academic performance"""
         weaknesses = []
         subjects = student_data.get('subjects', {})
-        
+
         for subject_name, data in subjects.items():
             score = data.get('score', 0)
             trend = data.get('trend', 'stable')
-            
+
             if score < 60:
-                severity = SeverityLevel.CRITICAL if score < 40 else \
-                           SeverityLevel.HIGH if score < 50 else SeverityLevel.MEDIUM
-                
+                severity = (
+                    SeverityLevel.CRITICAL if score < 40
+                    else SeverityLevel.HIGH if score < 50
+                    else SeverityLevel.MEDIUM
+                )
+
                 weaknesses.append(self._create_weakness_area(
                     subject=subject_name,
                     current_score=score,
@@ -692,9 +801,9 @@ class WeaknessAnalysisService:
                     severity=SeverityLevel.MEDIUM,
                     confidence=0.8
                 ))
-        
+
         return weaknesses
-    
+
     async def _analyze_combined(
         self,
         student_data: Dict[str, Any],
@@ -704,55 +813,210 @@ class WeaknessAnalysisService:
     ) -> List[WeaknessArea]:
         """Combined analysis from all sources"""
         all_weaknesses = []
-        
+
         # Gather weaknesses from all sources
         if interests:
-            interest_weaknesses = await self._analyze_by_interests(student_data, interests)
+            interest_weaknesses = await self._analyze_by_interests(
+                student_data, interests
+            )
             all_weaknesses.extend(interest_weaknesses)
-        
+
         if electives:
-            elective_weaknesses = await self._analyze_by_electives(student_data, electives)
+            elective_weaknesses = await self._analyze_by_electives(
+                student_data, electives
+            )
             all_weaknesses.extend(elective_weaknesses)
-        
+
         if honours_minors:
-            honours_weaknesses = await self._analyze_by_honours(student_data, honours_minors)
+            honours_weaknesses = await self._analyze_by_honours(
+                student_data, honours_minors
+            )
             all_weaknesses.extend(honours_weaknesses)
-        
+
         # Always include performance-based analysis
-        performance_weaknesses = await self._analyze_by_performance(student_data)
+        performance_weaknesses = await self._analyze_by_performance(
+            student_data
+        )
         all_weaknesses.extend(performance_weaknesses)
-        
+
         # Deduplicate and merge weaknesses
         merged = self._merge_weaknesses(all_weaknesses)
-        
+
         return merged
-    
+
     def _find_subject_score(
-        self, 
-        subjects: Dict[str, Any], 
+        self,
+        subjects: Dict[str, Any],
         target_subject: str
     ) -> Optional[float]:
-        """Find subject score using fuzzy matching"""
-        target_lower = target_subject.lower()
-        
+        """Find subject score using comprehensive fuzzy matching with aliases"""
+        target_lower = target_subject.lower().strip()
+
+        # Alias map: generic name -> possible curriculum names
+        SUBJECT_ALIASES: Dict[str, List[str]] = {
+            "mathematics": [
+                "engineering mathematics", "math", "applied mathematics",
+                "engineering mathematics-iii", "engineering mathematics-iv",
+                "math-iii", "math-iv", "mathematics-iii", "mathematics-iv",
+                "bsc301", "bsc401"
+            ],
+            "statistics": [
+                "engineering mathematics-iv", "math-iv", "probability",
+                "probability and statistics", "statistics & probability",
+                "bsc401"
+            ],
+            "python programming": [
+                "python", "python programming lab", "python lab",
+                "itsbl301", "py programming"
+            ],
+            "python": [
+                "python programming", "python programming lab", "python lab",
+                "itsbl301", "py programming"
+            ],
+            "data structures": [
+                "data structures and algorithms", "dsa", "ds",
+                "data structure", "itpcc301"
+            ],
+            "data structures and algorithms": [
+                "dsa", "ds", "data structures", "data structure", "itpcc301"
+            ],
+            "algorithms": [
+                "data structures and algorithms", "dsa", "algorithm design",
+                "analysis of algorithms"
+            ],
+            "database management": [
+                "database management system", "database management systems",
+                "dbms", "database", "itpcc302", "rdbms"
+            ],
+            "database management system": [
+                "dbms", "database management", "database", "itpcc302"
+            ],
+            "computer networks": [
+                "cn", "networking", "computer network", "networks",
+                "data communication", "dcn"
+            ],
+            "networking": [
+                "computer networks", "cn", "computer network", "networks"
+            ],
+            "operating systems": [
+                "os", "operating system", "linux", "unix"
+            ],
+            "operating system": [
+                "os", "operating systems", "linux", "unix"
+            ],
+            "linear algebra": [
+                "engineering mathematics-iii", "math-iii", "mathematics",
+                "linear algebra and calculus"
+            ],
+            "probability": [
+                "engineering mathematics-iv", "statistics", "math-iv",
+                "probability and statistics"
+            ],
+            "calculus": [
+                "engineering mathematics-iii", "math-iii", "mathematics",
+                "engineering mathematics-i", "engineering mathematics-ii"
+            ],
+            "discrete mathematics": [
+                "discrete math", "discrete structures", "combinatorics"
+            ],
+            "cryptography": [
+                "cryptography & network security", "cns",
+                "cryptography and network security", "information security"
+            ],
+            "embedded systems": [
+                "microcontroller & embedded systems", "microprocessor",
+                "microprocessor and embedded systems", "mes"
+            ],
+            "artificial intelligence": [
+                "ai", "itpcc710"
+            ],
+            "software engineering": [
+                "se", "software engineering principles"
+            ],
+            "full stack development": [
+                "fsdl", "full stack development (fsdl)", "web development",
+                "full stack development lab"
+            ],
+            "automata theory": [
+                "theory of computer science",
+                "automata theory / theory of computer science",
+                "toc", "formal languages"
+            ],
+            "digital logic & design": [
+                "digital logic & computer architecture", "dlda",
+                "digital logic", "digital electronics"
+            ],
+        }
+
+        # 1. Exact match
         for subject_name, data in subjects.items():
-            if target_lower in subject_name.lower() or subject_name.lower() in target_lower:
+            if target_lower == subject_name.lower().strip():
                 return data.get('score', 0)
-        
-        # Try partial matching
+
+        # 2. Contains match (either direction)
         for subject_name, data in subjects.items():
-            # Split and check words
-            target_words = set(target_lower.split())
-            subject_words = set(subject_name.lower().split())
-            if target_words & subject_words:  # Any common words
+            s_lower = subject_name.lower().strip()
+            if target_lower in s_lower or s_lower in target_lower:
                 return data.get('score', 0)
-        
+
+        # 3. Alias-based match
+        aliases_to_check = list(SUBJECT_ALIASES.get(target_lower, []))
+        # Also check if target matches any alias value
+        for generic_name, alias_list in SUBJECT_ALIASES.items():
+            if target_lower in alias_list or target_lower == generic_name:
+                aliases_to_check = list(
+                    set(aliases_to_check + alias_list + [generic_name])
+                )
+
+        for alias in aliases_to_check:
+            alias_lower = alias.lower().strip()
+            for subject_name, data in subjects.items():
+                s_lower = subject_name.lower().strip()
+                if (
+                    alias_lower == s_lower
+                    or alias_lower in s_lower
+                    or s_lower in alias_lower
+                ):
+                    return data.get('score', 0)
+
+        # 4. Word overlap match (at least 2 common words, or 1 if target is
+        #    single word)
+        target_words = set(
+            target_lower.replace('-', ' ').replace('/', ' ').split()
+        )
+        for subject_name, data in subjects.items():
+            subject_words = set(
+                subject_name.lower().replace('-', ' ').replace('/', ' ').split()
+            )
+            # Remove common filler words
+            filler = {
+                'and', 'of', 'the', 'in', 'for', 'to', 'a', 'an', '&'
+            }
+            target_clean = target_words - filler
+            subject_clean = subject_words - filler
+
+            common = target_clean & subject_clean
+            threshold = 1 if len(target_clean) <= 2 else 2
+            if len(common) >= threshold:
+                return data.get('score', 0)
+
+        # 5. Subject code match
+        for subject_name, data in subjects.items():
+            code = data.get('code', '').upper()
+            if code and (
+                code in target_lower.upper()
+                or target_lower.upper() in code
+            ):
+                return data.get('score', 0)
+
         return None
-    
-    def _calculate_severity(self, score: float, weight: float = 1.0) -> SeverityLevel:
+
+    def _calculate_severity(
+        self, score: float, weight: float = 1.0
+    ) -> SeverityLevel:
         """Calculate severity based on score and weight"""
         weighted_score = score * weight
-        
+
         if weighted_score < 35:
             return SeverityLevel.CRITICAL
         elif weighted_score < 50:
@@ -761,7 +1025,7 @@ class WeaknessAnalysisService:
             return SeverityLevel.MEDIUM
         else:
             return SeverityLevel.LOW
-    
+
     def _create_weakness_area(
         self,
         subject: str,
@@ -776,9 +1040,12 @@ class WeaknessAnalysisService:
         impact_on_career: Optional[str] = None
     ) -> WeaknessArea:
         """Create a WeaknessArea object with all details"""
-        target_score = 75 if severity in [SeverityLevel.CRITICAL, SeverityLevel.HIGH] else 70
+        target_score = (
+            75 if severity in [SeverityLevel.CRITICAL, SeverityLevel.HIGH]
+            else 70
+        )
         gap = max(0, target_score - current_score)
-        
+
         return WeaknessArea(
             subject=subject,
             topic=topic,
@@ -789,35 +1056,48 @@ class WeaknessAnalysisService:
             confidence=confidence,
             related_to=related_to,
             analysis_basis=analysis_basis,
-            improvement_suggestions=self._get_improvement_suggestions(subject, severity),
+            improvement_suggestions=self._get_improvement_suggestions(
+                subject, severity
+            ),
             recommended_resources=self._get_resources(subject, severity),
-            estimated_improvement_time=self._estimate_improvement_time(gap, severity),
+            estimated_improvement_time=self._estimate_improvement_time(
+                gap, severity
+            ),
             priority=self._severity_to_priority(severity),
             impact_on_interest=impact_on_interest,
             impact_on_elective=impact_on_elective,
             impact_on_career=impact_on_career
         )
-    
-    def _merge_weaknesses(self, weaknesses: List[WeaknessArea]) -> List[WeaknessArea]:
+
+    def _merge_weaknesses(
+        self, weaknesses: List[WeaknessArea]
+    ) -> List[WeaknessArea]:
         """Merge duplicate weaknesses and combine related_to fields"""
         merged: Dict[str, WeaknessArea] = {}
-        
+
         for w in weaknesses:
             key = w.subject.lower()
-            
+
             if key in merged:
                 existing = merged[key]
                 # Keep higher severity
-                if self._severity_to_priority(w.severity) > self._severity_to_priority(existing.severity):
+                if (
+                    self._severity_to_priority(w.severity)
+                    > self._severity_to_priority(existing.severity)
+                ):
                     existing.severity = w.severity
                     existing.priority = w.priority
                 # Combine related_to
                 if w.related_to not in existing.related_to:
-                    existing.related_to = f"{existing.related_to}, {w.related_to}"
+                    existing.related_to = (
+                        f"{existing.related_to}, {w.related_to}"
+                    )
                 # Keep lower score (worse performance)
                 if w.current_score < existing.current_score:
                     existing.current_score = w.current_score
-                    existing.gap_percentage = max(existing.gap_percentage, w.gap_percentage)
+                    existing.gap_percentage = max(
+                        existing.gap_percentage, w.gap_percentage
+                    )
                 # Combine impacts
                 if w.impact_on_interest and not existing.impact_on_interest:
                     existing.impact_on_interest = w.impact_on_interest
@@ -827,9 +1107,9 @@ class WeaknessAnalysisService:
                     existing.impact_on_career = w.impact_on_career
             else:
                 merged[key] = w
-        
+
         return list(merged.values())
-    
+
     def _severity_to_priority(self, severity: SeverityLevel) -> int:
         """Convert severity to priority number"""
         priority_map = {
@@ -839,8 +1119,10 @@ class WeaknessAnalysisService:
             SeverityLevel.LOW: 2
         }
         return priority_map.get(severity, 1)
-    
-    def _get_improvement_suggestions(self, subject: str, severity: SeverityLevel) -> List[str]:
+
+    def _get_improvement_suggestions(
+        self, subject: str, severity: SeverityLevel
+    ) -> List[str]:
         """Generate improvement suggestions"""
         suggestions = {
             SeverityLevel.CRITICAL: [
@@ -869,31 +1151,44 @@ class WeaknessAnalysisService:
             ]
         }
         return suggestions.get(severity, suggestions[SeverityLevel.MEDIUM])
-    
-    def _get_resources(self, subject: str, severity: SeverityLevel) -> List[Dict[str, Any]]:
+
+    def _get_resources(
+        self, subject: str, severity: SeverityLevel
+    ) -> List[Dict[str, Any]]:
         """Get recommended resources for a subject"""
         return [
             {
                 "type": "course",
                 "platform": "Coursera",
                 "title": f"{subject} Fundamentals",
-                "url": f"https://coursera.org/search?query={subject.replace(' ', '+')}"
+                "url": (
+                    f"https://coursera.org/search?query="
+                    f"{subject.replace(' ', '+')}"
+                )
             },
             {
                 "type": "video",
                 "platform": "YouTube",
                 "title": f"Learn {subject}",
-                "url": f"https://youtube.com/results?search_query={subject.replace(' ', '+')}+tutorial"
+                "url": (
+                    f"https://youtube.com/results?search_query="
+                    f"{subject.replace(' ', '+')}+tutorial"
+                )
             },
             {
                 "type": "practice",
                 "platform": "LeetCode/HackerRank",
                 "title": f"{subject} Practice Problems",
-                "url": f"https://leetcode.com/problemset/all/?search={subject.replace(' ', '+')}"
+                "url": (
+                    f"https://leetcode.com/problemset/all/?search="
+                    f"{subject.replace(' ', '+')}"
+                )
             }
         ]
-    
-    def _estimate_improvement_time(self, gap: float, severity: SeverityLevel) -> str:
+
+    def _estimate_improvement_time(
+        self, gap: float, severity: SeverityLevel
+    ) -> str:
         """Estimate time needed to improve"""
         if severity == SeverityLevel.CRITICAL:
             return "8-12 weeks of intensive study"
@@ -903,7 +1198,7 @@ class WeaknessAnalysisService:
             return "4-6 weeks with regular practice"
         else:
             return "2-4 weeks with focused revision"
-    
+
     def _build_response(
         self,
         student_id: str,
@@ -914,45 +1209,63 @@ class WeaknessAnalysisService:
     ) -> WeaknessAnalysisResponse:
         """Build the final response object"""
         # Sort weaknesses by priority
-        sorted_weaknesses = sorted(weaknesses, key=lambda x: x.priority, reverse=True)
-        
+        sorted_weaknesses = sorted(
+            weaknesses, key=lambda x: x.priority, reverse=True
+        )
+
         # Calculate counts
-        critical_count = sum(1 for w in weaknesses if w.severity == SeverityLevel.CRITICAL)
-        high_count = sum(1 for w in weaknesses if w.severity == SeverityLevel.HIGH)
-        medium_count = sum(1 for w in weaknesses if w.severity == SeverityLevel.MEDIUM)
-        low_count = sum(1 for w in weaknesses if w.severity == SeverityLevel.LOW)
-        
+        critical_count = sum(
+            1 for w in weaknesses if w.severity == SeverityLevel.CRITICAL
+        )
+        high_count = sum(
+            1 for w in weaknesses if w.severity == SeverityLevel.HIGH
+        )
+        medium_count = sum(
+            1 for w in weaknesses if w.severity == SeverityLevel.MEDIUM
+        )
+        low_count = sum(
+            1 for w in weaknesses if w.severity == SeverityLevel.LOW
+        )
+
         # Calculate overall risk score
         if weaknesses:
-            severity_scores = [self._severity_to_priority(w.severity) for w in weaknesses]
-            risk_score = (sum(severity_scores) / (len(severity_scores) * 5)) * 100
+            severity_scores = [
+                self._severity_to_priority(w.severity) for w in weaknesses
+            ]
+            risk_score = (
+                (sum(severity_scores) / (len(severity_scores) * 5)) * 100
+            )
         else:
             risk_score = 0
-        
+
         # Get priority areas
-        priority_areas = [w.subject for w in sorted_weaknesses if w.priority >= 4][:5]
-        
+        priority_areas = [
+            w.subject for w in sorted_weaknesses if w.priority >= 4
+        ][:5]
+
         # Generate key insights
         key_insights = self._generate_insights(weaknesses, analysis_basis)
-        
+
         # Calculate improvement potential
         if weaknesses:
             avg_gap = np.mean([w.gap_percentage for w in weaknesses])
-            improvement_potential = min(avg_gap * 0.7, 100)  # 70% of gap can be closed
+            improvement_potential = min(
+                avg_gap * 0.7, 100
+            )  # 70% of gap can be closed
         else:
             improvement_potential = 0
-        
+
         # Collect all resources
         all_resources = []
         if include_resources:
             for w in sorted_weaknesses[:5]:
                 all_resources.extend(w.recommended_resources)
-        
+
         # Generate study plan
         study_plan = None
         if include_study_plan:
             study_plan = self._generate_study_plan(sorted_weaknesses[:5])
-        
+
         return WeaknessAnalysisResponse(
             student_id=student_id,
             analysis_basis=analysis_basis,
@@ -969,47 +1282,70 @@ class WeaknessAnalysisService:
             key_insights=key_insights,
             improvement_potential=round(improvement_potential, 2)
         )
-    
+
     def _generate_insights(
-        self, 
+        self,
         weaknesses: List[WeaknessArea],
         analysis_basis: AnalysisBasis
     ) -> List[str]:
         """Generate key insights from weaknesses"""
         insights = []
-        
-        critical_subjects = [w.subject for w in weaknesses if w.severity == SeverityLevel.CRITICAL]
+
+        critical_subjects = [
+            w.subject for w in weaknesses
+            if w.severity == SeverityLevel.CRITICAL
+        ]
         if critical_subjects:
             insights.append(
-                f"Critical attention needed for: {', '.join(critical_subjects[:3])}"
+                f"Critical attention needed for: "
+                f"{', '.join(critical_subjects[:3])}"
             )
-        
+
         if analysis_basis == AnalysisBasis.INTEREST:
-            interest_gaps = [w for w in weaknesses if w.impact_on_interest]
+            interest_gaps = [
+                w for w in weaknesses if w.impact_on_interest
+            ]
             if interest_gaps:
                 insights.append(
-                    f"Your chosen interests require strengthening {len(interest_gaps)} foundational areas"
+                    f"Your chosen interests require strengthening "
+                    f"{len(interest_gaps)} foundational areas"
                 )
-        
+
         if analysis_basis == AnalysisBasis.ELECTIVES:
-            elective_gaps = [w for w in weaknesses if w.impact_on_elective]
+            elective_gaps = [
+                w for w in weaknesses if w.impact_on_elective
+            ]
             if elective_gaps:
                 insights.append(
-                    f"Recommended electives need {len(elective_gaps)} prerequisites to be improved"
+                    f"Recommended electives need {len(elective_gaps)} "
+                    f"prerequisites to be improved"
                 )
-        
+
         if len(weaknesses) == 0:
-            insights.append("Excellent! No significant weaknesses detected based on analysis")
+            insights.append(
+                "Excellent! No significant weaknesses detected "
+                "based on analysis"
+            )
         elif len(weaknesses) <= 2:
-            insights.append("Good overall performance with minor areas for improvement")
+            insights.append(
+                "Good overall performance with minor areas for improvement"
+            )
         elif len(weaknesses) <= 5:
-            insights.append("Moderate improvement opportunities exist - focus on priority areas")
+            insights.append(
+                "Moderate improvement opportunities exist - "
+                "focus on priority areas"
+            )
         else:
-            insights.append("Multiple areas need attention - consider structured improvement plan")
-        
+            insights.append(
+                "Multiple areas need attention - "
+                "consider structured improvement plan"
+            )
+
         return insights
-    
-    def _generate_study_plan(self, priority_weaknesses: List[WeaknessArea]) -> Dict[str, Any]:
+
+    def _generate_study_plan(
+        self, priority_weaknesses: List[WeaknessArea]
+    ) -> Dict[str, Any]:
         """Generate a weekly study plan"""
         plan = {
             "duration": "8 weeks",
@@ -1017,32 +1353,43 @@ class WeaknessAnalysisService:
             "phases": [],
             "milestones": []
         }
-        
+
         # Phase 1: Foundations (Week 1-2)
-        phase1_subjects = [w.subject for w in priority_weaknesses if w.severity in [SeverityLevel.CRITICAL, SeverityLevel.HIGH]][:2]
+        phase1_subjects = [
+            w.subject for w in priority_weaknesses
+            if w.severity in [SeverityLevel.CRITICAL, SeverityLevel.HIGH]
+        ][:2]
         plan["phases"].append({
             "name": "Foundation Building",
             "weeks": "1-2",
             "focus": phase1_subjects or ["Core concepts review"],
             "goals": ["Master fundamentals", "Complete basic exercises"]
         })
-        
+
         # Phase 2: Practice (Week 3-5)
         plan["phases"].append({
             "name": "Active Practice",
             "weeks": "3-5",
             "focus": [w.subject for w in priority_weaknesses[:3]],
-            "goals": ["Solve practice problems", "Work on assignments", "Peer learning"]
+            "goals": [
+                "Solve practice problems",
+                "Work on assignments",
+                "Peer learning"
+            ]
         })
-        
+
         # Phase 3: Mastery (Week 6-8)
         plan["phases"].append({
             "name": "Mastery & Review",
             "weeks": "6-8",
             "focus": [w.subject for w in priority_weaknesses],
-            "goals": ["Mock tests", "Advanced problems", "Final revision"]
+            "goals": [
+                "Mock tests",
+                "Advanced problems",
+                "Final revision"
+            ]
         })
-        
+
         # Milestones
         plan["milestones"] = [
             {"week": 2, "target": "Complete fundamentals review"},
@@ -1050,9 +1397,9 @@ class WeaknessAnalysisService:
             {"week": 6, "target": "Score 70%+ in practice tests"},
             {"week": 8, "target": "Achieve target proficiency"}
         ]
-        
+
         return plan
-    
+
     async def _save_analysis_result(
         self,
         response: WeaknessAnalysisResponse,
@@ -1067,7 +1414,7 @@ class WeaknessAnalysisService:
                 WeaknessAnalysisResult.student_id == response.student_id,
                 WeaknessAnalysisResult.is_current == True
             ).update({"$set": {"is_current": False}})
-            
+
             # Create new analysis record
             result = WeaknessAnalysisResult(
                 student_id=response.student_id,
@@ -1091,15 +1438,17 @@ class WeaknessAnalysisService:
                 related_honours=honours_minors or [],
                 is_current=True
             )
-            
+
             await result.save()
-            self.logger.info(f"Saved weakness analysis for student {response.student_id}")
-            
+            self.logger.info(
+                f"Saved weakness analysis for student {response.student_id}"
+            )
+
         except Exception as e:
             self.logger.error(f"Error saving analysis result: {e}")
-    
+
     async def get_latest_analysis(
-        self, 
+        self,
         student_id: str
     ) -> Optional[WeaknessAnalysisResult]:
         """Get the latest analysis for a student"""
@@ -1111,7 +1460,7 @@ class WeaknessAnalysisService:
         except Exception as e:
             self.logger.error(f"Error fetching latest analysis: {e}")
             return None
-    
+
     async def get_analysis_history(
         self,
         student_id: str,
@@ -1121,14 +1470,19 @@ class WeaknessAnalysisService:
         try:
             return await WeaknessAnalysisResult.find(
                 WeaknessAnalysisResult.student_id == student_id
-            ).sort(-WeaknessAnalysisResult.analysis_date).limit(limit).to_list()
+            ).sort(
+                -WeaknessAnalysisResult.analysis_date
+            ).limit(limit).to_list()
         except Exception as e:
             self.logger.error(f"Error fetching analysis history: {e}")
             return []
-    
-    async def sync_interests_from_all_sources(self, student_id: str) -> Dict[str, Any]:
+
+    async def sync_interests_from_all_sources(
+        self, student_id: str
+    ) -> Dict[str, Any]:
         """
-        Utility method to sync interests from all sources to StudentInterestProfile.
+        Utility method to sync interests from all sources to
+        StudentInterestProfile.
         Returns summary of what was found and synced.
         """
         result = {
@@ -1138,64 +1492,70 @@ class WeaknessAnalysisService:
             "synced": False,
             "source": None
         }
-        
+
         try:
             from app.models.student_profile import StudentProfile
             from app.models.student import StudentPerformance
-            
+
             # Check StudentInterestProfile
             interest_profile = await StudentInterestProfile.find_one(
                 StudentInterestProfile.user_id == student_id
             )
             result["sources_checked"].append("StudentInterestProfile")
-            
+
             if interest_profile and interest_profile.interests:
                 result["interests_found"] = interest_profile.interests
                 result["source"] = "StudentInterestProfile"
                 return result
-            
+
             # Check StudentProfile
             profile = await StudentProfile.find_one(
                 StudentProfile.user_id == student_id
             )
             result["sources_checked"].append("StudentProfile")
-            
+
             if profile and profile.interests:
                 # Sync to StudentInterestProfile
                 new_profile = StudentInterestProfile(
                     user_id=student_id,
                     interests=profile.interests,
-                    career_goals=profile.career_goals if profile.career_goals else []
+                    career_goals=(
+                        profile.career_goals if profile.career_goals else []
+                    )
                 )
                 await new_profile.save()
-                
+
                 result["interests_found"] = profile.interests
                 result["source"] = "StudentProfile"
                 result["synced"] = True
                 return result
-            
+
             # Check StudentPerformance
             performance = await StudentPerformance.find_one(
                 StudentPerformance.student_info.uid == student_id
             )
             result["sources_checked"].append("StudentPerformance")
-            
+
             if performance and performance.interests:
                 # Sync to StudentInterestProfile
                 new_profile = StudentInterestProfile(
                     user_id=student_id,
                     interests=performance.interests,
-                    career_goals=performance.career_goals if hasattr(performance, 'career_goals') else []
+                    career_goals=(
+                        performance.career_goals
+                        if hasattr(performance, 'career_goals')
+                        else []
+                    )
                 )
                 await new_profile.save()
-                
+
                 result["interests_found"] = performance.interests
                 result["source"] = "StudentPerformance"
                 result["synced"] = True
                 return result
-            
+
             return result
-            
+
         except Exception as e:
             self.logger.error(f"Error syncing interests: {e}")
             result["error"] = str(e)

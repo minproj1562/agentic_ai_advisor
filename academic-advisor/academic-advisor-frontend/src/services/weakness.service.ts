@@ -1,4 +1,6 @@
 // src/services/weakness.service.ts
+// ENHANCED VERSION with Readiness API support
+
 import axios, { AxiosInstance } from 'axios';
 import { auth } from './firebase.config';
 
@@ -8,6 +10,8 @@ const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 export type AnalysisBasis = 'interest' | 'electives' | 'honours_minors' | 'performance' | 'combined';
 export type SeverityLevel = 'low' | 'medium' | 'high' | 'critical';
+export type ReadinessLevel = 'excellent' | 'good' | 'moderate' | 'low' | 'not_ready';
+export type RecommendationType = 'proceed' | 'proceed_with_caution' | 'improve_first' | 'do_not_proceed';
 
 export interface WeaknessArea {
   id: string;
@@ -38,28 +42,38 @@ export interface ResourceItem {
   duration?: string;
 }
 
+export interface StudyPlanPhase {
+  name: string;
+  weeks: string;
+  focus: string[];
+  goals: string[];
+  daily_hours?: number;
+}
+
+export interface StudyPlanMilestone {
+  week: number;
+  target: string;
+}
+
+export interface FocusArea {
+  subject: string;
+  priority: number;
+  current_score: number;
+  target_score: number;
+  weekly_hours: number;
+  severity: string;
+}
+
 export interface StudyPlan {
   duration: string;
-  weekly_hours?: number;
-  weekly_commitment?: string;
-  focus_areas: Array<{
-    topic: string;
-    priority: number;
-    current_score?: number;
-    target_score?: number;
-    weekly_hours?: number;
-  }>;
-  phases: Array<{
-    name?: string;
-    week?: string;
-    weeks?: string;
-    focus: string | string[];
-    goals?: string[];
-  }>;
-  milestones: Array<{
-    week: number;
-    target: string;
-  }>;
+  weekly_hours: number;
+  weekly_commitment: string;
+  focus_areas: FocusArea[];
+  phases: StudyPlanPhase[];
+  milestones: StudyPlanMilestone[];
+  current_readiness: number;
+  target_readiness: number;
+  recommendation: string;
 }
 
 export interface WeaknessAnalysisResponse {
@@ -102,15 +116,101 @@ export interface WeaknessSummary {
   last_analyzed?: string;
 }
 
+// ============== Readiness Types ==============
+
+export interface ReadinessWeakness {
+  id?: string;
+  subject: string;
+  severity: SeverityLevel;
+  current_score: number;
+  target_score: number;
+  gap: number;
+  linked_goals?: string[];
+  suggestions?: string[];
+  estimated_hours?: number;
+}
+
+export interface ReadinessResponse {
+  student_id: string;
+  overall_readiness_score: number;
+  readiness_level: ReadinessLevel;
+  recommendation_type: RecommendationType;
+  primary_recommendation: string;
+
+  // Per-category scores
+  interest_readiness: number;
+  elective_readiness: number;
+  honours_readiness: number;
+
+  // Breakdowns
+  interest_breakdown: Record<string, number>;
+  elective_breakdown: Record<string, number>;
+  honours_breakdown: Record<string, number>;
+
+  // Flags
+  has_critical_weakness: boolean;
+  has_blockers: boolean;
+  is_first_semester: boolean;
+
+  // Action items
+  subjects_to_focus: string[];
+  estimated_preparation_time: string;
+  detailed_recommendations: string[];
+
+  // Weaknesses & study plan
+  weaknesses: ReadinessWeakness[];
+  study_plan?: StudyPlan | null;
+
+  analysis_timestamp: string;
+}
+
+export interface ReadinessRequest {
+  student_id: string;
+  interests?: string[];
+  electives?: string[];
+  honours_minors?: string[];
+}
+
+export interface ReadinessSummary {
+  student_id: string;
+  overall_readiness: number;
+  level: ReadinessLevel;
+  can_proceed: boolean;
+  critical_issues: boolean;
+  primary_action: string;
+  timestamp: string;
+}
+
+export interface ElectiveReadiness {
+  student_id: string;
+  elective: string;
+  readiness_score: number;
+  is_ready: boolean;
+  recommendation: string;
+  subjects_to_focus: string[];
+  preparation_time: string;
+}
+
+export interface HonoursReadiness {
+  student_id: string;
+  programme: string;
+  readiness_score: number;
+  is_eligible: boolean;
+  recommendation: string;
+  blockers: string[];
+  preparation_time: string;
+  detailed_steps: string[];
+}
+
 export interface InterestProfile {
   student_id: string;
   interests: string[];
-  interest_levels: { [key: string]: number };
+  interest_levels: Record<string, number>;
   career_goals: string[];
   preferred_electives: string[];
   honours_minors_interest: string[];
   skills: string[];
-  skill_levels: { [key: string]: number };
+  skill_levels: Record<string, number>;
 }
 
 export interface AvailableInterest {
@@ -137,369 +237,268 @@ export interface AvailableHonours {
 
 class WeaknessService {
   private api: AxiosInstance;
+  private readinessApi: AxiosInstance;
 
   constructor() {
+    // Weakness API
     this.api = axios.create({
       baseURL: `${API_BASE_URL}/api/v1/weakness`,
       timeout: 30000,
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: { 'Content-Type': 'application/json' },
     });
 
-    // Request interceptor to add auth token
-    this.api.interceptors.request.use(
-      async (config) => {
-        try {
-          const currentUser = auth.currentUser;
-          if (currentUser) {
-            const token = await currentUser.getIdToken();
-            if (token && config.headers) {
-              config.headers.Authorization = `Bearer ${token}`;
+    // Readiness API
+    this.readinessApi = axios.create({
+      baseURL: `${API_BASE_URL}/api/v1/readiness`,
+      timeout: 30000,
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    // Add auth interceptors to both
+    [this.api, this.readinessApi].forEach(client => {
+      client.interceptors.request.use(
+        async (config) => {
+          try {
+            const currentUser = auth.currentUser;
+            if (currentUser) {
+              const token = await currentUser.getIdToken();
+              if (token && config.headers) {
+                config.headers.Authorization = `Bearer ${token}`;
+              }
             }
+          } catch (error) {
+            console.error('Failed to get auth token:', error);
           }
-        } catch (error) {
-          console.error('Failed to get auth token:', error);
-        }
-        return config;
-      },
-      (error) => {
-        return Promise.reject(error);
-      }
-    );
+          return config;
+        },
+        (error) => Promise.reject(error)
+      );
 
-    // Response interceptor for error handling
-    this.api.interceptors.response.use(
-      (response) => response,
-      (error) => {
-        if (error.response?.status === 401) {
-          console.error('Unauthorized - redirecting to login');
-          // Handle unauthorized
+      client.interceptors.response.use(
+        (response) => response,
+        (error) => {
+          if (error.response?.status === 401) {
+            console.error('Unauthorized - redirecting to login');
+          }
+          return Promise.reject(error);
         }
-        return Promise.reject(error);
-      }
-    );
+      );
+    });
   }
 
-  // ============== Analysis Methods ==============
+  // ============== Weakness Analysis Methods ==============
 
-  /**
-   * Perform comprehensive weakness analysis
-   */
-  async analyzeWeaknesses(
-    request: WeaknessAnalysisRequest
-  ): Promise<WeaknessAnalysisResponse> {
-    try {
-      const response = await this.api.post<WeaknessAnalysisResponse>('/analyze', request);
-      return response.data;
-    } catch (error) {
-      console.error('Error analyzing weaknesses:', error);
-      throw error;
-    }
+  async analyzeWeaknesses(request: WeaknessAnalysisRequest): Promise<WeaknessAnalysisResponse> {
+    const response = await this.api.post<WeaknessAnalysisResponse>('/analyze', request);
+    return response.data;
   }
 
-  /**
-   * Get weaknesses based on student interests
-   */
   async getWeaknessByInterest(
     studentId: string,
     interests?: string[],
-    includeResources: boolean = true,
-    includeStudyPlan: boolean = true
+    includeResources = true,
+    includeStudyPlan = true
   ): Promise<WeaknessAnalysisResponse> {
-    try {
-      const params: any = {
-        include_resources: includeResources,
-        include_study_plan: includeStudyPlan,
-      };
-
-      if (interests && interests.length > 0) {
-        params.interests = interests.join(',');
-      }
-
-      const response = await this.api.get<WeaknessAnalysisResponse>(
-        `/${studentId}/by-interest`,
-        { params }
-      );
-      return response.data;
-    } catch (error) {
-      console.error('Error getting weakness by interest:', error);
-      throw error;
+    const params: Record<string, any> = {
+      include_resources: includeResources,
+      include_study_plan: includeStudyPlan,
+    };
+    if (interests?.length) {
+      params.interests = interests.join(',');
     }
+    const response = await this.api.get<WeaknessAnalysisResponse>(
+      `/${studentId}/by-interest`,
+      { params }
+    );
+    return response.data;
   }
 
-  /**
-   * Get weaknesses based on recommended electives
-   */
   async getWeaknessByElectives(
     studentId: string,
     electives?: string[],
-    includeResources: boolean = true,
-    includeStudyPlan: boolean = true
+    includeResources = true,
+    includeStudyPlan = true
   ): Promise<WeaknessAnalysisResponse> {
-    try {
-      const params: any = {
-        include_resources: includeResources,
-        include_study_plan: includeStudyPlan,
-      };
-
-      if (electives && electives.length > 0) {
-        params.electives = electives.join(',');
-      }
-
-      const response = await this.api.get<WeaknessAnalysisResponse>(
-        `/${studentId}/by-electives`,
-        { params }
-      );
-      return response.data;
-    } catch (error) {
-      console.error('Error getting weakness by electives:', error);
-      throw error;
+    const params: Record<string, any> = {
+      include_resources: includeResources,
+      include_study_plan: includeStudyPlan,
+    };
+    if (electives?.length) {
+      params.electives = electives.join(',');
     }
+    const response = await this.api.get<WeaknessAnalysisResponse>(
+      `/${studentId}/by-electives`,
+      { params }
+    );
+    return response.data;
   }
 
-  /**
-   * Get weaknesses based on honours/minors
-   */
   async getWeaknessByHonours(
     studentId: string,
     programmes?: string[],
-    includeResources: boolean = true,
-    includeStudyPlan: boolean = true
+    includeResources = true,
+    includeStudyPlan = true
   ): Promise<WeaknessAnalysisResponse> {
-    try {
-      const params: any = {
-        include_resources: includeResources,
-        include_study_plan: includeStudyPlan,
-      };
-
-      if (programmes && programmes.length > 0) {
-        params.programmes = programmes.join(',');
-      }
-
-      const response = await this.api.get<WeaknessAnalysisResponse>(
-        `/${studentId}/by-honours`,
-        { params }
-      );
-      return response.data;
-    } catch (error) {
-      console.error('Error getting weakness by honours:', error);
-      throw error;
+    const params: Record<string, any> = {
+      include_resources: includeResources,
+      include_study_plan: includeStudyPlan,
+    };
+    if (programmes?.length) {
+      params.programmes = programmes.join(',');
     }
+    const response = await this.api.get<WeaknessAnalysisResponse>(
+      `/${studentId}/by-honours`,
+      { params }
+    );
+    return response.data;
   }
 
-  /**
-   * Get weaknesses based on academic performance only
-   */
   async getWeaknessByPerformance(
     studentId: string,
-    includeResources: boolean = true,
-    includeStudyPlan: boolean = true
+    includeResources = true,
+    includeStudyPlan = true
   ): Promise<WeaknessAnalysisResponse> {
-    try {
-      const params = {
-        include_resources: includeResources,
-        include_study_plan: includeStudyPlan,
-      };
-
-      const response = await this.api.get<WeaknessAnalysisResponse>(
-        `/${studentId}/by-performance`,
-        { params }
-      );
-      return response.data;
-    } catch (error) {
-      console.error('Error getting weakness by performance:', error);
-      throw error;
-    }
+    const response = await this.api.get<WeaknessAnalysisResponse>(
+      `/${studentId}/by-performance`,
+      { params: { include_resources: includeResources, include_study_plan: includeStudyPlan } }
+    );
+    return response.data;
   }
 
-  /**
-   * Get combined weakness analysis (all factors)
-   */
   async getCombinedAnalysis(
     studentId: string,
     interests?: string[],
     electives?: string[],
     honours?: string[],
-    includeResources: boolean = true,
-    includeStudyPlan: boolean = true
+    includeResources = true,
+    includeStudyPlan = true
   ): Promise<WeaknessAnalysisResponse> {
-    try {
-      const params: any = {
-        include_resources: includeResources,
-        include_study_plan: includeStudyPlan,
-      };
+    const params: Record<string, any> = {
+      include_resources: includeResources,
+      include_study_plan: includeStudyPlan,
+    };
+    if (interests?.length) params.interests = interests.join(',');
+    if (electives?.length) params.electives = electives.join(',');
+    if (honours?.length) params.honours = honours.join(',');
 
-      if (interests && interests.length > 0) {
-        params.interests = interests.join(',');
-      }
-      if (electives && electives.length > 0) {
-        params.electives = electives.join(',');
-      }
-      if (honours && honours.length > 0) {
-        params.honours = honours.join(',');
-      }
-
-      const response = await this.api.get<WeaknessAnalysisResponse>(
-        `/${studentId}/combined`,
-        { params }
-      );
-      return response.data;
-    } catch (error) {
-      console.error('Error getting combined analysis:', error);
-      throw error;
-    }
+    const response = await this.api.get<WeaknessAnalysisResponse>(
+      `/${studentId}/combined`,
+      { params }
+    );
+    return response.data;
   }
 
-  /**
-   * Get latest cached analysis
-   */
-  async getLatestAnalysis(studentId: string): Promise<any> {
+  async getLatestAnalysis(studentId: string): Promise<WeaknessAnalysisResponse | null> {
     try {
       const response = await this.api.get(`/${studentId}/latest`);
       return response.data;
     } catch (error: any) {
-      if (error.response?.status === 404) {
-        return null; // No analysis found
-      }
-      console.error('Error getting latest analysis:', error);
+      if (error.response?.status === 404) return null;
       throw error;
     }
   }
 
-  /**
-   * Get analysis history
-   */
-  async getAnalysisHistory(
+  async getAnalysisHistory(studentId: string, limit = 10): Promise<any> {
+    const response = await this.api.get(`/${studentId}/history`, { params: { limit } });
+    return response.data;
+  }
+
+  async getWeaknessSummary(studentId: string): Promise<WeaknessSummary> {
+    const response = await this.api.get<WeaknessSummary>(`/${studentId}/summary`);
+    return response.data;
+  }
+
+  // ============== Readiness Methods ==============
+
+  async calculateReadiness(request: ReadinessRequest): Promise<ReadinessResponse> {
+    const response = await this.readinessApi.post<ReadinessResponse>('/calculate', request);
+    return response.data;
+  }
+
+  async getReadiness(
     studentId: string,
-    limit: number = 10
-  ): Promise<any> {
-    try {
-      const response = await this.api.get(`/${studentId}/history`, {
-        params: { limit },
-      });
-      return response.data;
-    } catch (error) {
-      console.error('Error getting analysis history:', error);
-      throw error;
-    }
+    interests?: string[],
+    electives?: string[],
+    honours?: string[]
+  ): Promise<ReadinessResponse> {
+    const params: Record<string, any> = {};
+    if (interests?.length) params.interests = interests.join(',');
+    if (electives?.length) params.electives = electives.join(',');
+    if (honours?.length) params.honours = honours.join(',');
+
+    const response = await this.readinessApi.get<ReadinessResponse>(
+      `/${studentId}`,
+      { params }
+    );
+    return response.data;
   }
 
-  /**
-   * Get weakness summary (lightweight)
-   */
-  async getWeaknessSummary(
-    studentId: string
-  ): Promise<WeaknessSummary> {
-    try {
-      const response = await this.api.get<WeaknessSummary>(
-        `/${studentId}/summary`
-      );
-      return response.data;
-    } catch (error) {
-      console.error('Error getting weakness summary:', error);
-      throw error;
-    }
+  async getReadinessSummary(studentId: string): Promise<ReadinessSummary> {
+    const response = await this.readinessApi.get<ReadinessSummary>(`/${studentId}/summary`);
+    return response.data;
+  }
+
+  async getElectiveReadiness(studentId: string, electiveCode: string): Promise<ElectiveReadiness> {
+    const response = await this.readinessApi.get<ElectiveReadiness>(
+      `/${studentId}/for-elective/${electiveCode}`
+    );
+    return response.data;
+  }
+
+  async getHonoursReadiness(studentId: string, programme: string): Promise<HonoursReadiness> {
+    const response = await this.readinessApi.get<HonoursReadiness>(
+      `/${studentId}/for-honours/${encodeURIComponent(programme)}`
+    );
+    return response.data;
   }
 
   // ============== Interest Management ==============
 
-  /**
-   * Save student interests
-   */
   async saveInterests(
     studentId: string,
     interests: string[],
-    interestLevels?: { [key: string]: number }
+    interestLevels?: Record<string, number>
   ): Promise<any> {
-    try {
-      const response = await this.api.post(`/${studentId}/interests`, {
-        interests,
-        interest_levels: interestLevels,
-      });
-      return response.data;
-    } catch (error) {
-      console.error('Error saving interests:', error);
-      throw error;
-    }
+    const response = await this.api.post(`/${studentId}/interests`, {
+      interests,
+      interest_levels: interestLevels,
+    });
+    return response.data;
   }
 
-  /**
-   * Get student interests
-   */
   async getInterests(studentId: string): Promise<InterestProfile> {
-    try {
-      const response = await this.api.get<InterestProfile>(
-        `/${studentId}/interests`
-      );
-      return response.data;
-    } catch (error) {
-      console.error('Error getting interests:', error);
-      throw error;
-    }
+    const response = await this.api.get<InterestProfile>(`/${studentId}/interests`);
+    return response.data;
   }
 
-  /**
-   * Update student interests (partial update)
-   */
   async updateInterests(
     studentId: string,
     updates: Partial<Omit<InterestProfile, 'student_id'>>
   ): Promise<any> {
-    try {
-      const response = await this.api.put(`/${studentId}/interests`, updates);
-      return response.data;
-    } catch (error) {
-      console.error('Error updating interests:', error);
-      throw error;
-    }
+    const response = await this.api.put(`/${studentId}/interests`, updates);
+    return response.data;
+  }
+
+  async syncInterests(studentId: string): Promise<any> {
+    const response = await this.api.get(`/${studentId}/sync-interests`);
+    return response.data;
   }
 
   // ============== Available Options ==============
 
-  /**
-   * Get available interests for selection
-   */
   async getAvailableInterests(): Promise<AvailableInterest[]> {
-    try {
-      const response = await this.api.get<{ interests: AvailableInterest[] }>(
-        '/options/interests'
-      );
-      return response.data.interests;
-    } catch (error) {
-      console.error('Error getting available interests:', error);
-      throw error;
-    }
+    const response = await this.api.get<{ interests: AvailableInterest[] }>('/options/interests');
+    return response.data.interests;
   }
 
-  /**
-   * Get available electives
-   */
   async getAvailableElectives(): Promise<AvailableElective[]> {
-    try {
-      const response = await this.api.get<{ electives: AvailableElective[] }>(
-        '/options/electives'
-      );
-      return response.data.electives;
-    } catch (error) {
-      console.error('Error getting available electives:', error);
-      throw error;
-    }
+    const response = await this.api.get<{ electives: AvailableElective[] }>('/options/electives');
+    return response.data.electives;
   }
 
-  /**
-   * Get available honours/minors
-   */
   async getAvailableHonours(): Promise<AvailableHonours[]> {
-    try {
-      const response = await this.api.get<{ programmes: AvailableHonours[] }>(
-        '/options/honours'
-      );
-      return response.data.programmes;
-    } catch (error) {
-      console.error('Error getting available honours:', error);
-      throw error;
-    }
+    const response = await this.api.get<{ programmes: AvailableHonours[] }>('/options/honours');
+    return response.data.programmes;
   }
 }
 
