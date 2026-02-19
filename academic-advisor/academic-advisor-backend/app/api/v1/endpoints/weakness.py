@@ -24,83 +24,96 @@ from app.services.weakness_analysis_service import (
     WeaknessAnalysisService,
     get_weakness_analysis_service
 )
-from app.core.security import get_current_user
+from app.core.security import get_current_user, FirebaseUser
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
-# Dependency for getting the service
+# ════════════════════════════════════════════════════════════════
+#  DEPENDENCIES & HELPERS
+# ════════════════════════════════════════════════════════════════
+
+
 def get_service() -> WeaknessAnalysisService:
+    """Dependency for getting the weakness analysis service."""
     return get_weakness_analysis_service()
 
 
-# Mock auth dependency for development
-async def get_current_user_dev(
-    authorization: Optional[str] = None
-) -> Dict[str, Any]:
-    """Development auth - replace with real auth in production"""
-    return {"uid": "test_user", "email": "test@example.com"}
+def _get_recommended_action(sources: Dict[str, Any]) -> str:
+    """Helper to recommend action based on sources state."""
+    interest_profile = sources.get("StudentInterestProfile", {})
+    student_profile = sources.get("StudentProfile", {})
+    student_performance = sources.get("StudentPerformance", {})
+
+    if interest_profile.get("interests"):
+        return "All good! Interests are synced to StudentInterestProfile."
+    elif student_profile.get("interests") or student_performance.get("interests"):
+        return "Call GET /{student_id}/sync-interests to sync interests."
+    else:
+        return "No interests found. Use POST /{student_id}/interests to set interests."
+
+
+# ════════════════════════════════════════════════════════════════
+#  ANALYSIS ENDPOINTS
+# ════════════════════════════════════════════════════════════════
 
 
 @router.post("/analyze", response_model=WeaknessAnalysisResponse)
 async def analyze_weaknesses(
     request: WeaknessAnalysisRequest,
     service: WeaknessAnalysisService = Depends(get_service),
-    current_user: Dict[str, Any] = Depends(get_current_user_dev)
+    current_user: FirebaseUser = Depends(get_current_user)
 ):
     """
     Perform comprehensive weakness analysis.
-    
+
     Analysis can be based on:
     - **interest**: Weaknesses related to student's chosen interests
     - **electives**: Weaknesses for recommended elective prerequisites
     - **honours_minors**: Weaknesses for honours/minor program requirements
     - **performance**: Pure academic performance analysis
     - **combined**: All of the above combined
-    
+
     Returns detailed weakness areas with severity, suggestions, and resources.
     """
     try:
-        logger.info(f"Analyzing weaknesses for student {request.student_id} with basis {request.analysis_basis}")
-        
-        # Validate that student can access this analysis
-        if current_user["uid"] != request.student_id and current_user["uid"] != "test_user":
-            # Allow if faculty or admin - add role check here
-            pass
-        
+        logger.info(
+            f"Analyzing weaknesses for student {request.student_id} "
+            f"with basis {request.analysis_basis}"
+        )
         result = await service.analyze_weaknesses(request)
-        
         logger.info(f"Analysis complete: {result.total_weaknesses} weaknesses found")
         return result
-        
     except Exception as e:
-        logger.error(f"Error in weakness analysis: {e}")
+        logger.error(f"Error in weakness analysis: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/{student_id}/by-interest", response_model=WeaknessAnalysisResponse)
 async def get_weakness_by_interest(
     student_id: str,
-    interests: Optional[str] = Query(None, description="Comma-separated list of interests"),
+    interests: Optional[str] = Query(
+        None, description="Comma-separated list of interests"
+    ),
     include_resources: bool = Query(True),
     include_study_plan: bool = Query(True),
     service: WeaknessAnalysisService = Depends(get_service),
-    current_user: Dict[str, Any] = Depends(get_current_user_dev)
+    current_user: FirebaseUser = Depends(get_current_user)
 ):
     """
     Get weaknesses based on student's chosen interests.
-    
-    This analyzes which foundational subjects need improvement
+
+    Analyzes which foundational subjects need improvement
     to excel in the chosen interest areas.
-    
+
     Example interests: Machine Learning, Web Development, Cloud Computing
     """
     try:
         interest_list = None
         if interests:
             interest_list = [i.strip() for i in interests.split(",")]
-        
+
         request = WeaknessAnalysisRequest(
             student_id=student_id,
             analysis_basis=AnalysisBasis.INTEREST,
@@ -108,36 +121,36 @@ async def get_weakness_by_interest(
             include_resources=include_resources,
             include_study_plan=include_study_plan
         )
-        
         return await service.analyze_weaknesses(request)
-        
     except Exception as e:
-        logger.error(f"Error analyzing by interest: {e}")
+        logger.error(f"Error analyzing by interest: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/{student_id}/by-electives", response_model=WeaknessAnalysisResponse)
 async def get_weakness_by_electives(
     student_id: str,
-    electives: Optional[str] = Query(None, description="Comma-separated list of elective codes"),
+    electives: Optional[str] = Query(
+        None, description="Comma-separated list of elective codes"
+    ),
     include_resources: bool = Query(True),
     include_study_plan: bool = Query(True),
     service: WeaknessAnalysisService = Depends(get_service),
-    current_user: Dict[str, Any] = Depends(get_current_user_dev)
+    current_user: FirebaseUser = Depends(get_current_user)
 ):
     """
     Get weaknesses based on recommended electives.
-    
+
     Analyzes prerequisite subjects needed for the electives.
     If no electives provided, uses AI-recommended electives.
-    
+
     Example electives: ML, WT, DWM, CCS
     """
     try:
         elective_list = None
         if electives:
             elective_list = [e.strip() for e in electives.split(",")]
-        
+
         request = WeaknessAnalysisRequest(
             student_id=student_id,
             analysis_basis=AnalysisBasis.ELECTIVES,
@@ -145,36 +158,36 @@ async def get_weakness_by_electives(
             include_resources=include_resources,
             include_study_plan=include_study_plan
         )
-        
         return await service.analyze_weaknesses(request)
-        
     except Exception as e:
-        logger.error(f"Error analyzing by electives: {e}")
+        logger.error(f"Error analyzing by electives: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/{student_id}/by-honours", response_model=WeaknessAnalysisResponse)
 async def get_weakness_by_honours(
     student_id: str,
-    programmes: Optional[str] = Query(None, description="Comma-separated list of honours/minor programmes"),
+    programmes: Optional[str] = Query(
+        None, description="Comma-separated list of honours/minor programmes"
+    ),
     include_resources: bool = Query(True),
     include_study_plan: bool = Query(True),
     service: WeaknessAnalysisService = Depends(get_service),
-    current_user: Dict[str, Any] = Depends(get_current_user_dev)
+    current_user: FirebaseUser = Depends(get_current_user)
 ):
     """
     Get weaknesses based on honours/minor programmes.
-    
+
     Analyzes subjects needed for eligibility and success in
     honours or minor programmes.
-    
+
     Example programmes: Data Science Honours, AI Minor, Cybersecurity Minor
     """
     try:
         programme_list = None
         if programmes:
             programme_list = [p.strip() for p in programmes.split(",")]
-        
+
         request = WeaknessAnalysisRequest(
             student_id=student_id,
             analysis_basis=AnalysisBasis.HONOURS_MINORS,
@@ -182,11 +195,9 @@ async def get_weakness_by_honours(
             include_resources=include_resources,
             include_study_plan=include_study_plan
         )
-        
         return await service.analyze_weaknesses(request)
-        
     except Exception as e:
-        logger.error(f"Error analyzing by honours: {e}")
+        logger.error(f"Error analyzing by honours: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -196,11 +207,11 @@ async def get_weakness_by_performance(
     include_resources: bool = Query(True),
     include_study_plan: bool = Query(True),
     service: WeaknessAnalysisService = Depends(get_service),
-    current_user: Dict[str, Any] = Depends(get_current_user_dev)
+    current_user: FirebaseUser = Depends(get_current_user)
 ):
     """
     Get weaknesses based on pure academic performance.
-    
+
     Analyzes all subjects where performance is below expected levels,
     regardless of interests or elective choices.
     """
@@ -211,11 +222,9 @@ async def get_weakness_by_performance(
             include_resources=include_resources,
             include_study_plan=include_study_plan
         )
-        
         return await service.analyze_weaknesses(request)
-        
     except Exception as e:
-        logger.error(f"Error analyzing by performance: {e}")
+        logger.error(f"Error analyzing by performance: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -228,24 +237,26 @@ async def get_combined_weakness_analysis(
     include_resources: bool = Query(True),
     include_study_plan: bool = Query(True),
     service: WeaknessAnalysisService = Depends(get_service),
-    current_user: Dict[str, Any] = Depends(get_current_user_dev)
+    current_user: FirebaseUser = Depends(get_current_user)
 ):
     """
     Get comprehensive weakness analysis combining all factors.
-    
-    This is the most complete analysis that considers:
-    - Student interests
-    - Recommended electives
-    - Honours/minor goals
-    - Overall academic performance
-    
+
+    Considers student interests, recommended electives,
+    honours/minor goals, and overall academic performance.
     Weaknesses are deduplicated and prioritized.
     """
     try:
-        interest_list = [i.strip() for i in interests.split(",")] if interests else None
-        elective_list = [e.strip() for e in electives.split(",")] if electives else None
-        honours_list = [h.strip() for h in honours.split(",")] if honours else None
-        
+        interest_list = (
+            [i.strip() for i in interests.split(",")] if interests else None
+        )
+        elective_list = (
+            [e.strip() for e in electives.split(",")] if electives else None
+        )
+        honours_list = (
+            [h.strip() for h in honours.split(",")] if honours else None
+        )
+
         request = WeaknessAnalysisRequest(
             student_id=student_id,
             analysis_basis=AnalysisBasis.COMBINED,
@@ -255,34 +266,37 @@ async def get_combined_weakness_analysis(
             include_resources=include_resources,
             include_study_plan=include_study_plan
         )
-        
         return await service.analyze_weaknesses(request)
-        
     except Exception as e:
-        logger.error(f"Error in combined analysis: {e}")
+        logger.error(f"Error in combined analysis: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ════════════════════════════════════════════════════════════════
+#  CACHED / HISTORY ENDPOINTS
+# ════════════════════════════════════════════════════════════════
 
 
 @router.get("/{student_id}/latest")
 async def get_latest_analysis(
     student_id: str,
     service: WeaknessAnalysisService = Depends(get_service),
-    current_user: Dict[str, Any] = Depends(get_current_user_dev)
+    current_user: FirebaseUser = Depends(get_current_user)
 ):
     """
     Get the most recent weakness analysis for a student.
-    
+
     Returns cached analysis if available, avoiding recomputation.
     """
     try:
         result = await service.get_latest_analysis(student_id)
-        
+
         if not result:
             raise HTTPException(
-                status_code=404, 
+                status_code=404,
                 detail="No analysis found. Run analysis first."
             )
-        
+
         return {
             "student_id": result.student_id,
             "analysis_basis": result.analysis_basis,
@@ -297,11 +311,10 @@ async def get_latest_analysis(
             "related_electives": result.related_electives,
             "related_honours": result.related_honours
         }
-        
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error fetching latest analysis: {e}")
+        logger.error(f"Error fetching latest analysis: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -310,16 +323,16 @@ async def get_analysis_history(
     student_id: str,
     limit: int = Query(10, ge=1, le=50),
     service: WeaknessAnalysisService = Depends(get_service),
-    current_user: Dict[str, Any] = Depends(get_current_user_dev)
+    current_user: FirebaseUser = Depends(get_current_user)
 ):
     """
     Get weakness analysis history for a student.
-    
+
     Useful for tracking improvement over time.
     """
     try:
         results = await service.get_analysis_history(student_id, limit)
-        
+
         return {
             "student_id": student_id,
             "total_analyses": len(results),
@@ -336,9 +349,8 @@ async def get_analysis_history(
                 for r in results
             ]
         }
-        
     except Exception as e:
-        logger.error(f"Error fetching analysis history: {e}")
+        logger.error(f"Error fetching analysis history: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -346,18 +358,17 @@ async def get_analysis_history(
 async def get_weakness_summary(
     student_id: str,
     service: WeaknessAnalysisService = Depends(get_service),
-    current_user: Dict[str, Any] = Depends(get_current_user_dev)
+    current_user: FirebaseUser = Depends(get_current_user)
 ):
     """
     Get a quick summary of student weaknesses.
-    
+
     Lightweight endpoint for dashboard widgets.
     """
     try:
         result = await service.get_latest_analysis(student_id)
-        
+
         if not result:
-            # Return empty summary if no analysis exists
             return {
                 "student_id": student_id,
                 "has_analysis": False,
@@ -368,9 +379,9 @@ async def get_weakness_summary(
                 "priority_subjects": [],
                 "needs_attention": False
             }
-        
+
         ai_analysis = result.ai_analysis or {}
-        
+
         return {
             "student_id": student_id,
             "has_analysis": True,
@@ -382,30 +393,39 @@ async def get_weakness_summary(
             "needs_attention": result.overall_risk_score > 50,
             "last_analyzed": result.analysis_date.isoformat()
         }
-        
     except Exception as e:
-        logger.error(f"Error fetching summary: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error fetching summary: {e}", exc_info=True)
+        return {
+            "student_id": student_id,
+            "has_analysis": False,
+            "overall_risk_score": 0,
+            "total_weaknesses": 0,
+            "critical_count": 0,
+            "high_count": 0,
+            "priority_subjects": [],
+            "needs_attention": False,
+            "error": str(e)
+        }
 
 
-# ============== Interest Management Endpoints ==============
+# ════════════════════════════════════════════════════════════════
+#  INTEREST MANAGEMENT ENDPOINTS
+# ════════════════════════════════════════════════════════════════
+
 
 @router.post("/{student_id}/interests")
 async def save_student_interests(
     student_id: str,
     interests: List[str] = Body(..., embed=True),
     interest_levels: Optional[Dict[str, int]] = Body(None, embed=True),
-    current_user: Dict[str, Any] = Depends(get_current_user_dev)
+    current_user: FirebaseUser = Depends(get_current_user)
 ):
-    """
-    Save or update student interests for weakness analysis.
-    """
+    """Save or update student interests for weakness analysis."""
     try:
-        # Find existing profile or create new
         profile = await StudentInterestProfile.find_one(
-            StudentInterestProfile.user_id == student_id
+            {"user_id": student_id}
         )
-        
+
         if profile:
             profile.interests = interests
             if interest_levels:
@@ -419,54 +439,62 @@ async def save_student_interests(
                 interest_levels=interest_levels or {}
             )
             await profile.save()
-        
+
         return {
             "status": "success",
             "message": "Interests saved successfully",
             "interests": interests
         }
-        
     except Exception as e:
-        logger.error(f"Error saving interests: {e}")
+        logger.error(f"Error saving interests: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/{student_id}/interests")
 async def get_student_interests(
     student_id: str,
-    current_user: Dict[str, Any] = Depends(get_current_user_dev)
+    current_user: FirebaseUser = Depends(get_current_user)
 ):
-    """
-    Get student's saved interests.
-    """
+    """Get student's saved interests."""
     try:
         profile = await StudentInterestProfile.find_one(
-            StudentInterestProfile.user_id == student_id
+            {"user_id": student_id}
         )
-        
+
         if not profile:
             return {
                 "student_id": student_id,
                 "interests": [],
                 "interest_levels": {},
                 "career_goals": [],
-                "skills": []
+                "preferred_electives": [],
+                "honours_minors_interest": [],
+                "skills": [],
+                "skill_levels": {}
             }
-        
+
         return {
             "student_id": student_id,
-            "interests": profile.interests,
-            "interest_levels": profile.interest_levels,
-            "career_goals": profile.career_goals,
-            "preferred_electives": profile.preferred_electives,
-            "honours_minors_interest": profile.honours_minors_interest,
-            "skills": profile.skills,
-            "skill_levels": profile.skill_levels
+            "interests": getattr(profile, 'interests', []) or [],
+            "interest_levels": getattr(profile, 'interest_levels', {}) or {},
+            "career_goals": getattr(profile, 'career_goals', []) or [],
+            "preferred_electives": getattr(profile, 'preferred_electives', []) or [],
+            "honours_minors_interest": getattr(profile, 'honours_minors_interest', []) or [],
+            "skills": getattr(profile, 'skills', []) or [],
+            "skill_levels": getattr(profile, 'skill_levels', {}) or {}
         }
-        
     except Exception as e:
-        logger.error(f"Error fetching interests: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error fetching interests: {e}", exc_info=True)
+        return {
+            "student_id": student_id,
+            "interests": [],
+            "interest_levels": {},
+            "career_goals": [],
+            "preferred_electives": [],
+            "honours_minors_interest": [],
+            "skills": [],
+            "skill_levels": {}
+        }
 
 
 @router.put("/{student_id}/interests")
@@ -479,19 +507,17 @@ async def update_student_interests(
     honours_minors_interest: Optional[List[str]] = Body(None),
     skills: Optional[List[str]] = Body(None),
     skill_levels: Optional[Dict[str, int]] = Body(None),
-    current_user: Dict[str, Any] = Depends(get_current_user_dev)
+    current_user: FirebaseUser = Depends(get_current_user)
 ):
-    """
-    Update student interest profile with partial data.
-    """
+    """Update student interest profile with partial data."""
     try:
         profile = await StudentInterestProfile.find_one(
-            StudentInterestProfile.user_id == student_id
+            {"user_id": student_id}
         )
-        
+
         if not profile:
             profile = StudentInterestProfile(user_id=student_id)
-        
+
         if interests is not None:
             profile.interests = interests
         if interest_levels is not None:
@@ -506,102 +532,133 @@ async def update_student_interests(
             profile.skills = skills
         if skill_levels is not None:
             profile.skill_levels = skill_levels
-        
+
         profile.updated_at = datetime.utcnow()
         await profile.save()
-        
+
         return {
             "status": "success",
             "message": "Interest profile updated",
             "profile": {
-                "interests": profile.interests,
-                "career_goals": profile.career_goals,
-                "preferred_electives": profile.preferred_electives
+                "interests": getattr(profile, 'interests', []) or [],
+                "career_goals": getattr(profile, 'career_goals', []) or [],
+                "preferred_electives": getattr(profile, 'preferred_electives', []) or []
             }
         }
-        
     except Exception as e:
-        logger.error(f"Error updating interests: {e}")
+        logger.error(f"Error updating interests: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ============== Sync Interests Endpoint ==============
+# ════════════════════════════════════════════════════════════════
+#  SYNC INTERESTS ENDPOINTS
+# ════════════════════════════════════════════════════════════════
+
 
 @router.get("/{student_id}/sync-interests")
 async def sync_interests_from_all_sources(
     student_id: str,
-    current_user: Dict[str, Any] = Depends(get_current_user_dev)
+    current_user: FirebaseUser = Depends(get_current_user)
 ):
     """
-    Manually sync interests from all sources (StudentProfile, StudentPerformance, ML)
+    Sync interests from all sources (StudentProfile, StudentPerformance, ML)
     to StudentInterestProfile for weakness analysis.
-    Use this if interests aren't showing up in weakness analysis.
     """
     try:
-        from app.models.student import StudentPerformance
         from app.models.student_profile import StudentProfile
-        
-        synced_interests = []
-        synced_career_goals = []
-        sources = []
-        
+
+        synced_interests: List[str] = []
+        synced_career_goals: List[str] = []
+        sources: List[str] = []
+
         # Check StudentProfile first
-        profile = await StudentProfile.find_one(
-            StudentProfile.user_id == student_id
-        )
-        if profile and profile.interests:
-            synced_interests = profile.interests
-            if profile.career_goals:
-                synced_career_goals = profile.career_goals
-            sources.append("StudentProfile")
-            logger.info(f"✅ Found {len(profile.interests)} interests in StudentProfile")
-        
-        # Check StudentPerformance (ML service) if no interests found yet
+        try:
+            profile = await StudentProfile.find_one({"user_id": student_id})
+            if profile:
+                if hasattr(profile, 'interests') and profile.interests:
+                    synced_interests = profile.interests
+                    sources.append("StudentProfile")
+                    logger.info(
+                        f"✅ Found {len(profile.interests)} interests in StudentProfile"
+                    )
+                if hasattr(profile, 'career_goals') and profile.career_goals:
+                    synced_career_goals = profile.career_goals
+        except Exception as e:
+            logger.warning(f"Could not check StudentProfile: {e}")
+
+        # Check StudentPerformance if no interests found yet
         if not synced_interests:
-            performance = await StudentPerformance.find_one(
-                StudentPerformance.student_info.uid == student_id
-            )
-            if performance and performance.interests:
-                synced_interests = performance.interests
-                if hasattr(performance, 'career_goals') and performance.career_goals:
-                    synced_career_goals = performance.career_goals
-                sources.append("StudentPerformance (ML)")
-                logger.info(f"✅ Found {len(performance.interests)} interests in StudentPerformance")
-        
+            try:
+                from app.models.student import StudentPerformance
+                performance = await StudentPerformance.find_one(
+                    {"student_info.uid": student_id}
+                )
+                if (
+                    performance
+                    and hasattr(performance, 'interests')
+                    and performance.interests
+                ):
+                    synced_interests = performance.interests
+                    sources.append("StudentPerformance (ML)")
+                    logger.info(
+                        f"✅ Found {len(performance.interests)} interests "
+                        f"in StudentPerformance"
+                    )
+                    if (
+                        hasattr(performance, 'career_goals')
+                        and performance.career_goals
+                    ):
+                        synced_career_goals = performance.career_goals
+            except Exception as e:
+                logger.warning(f"Could not check StudentPerformance: {e}")
+
         if not synced_interests:
             return {
                 "status": "no_interests",
-                "message": "No interests found in any source. Please set interests first.",
+                "message": (
+                    "No interests found in any source. "
+                    "Please set interests first."
+                ),
                 "student_id": student_id,
+                "interests": [],
+                "career_goals": [],
+                "sources": [],
                 "sources_checked": ["StudentProfile", "StudentPerformance"],
-                "suggestion": "Use POST /{student_id}/interests to set interests manually"
+                "suggestion": (
+                    "Use POST /{student_id}/interests to set interests manually"
+                )
             }
-        
-        # Save to StudentInterestProfile for weakness analysis
-        interest_profile = await StudentInterestProfile.find_one(
-            StudentInterestProfile.user_id == student_id
-        )
-        
-        if interest_profile:
-            # Update existing profile
-            interest_profile.interests = synced_interests
-            if synced_career_goals:
-                interest_profile.career_goals = synced_career_goals
-            interest_profile.updated_at = datetime.utcnow()
-            await interest_profile.save()
-            action = "updated"
-        else:
-            # Create new profile
-            interest_profile = StudentInterestProfile(
-                user_id=student_id,
-                interests=synced_interests,
-                career_goals=synced_career_goals if synced_career_goals else []
+
+        # Save to StudentInterestProfile
+        action = "not_saved"
+        try:
+            interest_profile = await StudentInterestProfile.find_one(
+                {"user_id": student_id}
             )
-            await interest_profile.save()
-            action = "created"
-        
-        logger.info(f"📝 {action.title()} StudentInterestProfile with {len(synced_interests)} interests")
-        
+
+            if interest_profile:
+                interest_profile.interests = synced_interests
+                if synced_career_goals:
+                    interest_profile.career_goals = synced_career_goals
+                interest_profile.updated_at = datetime.utcnow()
+                await interest_profile.save()
+                action = "updated"
+            else:
+                interest_profile = StudentInterestProfile(
+                    user_id=student_id,
+                    interests=synced_interests,
+                    career_goals=synced_career_goals or []
+                )
+                await interest_profile.save()
+                action = "created"
+        except Exception as save_err:
+            logger.error(f"Could not save interest profile: {save_err}")
+
+        logger.info(
+            f"📝 {action.title()} StudentInterestProfile "
+            f"with {len(synced_interests)} interests"
+        )
+
         return {
             "status": "success",
             "action": action,
@@ -609,105 +666,154 @@ async def sync_interests_from_all_sources(
             "career_goals": synced_career_goals,
             "sources": sources,
             "synced_at": datetime.utcnow().isoformat(),
-            "message": f"Successfully synced {len(synced_interests)} interests from {', '.join(sources)}"
+            "message": (
+                f"Successfully synced {len(synced_interests)} interests "
+                f"from {', '.join(sources)}"
+            )
         }
-        
     except Exception as e:
         logger.error(f"❌ Error syncing interests: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        return {
+            "status": "failed",
+            "message": str(e),
+            "student_id": student_id,
+            "interests": [],
+            "career_goals": [],
+            "sources": []
+        }
 
 
 @router.post("/{student_id}/sync-interests")
 async def force_sync_interests(
     student_id: str,
     force_source: Optional[str] = Query(
-        None, 
-        description="Force sync from specific source: 'profile', 'performance', or 'all'"
+        None,
+        description=(
+            "Force sync from specific source: "
+            "'profile', 'performance', or 'all'"
+        )
     ),
-    current_user: Dict[str, Any] = Depends(get_current_user_dev)
+    current_user: FirebaseUser = Depends(get_current_user)
 ):
     """
     Force sync interests from specified source(s).
-    
-    Use this when you want to override existing interests with data from a specific source.
-    
+
     - **profile**: Sync from StudentProfile only
     - **performance**: Sync from StudentPerformance (ML) only
     - **all**: Merge interests from all sources
     """
     try:
-        from app.models.student import StudentPerformance
         from app.models.student_profile import StudentProfile
-        
-        all_interests = set()
-        all_career_goals = set()
-        sources_used = []
-        
+
+        all_interests: set = set()
+        all_career_goals: set = set()
+        sources_used: List[str] = []
+
         # Get from StudentProfile
         if force_source in [None, 'profile', 'all']:
-            profile = await StudentProfile.find_one(
-                StudentProfile.user_id == student_id
-            )
-            if profile and profile.interests:
-                if force_source == 'all':
-                    all_interests.update(profile.interests)
-                else:
-                    all_interests = set(profile.interests)
-                if profile.career_goals:
-                    all_career_goals.update(profile.career_goals)
-                sources_used.append("StudentProfile")
-                logger.info(f"✅ Found {len(profile.interests)} interests in StudentProfile")
-        
+            try:
+                profile = await StudentProfile.find_one(
+                    {"user_id": student_id}
+                )
+                if (
+                    profile
+                    and hasattr(profile, 'interests')
+                    and profile.interests
+                ):
+                    if force_source == 'all':
+                        all_interests.update(profile.interests)
+                    else:
+                        all_interests = set(profile.interests)
+                    if (
+                        hasattr(profile, 'career_goals')
+                        and profile.career_goals
+                    ):
+                        all_career_goals.update(profile.career_goals)
+                    sources_used.append("StudentProfile")
+                    logger.info(
+                        f"✅ Found {len(profile.interests)} interests "
+                        f"in StudentProfile"
+                    )
+            except Exception as e:
+                logger.warning(f"Could not check StudentProfile: {e}")
+
         # Get from StudentPerformance
-        if force_source in [None, 'performance', 'all'] and (force_source != 'profile'):
-            performance = await StudentPerformance.find_one(
-                StudentPerformance.student_info.uid == student_id
-            )
-            if performance and performance.interests:
-                if force_source == 'all':
-                    all_interests.update(performance.interests)
-                elif force_source == 'performance' or not all_interests:
-                    all_interests = set(performance.interests)
-                if hasattr(performance, 'career_goals') and performance.career_goals:
-                    all_career_goals.update(performance.career_goals)
-                sources_used.append("StudentPerformance")
-                logger.info(f"✅ Found {len(performance.interests)} interests in StudentPerformance")
-        
+        if force_source in [None, 'performance', 'all'] and (
+            force_source != 'profile'
+        ):
+            try:
+                from app.models.student import StudentPerformance
+                performance = await StudentPerformance.find_one(
+                    {"student_info.uid": student_id}
+                )
+                if (
+                    performance
+                    and hasattr(performance, 'interests')
+                    and performance.interests
+                ):
+                    if force_source == 'all':
+                        all_interests.update(performance.interests)
+                    elif force_source == 'performance' or not all_interests:
+                        all_interests = set(performance.interests)
+                    if (
+                        hasattr(performance, 'career_goals')
+                        and performance.career_goals
+                    ):
+                        all_career_goals.update(performance.career_goals)
+                    sources_used.append("StudentPerformance")
+                    logger.info(
+                        f"✅ Found {len(performance.interests)} interests "
+                        f"in StudentPerformance"
+                    )
+            except Exception as e:
+                logger.warning(f"Could not check StudentPerformance: {e}")
+
         if not all_interests:
             return {
                 "status": "no_interests",
                 "message": "No interests found in specified source(s).",
                 "student_id": student_id,
-                "sources_checked": sources_used or ["None - invalid source specified"],
+                "interests": [],
+                "career_goals": [],
+                "sources": [],
+                "sources_checked": (
+                    sources_used or ["None - invalid source specified"]
+                ),
                 "valid_sources": ["profile", "performance", "all"]
             }
-        
-        # Convert sets to lists
+
         interests_list = list(all_interests)
         career_goals_list = list(all_career_goals)
-        
+
         # Save to StudentInterestProfile
-        interest_profile = await StudentInterestProfile.find_one(
-            StudentInterestProfile.user_id == student_id
-        )
-        
-        if interest_profile:
-            interest_profile.interests = interests_list
-            interest_profile.career_goals = career_goals_list
-            interest_profile.updated_at = datetime.utcnow()
-            await interest_profile.save()
-            action = "updated"
-        else:
-            interest_profile = StudentInterestProfile(
-                user_id=student_id,
-                interests=interests_list,
-                career_goals=career_goals_list
+        try:
+            interest_profile = await StudentInterestProfile.find_one(
+                {"user_id": student_id}
             )
-            await interest_profile.save()
-            action = "created"
-        
-        logger.info(f"📝 Force {action} StudentInterestProfile with {len(interests_list)} interests")
-        
+
+            if interest_profile:
+                interest_profile.interests = interests_list
+                interest_profile.career_goals = career_goals_list
+                interest_profile.updated_at = datetime.utcnow()
+                await interest_profile.save()
+                action = "updated"
+            else:
+                interest_profile = StudentInterestProfile(
+                    user_id=student_id,
+                    interests=interests_list,
+                    career_goals=career_goals_list
+                )
+                await interest_profile.save()
+                action = "created"
+        except Exception as save_err:
+            logger.error(f"Could not save interest profile: {save_err}")
+            action = "not_saved"
+
+        logger.info(
+            f"📝 Force {action} StudentInterestProfile "
+            f"with {len(interests_list)} interests"
+        )
+
         return {
             "status": "success",
             "action": action,
@@ -717,105 +823,288 @@ async def force_sync_interests(
             "sources": sources_used,
             "total_interests": len(interests_list),
             "synced_at": datetime.utcnow().isoformat(),
-            "message": f"Successfully force synced {len(interests_list)} interests from {', '.join(sources_used)}"
+            "message": (
+                f"Successfully force synced {len(interests_list)} interests "
+                f"from {', '.join(sources_used)}"
+            )
         }
-        
     except Exception as e:
         logger.error(f"❌ Error force syncing interests: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        return {
+            "status": "failed",
+            "message": str(e),
+            "student_id": student_id,
+            "interests": [],
+            "career_goals": [],
+            "sources": []
+        }
+
+
+# ════════════════════════════════════════════════════════════════
+#  INTEREST SOURCES / DEBUG ENDPOINTS
+# ════════════════════════════════════════════════════════════════
 
 
 @router.get("/{student_id}/interests-sources")
 async def check_interests_sources(
     student_id: str,
-    current_user: Dict[str, Any] = Depends(get_current_user_dev)
+    current_user: FirebaseUser = Depends(get_current_user)
 ):
     """
     Check all sources for student interests.
-    
+
     Useful for debugging when interests aren't showing up.
     Shows what's available in each data source.
     """
     try:
-        from app.models.student import StudentPerformance
         from app.models.student_profile import StudentProfile
-        
-        sources = {}
-        
+
+        sources: Dict[str, Any] = {}
+
         # Check StudentInterestProfile
-        interest_profile = await StudentInterestProfile.find_one(
-            StudentInterestProfile.user_id == student_id
-        )
-        sources["StudentInterestProfile"] = {
-            "found": interest_profile is not None,
-            "interests": interest_profile.interests if interest_profile else [],
-            "career_goals": interest_profile.career_goals if interest_profile else [],
-            "updated_at": interest_profile.updated_at.isoformat() if interest_profile and interest_profile.updated_at else None
-        }
-        
+        try:
+            interest_profile = await StudentInterestProfile.find_one(
+                {"user_id": student_id}
+            )
+            sources["StudentInterestProfile"] = {
+                "found": interest_profile is not None,
+                "interests": (
+                    getattr(interest_profile, 'interests', [])
+                    if interest_profile else []
+                ),
+                "career_goals": (
+                    getattr(interest_profile, 'career_goals', [])
+                    if interest_profile else []
+                ),
+                "updated_at": (
+                    interest_profile.updated_at.isoformat()
+                    if (
+                        interest_profile
+                        and hasattr(interest_profile, 'updated_at')
+                        and interest_profile.updated_at
+                    )
+                    else None
+                )
+            }
+        except Exception as e:
+            sources["StudentInterestProfile"] = {
+                "found": False, "interests": [], "error": str(e)
+            }
+
         # Check StudentProfile
-        profile = await StudentProfile.find_one(
-            StudentProfile.user_id == student_id
-        )
-        sources["StudentProfile"] = {
-            "found": profile is not None,
-            "interests": profile.interests if profile and profile.interests else [],
-            "career_goals": profile.career_goals if profile and profile.career_goals else [],
-            "has_semester_records": len(profile.semester_records) if profile and profile.semester_records else 0
-        }
-        
+        try:
+            profile = await StudentProfile.find_one({"user_id": student_id})
+            sources["StudentProfile"] = {
+                "found": profile is not None,
+                "interests": (
+                    profile.interests
+                    if profile and hasattr(profile, 'interests') and profile.interests
+                    else []
+                ),
+                "career_goals": (
+                    profile.career_goals
+                    if profile and hasattr(profile, 'career_goals') and profile.career_goals
+                    else []
+                ),
+                "has_semester_records": (
+                    len(profile.semester_records)
+                    if profile and hasattr(profile, 'semester_records') and profile.semester_records
+                    else 0
+                )
+            }
+        except Exception as e:
+            sources["StudentProfile"] = {
+                "found": False, "interests": [], "error": str(e)
+            }
+
         # Check StudentPerformance
-        performance = await StudentPerformance.find_one(
-            StudentPerformance.student_info.uid == student_id
-        )
-        sources["StudentPerformance"] = {
-            "found": performance is not None,
-            "interests": performance.interests if performance and performance.interests else [],
-            "career_goals": performance.career_goals if performance and hasattr(performance, 'career_goals') and performance.career_goals else [],
-            "has_subjects": len(performance.subjects) if performance and performance.subjects else 0
-        }
-        
+        try:
+            from app.models.student import StudentPerformance
+            performance = await StudentPerformance.find_one(
+                {"student_info.uid": student_id}
+            )
+            sources["StudentPerformance"] = {
+                "found": performance is not None,
+                "interests": (
+                    performance.interests
+                    if performance and hasattr(performance, 'interests') and performance.interests
+                    else []
+                ),
+                "career_goals": (
+                    performance.career_goals
+                    if performance and hasattr(performance, 'career_goals') and performance.career_goals
+                    else []
+                ),
+                "has_subjects": (
+                    len(performance.subjects)
+                    if performance and hasattr(performance, 'subjects') and performance.subjects
+                    else 0
+                )
+            }
+        except Exception as e:
+            sources["StudentPerformance"] = {
+                "found": False, "interests": [], "error": str(e)
+            }
+
         # Summary
-        all_interests = set()
+        all_interests: set = set()
         for source_data in sources.values():
-            all_interests.update(source_data.get("interests", []))
-        
+            if isinstance(source_data, dict):
+                all_interests.update(source_data.get("interests", []))
+
+        recommended_action = _get_recommended_action(sources)
+
         return {
             "student_id": student_id,
             "sources": sources,
             "summary": {
                 "total_unique_interests": len(all_interests),
                 "all_interests": list(all_interests),
-                "recommended_action": self._get_recommended_action(sources)
+                "recommended_action": recommended_action
             }
         }
-        
     except Exception as e:
         logger.error(f"❌ Error checking interest sources: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        return {
+            "student_id": student_id,
+            "sources": {},
+            "summary": {
+                "total_unique_interests": 0,
+                "all_interests": [],
+                "recommended_action": "Error occurred. Please try again."
+            },
+            "error": str(e)
+        }
 
 
-def _get_recommended_action(sources: Dict[str, Any]) -> str:
-    """Helper to recommend action based on sources state"""
-    interest_profile = sources.get("StudentInterestProfile", {})
-    student_profile = sources.get("StudentProfile", {})
-    student_performance = sources.get("StudentPerformance", {})
-    
-    if interest_profile.get("interests"):
-        return "All good! Interests are synced to StudentInterestProfile."
-    elif student_profile.get("interests") or student_performance.get("interests"):
-        return "Call GET /{student_id}/sync-interests to sync interests."
-    else:
-        return "No interests found. Use POST /{student_id}/interests to set interests."
+@router.get("/{student_id}/debug")
+async def debug_student_data(
+    student_id: str,
+    service: WeaknessAnalysisService = Depends(get_service),
+    current_user: FirebaseUser = Depends(get_current_user)
+):
+    """
+    Debug endpoint to see all data available for a student.
+
+    Shows student data from all sources, interests, and latest analysis results.
+    """
+    try:
+        from app.models.student_profile import StudentProfile
+
+        debug_info: Dict[str, Any] = {
+            "student_id": student_id,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+
+        # Get student data from service
+        try:
+            student_data = await service._get_student_data(student_id)
+            debug_info["student_data"] = {
+                "cgpa": student_data.get("cgpa"),
+                "sgpa": student_data.get("sgpa"),
+                "semester": student_data.get("semester"),
+                "branch": student_data.get("branch"),
+                "subjects_count": len(student_data.get("subjects", {})),
+                "subjects": list(student_data.get("subjects", {}).keys()),
+                "strong_subjects": student_data.get("strong_subjects", []),
+                "weak_subjects": student_data.get("weak_subjects", []),
+                "interests_in_data": student_data.get("interests", []),
+                "career_goals_in_data": student_data.get("career_goals", [])
+            }
+        except Exception as e:
+            debug_info["student_data"] = {"error": str(e)}
+
+        # Get interests from service method
+        try:
+            interests = await service._get_student_interests(student_id)
+            debug_info["interests_from_service"] = interests
+        except Exception as e:
+            debug_info["interests_from_service"] = {"error": str(e)}
+
+        # Get latest analysis
+        try:
+            latest_analysis = await service.get_latest_analysis(student_id)
+            debug_info["latest_analysis"] = {
+                "exists": latest_analysis is not None,
+                "analysis_basis": (
+                    latest_analysis.analysis_basis if latest_analysis else None
+                ),
+                "risk_score": (
+                    latest_analysis.overall_risk_score if latest_analysis else None
+                ),
+                "weakness_count": (
+                    len(latest_analysis.weaknesses) if latest_analysis else 0
+                ),
+                "analysis_date": (
+                    latest_analysis.analysis_date.isoformat()
+                    if latest_analysis else None
+                )
+            }
+        except Exception as e:
+            debug_info["latest_analysis"] = {"error": str(e)}
+
+        # Check all interest sources
+        try:
+            interest_profile = await StudentInterestProfile.find_one(
+                {"user_id": student_id}
+            )
+            profile = await StudentProfile.find_one({"user_id": student_id})
+
+            debug_info["interest_sources"] = {
+                "StudentInterestProfile": {
+                    "exists": interest_profile is not None,
+                    "interests": (
+                        getattr(interest_profile, 'interests', [])
+                        if interest_profile else []
+                    )
+                },
+                "StudentProfile": {
+                    "exists": profile is not None,
+                    "interests": (
+                        getattr(profile, 'interests', [])
+                        if profile else []
+                    )
+                }
+            }
+
+            try:
+                from app.models.student import StudentPerformance
+                performance = await StudentPerformance.find_one(
+                    {"student_info.uid": student_id}
+                )
+                debug_info["interest_sources"]["StudentPerformance"] = {
+                    "exists": performance is not None,
+                    "interests": (
+                        getattr(performance, 'interests', [])
+                        if performance else []
+                    )
+                }
+            except Exception as e:
+                debug_info["interest_sources"]["StudentPerformance"] = {
+                    "error": str(e)
+                }
+
+        except Exception as e:
+            debug_info["interest_sources"] = {"error": str(e)}
+
+        return debug_info
+    except Exception as e:
+        logger.error(f"❌ Error in debug endpoint: {e}", exc_info=True)
+        return {
+            "student_id": student_id,
+            "error": str(e),
+            "timestamp": datetime.utcnow().isoformat()
+        }
 
 
-# ============== Available Options Endpoints ==============
+# ════════════════════════════════════════════════════════════════
+#  AVAILABLE OPTIONS ENDPOINTS
+# ════════════════════════════════════════════════════════════════
+
 
 @router.get("/options/interests")
 async def get_available_interests():
-    """
-    Get list of available interest areas for selection.
-    """
+    """Get list of available interest areas for selection."""
     return {
         "interests": [
             {"id": "ml", "name": "Machine Learning", "category": "AI/ML"},
@@ -834,9 +1123,7 @@ async def get_available_interests():
 
 @router.get("/options/electives")
 async def get_available_electives():
-    """
-    Get list of available electives.
-    """
+    """Get list of available electives."""
     return {
         "electives": [
             {"code": "ML", "name": "Machine Learning", "credits": 4, "pair": 1},
@@ -851,9 +1138,7 @@ async def get_available_electives():
 
 @router.get("/options/honours")
 async def get_available_honours():
-    """
-    Get list of available honours/minor programmes.
-    """
+    """Get list of available honours/minor programmes."""
     return {
         "programmes": [
             {"id": "ds_honours", "name": "Data Science Honours", "type": "honours", "min_cgpa": 7.5},
@@ -862,90 +1147,3 @@ async def get_available_honours():
             {"id": "cloud_minor", "name": "Cloud Computing Minor", "type": "minor", "min_cgpa": 7.0}
         ]
     }
-
-
-# ============== Diagnostic Endpoints ==============
-
-@router.get("/{student_id}/debug")
-async def debug_student_data(
-    student_id: str,
-    service: WeaknessAnalysisService = Depends(get_service),
-    current_user: Dict[str, Any] = Depends(get_current_user_dev)
-):
-    """
-    Debug endpoint to see all data available for a student.
-    
-    Shows:
-    - Student data from all sources
-    - Interests from all sources
-    - Latest analysis results
-    """
-    try:
-        from app.models.student import StudentPerformance
-        from app.models.student_profile import StudentProfile
-        
-        debug_info = {
-            "student_id": student_id,
-            "timestamp": datetime.utcnow().isoformat()
-        }
-        
-        # Get student data from service
-        student_data = await service._get_student_data(student_id)
-        debug_info["student_data"] = {
-            "cgpa": student_data.get("cgpa"),
-            "sgpa": student_data.get("sgpa"),
-            "semester": student_data.get("semester"),
-            "branch": student_data.get("branch"),
-            "subjects_count": len(student_data.get("subjects", {})),
-            "subjects": list(student_data.get("subjects", {}).keys()),
-            "strong_subjects": student_data.get("strong_subjects", []),
-            "weak_subjects": student_data.get("weak_subjects", []),
-            "interests_in_data": student_data.get("interests", []),
-            "career_goals_in_data": student_data.get("career_goals", [])
-        }
-        
-        # Get interests from service method
-        interests = await service._get_student_interests(student_id)
-        debug_info["interests_from_service"] = interests
-        
-        # Get latest analysis
-        latest_analysis = await service.get_latest_analysis(student_id)
-        debug_info["latest_analysis"] = {
-            "exists": latest_analysis is not None,
-            "analysis_basis": latest_analysis.analysis_basis if latest_analysis else None,
-            "risk_score": latest_analysis.overall_risk_score if latest_analysis else None,
-            "weakness_count": len(latest_analysis.weaknesses) if latest_analysis else 0,
-            "analysis_date": latest_analysis.analysis_date.isoformat() if latest_analysis else None
-        }
-        
-        # Check all interest sources
-        interest_profile = await StudentInterestProfile.find_one(
-            StudentInterestProfile.user_id == student_id
-        )
-        profile = await StudentProfile.find_one(
-            StudentProfile.user_id == student_id
-        )
-        performance = await StudentPerformance.find_one(
-            StudentPerformance.student_info.uid == student_id
-        )
-        
-        debug_info["interest_sources"] = {
-            "StudentInterestProfile": {
-                "exists": interest_profile is not None,
-                "interests": interest_profile.interests if interest_profile else []
-            },
-            "StudentProfile": {
-                "exists": profile is not None,
-                "interests": profile.interests if profile else []
-            },
-            "StudentPerformance": {
-                "exists": performance is not None,
-                "interests": performance.interests if performance else []
-            }
-        }
-        
-        return debug_info
-        
-    except Exception as e:
-        logger.error(f"❌ Error in debug endpoint: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))

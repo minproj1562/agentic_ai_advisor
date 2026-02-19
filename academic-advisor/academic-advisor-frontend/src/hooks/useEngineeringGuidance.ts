@@ -1,24 +1,123 @@
 // src/hooks/useEngineeringGuidance.ts
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { engineeringService } from '../services/engineering.service';
+import { engineeringService, InterestProfile } from '../services/engineering.service';
 import { useAuth } from '../contexts/AuthContext';
 import toast from 'react-hot-toast';
+
+// ============== STUDENT INTERESTS (NEW) ==============
+
+/**
+ * ✅ NEW: Hook to get student interests from the weakness service
+ * This ensures we have interests for analysis even if performanceMetrics is empty
+ */
+export const useStudentInterests = () => {
+  const { user } = useAuth();
+  
+  return useQuery({
+    queryKey: ['student-interests', user?.uid],
+    queryFn: async (): Promise<InterestProfile> => {
+      if (!user?.uid) {
+        return {
+          student_id: '',
+          interests: [],
+          interest_levels: {},
+          career_goals: [],
+          preferred_electives: [],
+          honours_minors_interest: [],
+          skills: [],
+          skill_levels: {}
+        };
+      }
+      
+      try {
+        // First try to get the interest profile directly
+        const profile = await engineeringService.getInterestProfile(user.uid);
+        
+        if (profile.interests?.length) {
+          console.log('✅ Found interests in profile:', profile.interests);
+          return profile;
+        }
+        
+        // If no interests found, try syncing from other sources
+        console.log('⚠️ No interests found, attempting sync...');
+        const syncResult = await engineeringService.syncInterests(user.uid);
+        
+        if (syncResult.status === 'success' && syncResult.interests?.length) {
+          console.log('✅ Synced interests:', syncResult.interests);
+          return {
+            student_id: user.uid,
+            interests: syncResult.interests,
+            interest_levels: {},
+            career_goals: syncResult.career_goals || [],
+            preferred_electives: [],
+            honours_minors_interest: [],
+            skills: [],
+            skill_levels: {}
+          };
+        }
+        
+        console.log('⚠️ No interests found after sync');
+        return {
+          student_id: user.uid,
+          interests: [],
+          interest_levels: {},
+          career_goals: [],
+          preferred_electives: [],
+          honours_minors_interest: [],
+          skills: [],
+          skill_levels: {}
+        };
+        
+      } catch (error) {
+        console.error('Error fetching interests:', error);
+        return {
+          student_id: user?.uid || '',
+          interests: [],
+          interest_levels: {},
+          career_goals: [],
+          preferred_electives: [],
+          honours_minors_interest: [],
+          skills: [],
+          skill_levels: {}
+        };
+      }
+    },
+    enabled: !!user?.uid,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+    retry: 2,
+    retryDelay: 1000
+  });
+};
 
 // ============== PERFORMANCE METRICS ==============
 
 export const usePerformanceMetrics = () => {
   const { user } = useAuth();
+  const { data: interestsData } = useStudentInterests();
   
   return useQuery({
-    queryKey: ['performance-metrics', user?.uid],
-    queryFn: () => engineeringService.getPerformanceMetrics(user!.uid),
+    queryKey: ['performance-metrics', user?.uid, interestsData?.interests?.join(',')],
+    queryFn: async () => {
+      const metrics = await engineeringService.getPerformanceMetrics(user!.uid);
+      
+      // ✅ MERGE interests from useStudentInterests if performanceMetrics has none
+      if ((!metrics.interests || metrics.interests.length === 0) && interestsData?.interests?.length) {
+        console.log('📝 Merging interests from interestsData into metrics');
+        metrics.interests = interestsData.interests;
+      }
+      if ((!metrics.careerGoals || metrics.careerGoals.length === 0) && interestsData?.career_goals?.length) {
+        metrics.careerGoals = interestsData.career_goals;
+      }
+      
+      return metrics;
+    },
     enabled: !!user?.uid,
-    staleTime: 5 * 60 * 1000, // 5 minutes
-    gcTime: 10 * 60 * 1000, // 10 minutes
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
     refetchOnWindowFocus: true,
     retry: 2,
     retryDelay: 1000,
-    // Provide placeholder data while loading
     placeholderData: {
       studentInfo: {
         uid: user?.uid || '',
@@ -34,8 +133,8 @@ export const usePerformanceMetrics = () => {
       weakSubjects: [],
       completedCredits: 0,
       totalCredits: 160,
-      interests: [],
-      careerGoals: [],
+      interests: interestsData?.interests || [],
+      careerGoals: interestsData?.career_goals || [],
       skillsMatrix: {}
     }
   });
@@ -62,25 +161,74 @@ export const useElectiveRecommendations = () => {
     gcTime: 30 * 60 * 1000,
     retry: 2,
     retryDelay: 1000,
-    // Use default electives as placeholder
     placeholderData: engineeringService.getDefaultElectives()
   });
 };
 
-// ============== WEAKNESS ANALYSIS ==============
+// ============== WEAKNESS ANALYSIS (ENHANCED) ==============
 
-export const useWeaknessAnalysis = () => {
+/**
+ * ✅ ENHANCED: Now uses interests from useStudentInterests as fallback
+ * and calls the proper combined endpoint when we have parameters
+ */
+export const useWeaknessAnalysis = (params?: {
+  interests?: string[];
+  electives?: string[];
+  honours?: string[];
+}) => {
   const { user } = useAuth();
+  const { data: interestsData } = useStudentInterests();
+  
+  // ✅ MERGE passed params with fetched interests
+  const effectiveInterests = params?.interests?.length 
+    ? params.interests 
+    : (interestsData?.interests || []);
+  
+  const effectiveElectives = params?.electives?.length 
+    ? params.electives 
+    : (interestsData?.preferred_electives || []);
+  
+  const effectiveHonours = params?.honours?.length 
+    ? params.honours 
+    : (interestsData?.honours_minors_interest || []);
   
   return useQuery({
-    queryKey: ['weakness-analysis', user?.uid],
-    queryFn: () => engineeringService.getWeaknessAnalysis(user!.uid),
+    queryKey: [
+      'weakness-analysis',
+      user?.uid,
+      effectiveInterests.join(','),
+      effectiveElectives.join(','),
+      effectiveHonours.join(','),
+    ],
+    queryFn: async () => {
+      console.log('🔍 Fetching weakness analysis with:', {
+        interests: effectiveInterests,
+        electives: effectiveElectives,
+        honours: effectiveHonours
+      });
+      
+      // If we have any parameters, use the combined endpoint
+      if (
+        effectiveInterests.length ||
+        effectiveElectives.length ||
+        effectiveHonours.length
+      ) {
+        return engineeringService.getCombinedWeaknessAnalysis(
+          user!.uid,
+          effectiveInterests.length ? effectiveInterests : undefined,
+          effectiveElectives.length ? effectiveElectives : undefined,
+          effectiveHonours.length ? effectiveHonours : undefined
+        );
+      }
+      
+      // Otherwise use the legacy endpoint which does combined analysis
+      return engineeringService.getWeaknessAnalysis(user!.uid);
+    },
     enabled: !!user?.uid,
     staleTime: 5 * 60 * 1000,
     refetchOnWindowFocus: true,
     retry: 2,
     retryDelay: 1000,
-    // Provide empty weakness data as placeholder
     placeholderData: {
       weaknesses: [],
       overall_risk_score: 0,
@@ -122,7 +270,6 @@ export const useStudyResources = (filters?: {
     gcTime: 30 * 60 * 1000,
     retry: 2,
     retryDelay: 1000,
-    // Use default resources as placeholder
     placeholderData: engineeringService.getDefaultResources()
   });
 };
@@ -246,6 +393,40 @@ export const useTrackActivity = () => {
   });
 };
 
+// ============== SYNC INTERESTS MUTATION (NEW) ==============
+
+/**
+ * ✅ NEW: Hook to sync interests from all sources
+ */
+export const useSyncInterests = () => {
+  const { user } = useAuth();
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: (source?: 'profile' | 'performance' | 'all') => 
+      source 
+        ? engineeringService.forceSyncInterests(user!.uid, source)
+        : engineeringService.syncInterests(user!.uid),
+    onSuccess: (data) => {
+      if (data.status === 'success' && data.interests?.length) {
+        toast.success(`Synced ${data.interests.length} interests!`);
+        // Invalidate related queries
+        queryClient.invalidateQueries({ queryKey: ['student-interests', user?.uid] });
+        queryClient.invalidateQueries({ queryKey: ['performance-metrics', user?.uid] });
+        queryClient.invalidateQueries({ queryKey: ['weakness-analysis', user?.uid] });
+      } else if (data.status === 'no_interests') {
+        toast('No interests found. Please set your interests manually.', {
+          icon: 'ℹ️'
+        });
+      }
+    },
+    onError: (error) => {
+      console.error('Interest sync failed:', error);
+      toast.error('Failed to sync interests');
+    }
+  });
+};
+
 // ============== ADDITIONAL UTILITY HOOKS ==============
 
 /**
@@ -298,6 +479,11 @@ export const usePrefetchResources = () => {
         queryKey: ['elective-recommendations', user.uid],
         queryFn: () => engineeringService.getElectiveRecommendations(user.uid),
         staleTime: 10 * 60 * 1000
+      }),
+      queryClient.prefetchQuery({
+        queryKey: ['student-interests', user.uid],
+        queryFn: () => engineeringService.getInterestProfile(user.uid),
+        staleTime: 5 * 60 * 1000
       })
     ]);
   };
@@ -319,6 +505,7 @@ export const useRefreshGuidanceData = () => {
     
     try {
       await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['student-interests', user.uid] }),
         queryClient.invalidateQueries({ queryKey: ['study-resources', user.uid] }),
         queryClient.invalidateQueries({ queryKey: ['elective-recommendations', user.uid] }),
         queryClient.invalidateQueries({ queryKey: ['weakness-analysis', user.uid] }),
@@ -338,6 +525,7 @@ export const useRefreshGuidanceData = () => {
 // ============== DEFAULT EXPORT ==============
 
 export default {
+  useStudentInterests,
   usePerformanceMetrics,
   useElectiveRecommendations,
   useWeaknessAnalysis,
@@ -346,6 +534,7 @@ export default {
   useToggleBookmark,
   useUpdateProgress,
   useTrackActivity,
+  useSyncInterests,
   useSubjectResources,
   useResourcesByType,
   usePrefetchResources,
