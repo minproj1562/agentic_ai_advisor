@@ -347,7 +347,7 @@ const CVAnalysisSection: React.FC<CVAnalysisSectionProps> = ({
         </div>
       </div>
 
-      {/* Additional Info */}
+            {/* Additional Info */}
       {profile?.others && Object.keys(profile.others).length > 0 && (
         <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6">
           <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
@@ -361,10 +361,10 @@ const CVAnalysisSection: React.FC<CVAnalysisSectionProps> = ({
                   Awards & Honors
                 </h4>
                 <ul className="space-y-1">
-                  {profile.others.awards.map((award: string, i: number) => (
+                  {profile.others.awards.map((award: any, i: number) => (
                     <li key={i} className="text-sm text-gray-900 dark:text-white flex items-start gap-2">
                       <Award className="w-4 h-4 text-yellow-500 flex-shrink-0 mt-0.5" />
-                      {award}
+                      {typeof award === 'string' ? award : award?.name || JSON.stringify(award)}
                     </li>
                   ))}
                 </ul>
@@ -377,10 +377,10 @@ const CVAnalysisSection: React.FC<CVAnalysisSectionProps> = ({
                   Certifications
                 </h4>
                 <ul className="space-y-1">
-                  {profile.others.certifications.map((cert: string, i: number) => (
+                  {profile.others.certifications.map((cert: any, i: number) => (
                     <li key={i} className="text-sm text-gray-900 dark:text-white flex items-start gap-2">
                       <CheckCircle className="w-4 h-4 text-green-500 flex-shrink-0 mt-0.5" />
-                      {cert}
+                      {typeof cert === 'string' ? cert : cert?.name || JSON.stringify(cert)}
                     </li>
                   ))}
                 </ul>
@@ -393,12 +393,12 @@ const CVAnalysisSection: React.FC<CVAnalysisSectionProps> = ({
                   Languages
                 </h4>
                 <div className="flex flex-wrap gap-2">
-                  {profile.others.languages.map((lang: string, i: number) => (
+                  {profile.others.languages.map((lang: any, i: number) => (
                     <span
                       key={i}
                       className="px-2 py-1 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded text-sm"
                     >
-                      {lang}
+                      {typeof lang === 'string' ? lang : lang?.name || JSON.stringify(lang)}
                     </span>
                   ))}
                 </div>

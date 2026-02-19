@@ -166,12 +166,31 @@ class MessagingService:
         if message and (message.sender_id == user_id or message.receiver_id == user_id):
             await message.delete()
     
-    async def _get_user_display_name(self, user_id: str) -> str:
-        """Get user display name (placeholder - implement with your user service)"""
-        # This would typically call your user service
-        return f"User {user_id[:8]}"
-    
-    async def _get_user_role(self, user_id: str) -> str:
-        """Get user role (placeholder - implement with your user service)"""
-        # This would typically call your user service
-        return "student"
+async def _get_user_display_name(self, user_id: str) -> str:
+    """Get user display name from Faculty or StudentProfile collections"""
+    try:
+        from app.models.faculty import Faculty
+        faculty = await Faculty.find_one(Faculty.user_id == user_id)
+        if faculty:
+            return faculty.name
+
+        from app.models.student_profile import StudentProfile
+        student = await StudentProfile.find_one(StudentProfile.user_id == user_id)
+        if student:
+            return student.name
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(f"Could not resolve display name for {user_id}: {e}")
+
+    return f"User {user_id[:8]}"
+
+async def _get_user_role(self, user_id: str) -> str:
+    """Get user role from database"""
+    try:
+        from app.models.faculty import Faculty
+        faculty = await Faculty.find_one(Faculty.user_id == user_id)
+        if faculty:
+            return "faculty"
+    except Exception:
+        pass
+    return "student"
