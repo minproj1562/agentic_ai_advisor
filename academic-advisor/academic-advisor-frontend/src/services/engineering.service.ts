@@ -74,8 +74,29 @@ export interface ElectiveRecommendation {
   syllabus: string[];
 }
 
+export interface WeaknessArea {
+  id?: string;
+  subject: string;
+  topic?: string;
+  current_score: number;
+  target_score: number;
+  gap_percentage: number;
+  severity: 'low' | 'medium' | 'high' | 'critical';
+  confidence: number;
+  related_to: string;
+  analysis_basis: string;
+  improvement_suggestions: string[];
+  recommended_resources: any[];
+  estimated_improvement_time: string;
+  priority: number;
+  impact_on_interest?: string;
+  impact_on_elective?: string;
+  impact_on_career?: string;
+}
+
 export interface WeaknessAnalysis {
-  weaknesses: any[];
+  student_id?: string;
+  weaknesses: WeaknessArea[];
   overall_risk_score: number;
   priority_areas: string[];
   total_weaknesses: number;
@@ -84,7 +105,12 @@ export interface WeaknessAnalysis {
   medium_count: number;
   low_count: number;
   key_insights: string[];
+  study_plan?: any;
+  recommended_resources?: any[];
   from_cache: boolean;
+  analysis_date?: string;
+  analysis_basis?: string;
+  improvement_potential?: number;
 }
 
 export interface StudyResource {
@@ -109,6 +135,28 @@ export interface StudyResource {
   isBookmarked: boolean;
   subject: string;
   description?: string;
+}
+
+export interface InterestProfile {
+  student_id: string;
+  interests: string[];
+  interest_levels: Record<string, number>;
+  career_goals: string[];
+  preferred_electives: string[];
+  honours_minors_interest: string[];
+  skills: string[];
+  skill_levels: Record<string, number>;
+}
+
+export interface InterestSyncResult {
+  status: 'success' | 'no_interests' | 'failed';
+  action?: string;
+  interests: string[];
+  career_goals: string[];
+  sources: string[];
+  synced_at?: string;
+  message?: string;
+  error?: string;
 }
 
 // ============== DEFAULT/FALLBACK DATA ==============
@@ -515,13 +563,32 @@ const filterResources = (
 
 export const engineeringService = {
   
+  // ============== PERFORMANCE METRICS ==============
+  
   async getPerformanceMetrics(userId: string): Promise<StudentPerformanceMetrics> {
     try {
       const response = await apiClient.get(`/students/${userId}/performance`);
       const data = extractData(response, DEFAULT_METRICS);
+      
+      // If no interests in performance data, try to fetch from interest profile
+      let interests = data.interests || [];
+      let careerGoals = data.careerGoals || [];
+      
+      if (!interests.length) {
+        try {
+          const interestProfile = await this.getInterestProfile(userId);
+          interests = interestProfile.interests || [];
+          careerGoals = interestProfile.career_goals || careerGoals;
+        } catch (e) {
+          console.warn('Could not fetch interest profile for metrics');
+        }
+      }
+      
       return {
         ...DEFAULT_METRICS,
         ...data,
+        interests,
+        careerGoals,
         studentInfo: {
           ...DEFAULT_METRICS.studentInfo,
           ...(data.studentInfo || {}),
@@ -539,6 +606,8 @@ export const engineeringService = {
       };
     }
   },
+
+  // ============== ELECTIVE RECOMMENDATIONS ==============
 
   async getElectiveRecommendations(userId: string): Promise<ElectiveRecommendation[]> {
     try {
@@ -561,12 +630,18 @@ export const engineeringService = {
     }
   },
 
+  // ============== WEAKNESS ANALYSIS ==============
+
+  /**
+   * Get weakness analysis using the legacy endpoint (combined analysis)
+   */
   async getWeaknessAnalysis(userId: string): Promise<WeaknessAnalysis> {
     try {
       const response = await apiClient.get(`/students/${userId}/weaknesses`);
       const data = response.data;
       
       return {
+        student_id: userId,
         weaknesses: data?.weaknesses || [],
         overall_risk_score: data?.overall_risk_score || 0,
         priority_areas: data?.priority_areas || [],
@@ -576,13 +651,246 @@ export const engineeringService = {
         medium_count: data?.medium_count || 0,
         low_count: data?.low_count || 0,
         key_insights: data?.key_insights || [],
-        from_cache: data?.from_cache || false
+        study_plan: data?.study_plan,
+        recommended_resources: data?.recommended_resources,
+        from_cache: data?.from_cache || false,
+        analysis_date: data?.analysis_date,
+        analysis_basis: data?.analysis_basis,
+        improvement_potential: data?.improvement_potential
       };
     } catch (error) {
       console.warn('⚠️ Using empty weakness analysis due to API error:', error);
-      return DEFAULT_WEAKNESS_ANALYSIS;
+      return { ...DEFAULT_WEAKNESS_ANALYSIS, student_id: userId };
     }
   },
+
+  /**
+   * ✅ NEW: Get combined weakness analysis with specific interests/electives/honours
+   * This calls the proper /weakness/{id}/combined endpoint
+   */
+  async getCombinedWeaknessAnalysis(
+    userId: string,
+    interests?: string[],
+    electives?: string[],
+    honours?: string[]
+  ): Promise<WeaknessAnalysis> {
+    try {
+      const params: Record<string, string> = {
+        include_resources: 'true',
+        include_study_plan: 'true'
+      };
+      
+      if (interests?.length) {
+        params.interests = interests.join(',');
+      }
+      if (electives?.length) {
+        params.electives = electives.join(',');
+      }
+      if (honours?.length) {
+        params.honours = honours.join(',');
+      }
+
+      console.log('🔍 Fetching combined weakness analysis with params:', params);
+      
+      const response = await apiClient.get(`/weakness/${userId}/combined`, { params });
+      const data = response.data;
+      
+      console.log('✅ Combined weakness analysis received:', {
+        weaknesses: data?.weaknesses?.length || 0,
+        risk_score: data?.overall_risk_score
+      });
+      
+      return {
+        student_id: userId,
+        weaknesses: data?.weaknesses || [],
+        overall_risk_score: data?.overall_risk_score || 0,
+        priority_areas: data?.priority_areas || [],
+        total_weaknesses: data?.total_weaknesses || data?.weaknesses?.length || 0,
+        critical_count: data?.critical_count || 0,
+        high_count: data?.high_count || 0,
+        medium_count: data?.medium_count || 0,
+        low_count: data?.low_count || 0,
+        key_insights: data?.key_insights || [],
+        study_plan: data?.study_plan,
+        recommended_resources: data?.recommended_resources,
+        from_cache: false,
+        analysis_date: data?.analysis_timestamp || new Date().toISOString(),
+        analysis_basis: 'combined',
+        improvement_potential: data?.improvement_potential
+      };
+    } catch (error) {
+      console.warn('⚠️ Combined weakness analysis failed, trying legacy endpoint:', error);
+      // Fallback to legacy endpoint
+      return this.getWeaknessAnalysis(userId);
+    }
+  },
+
+  /**
+   * Get weakness analysis by interest
+   */
+  async getWeaknessByInterest(
+    userId: string,
+    interests: string[]
+  ): Promise<WeaknessAnalysis> {
+    try {
+      const params: Record<string, string> = {
+        interests: interests.join(','),
+        include_resources: 'true',
+        include_study_plan: 'true'
+      };
+      
+      const response = await apiClient.get(`/weakness/${userId}/by-interest`, { params });
+      const data = response.data;
+      
+      return {
+        student_id: userId,
+        weaknesses: data?.weaknesses || [],
+        overall_risk_score: data?.overall_risk_score || 0,
+        priority_areas: data?.priority_areas || [],
+        total_weaknesses: data?.total_weaknesses || 0,
+        critical_count: data?.critical_count || 0,
+        high_count: data?.high_count || 0,
+        medium_count: data?.medium_count || 0,
+        low_count: data?.low_count || 0,
+        key_insights: data?.key_insights || [],
+        study_plan: data?.study_plan,
+        recommended_resources: data?.recommended_resources,
+        from_cache: false,
+        analysis_basis: 'interest'
+      };
+    } catch (error) {
+      console.warn('⚠️ Weakness by interest failed:', error);
+      return { ...DEFAULT_WEAKNESS_ANALYSIS, student_id: userId };
+    }
+  },
+
+  /**
+   * Get weakness analysis by electives
+   */
+  async getWeaknessByElectives(
+    userId: string,
+    electives: string[]
+  ): Promise<WeaknessAnalysis> {
+    try {
+      const params: Record<string, string> = {
+        electives: electives.join(','),
+        include_resources: 'true',
+        include_study_plan: 'true'
+      };
+      
+      const response = await apiClient.get(`/weakness/${userId}/by-electives`, { params });
+      const data = response.data;
+      
+      return {
+        student_id: userId,
+        weaknesses: data?.weaknesses || [],
+        overall_risk_score: data?.overall_risk_score || 0,
+        priority_areas: data?.priority_areas || [],
+        total_weaknesses: data?.total_weaknesses || 0,
+        critical_count: data?.critical_count || 0,
+        high_count: data?.high_count || 0,
+        medium_count: data?.medium_count || 0,
+        low_count: data?.low_count || 0,
+        key_insights: data?.key_insights || [],
+        study_plan: data?.study_plan,
+        recommended_resources: data?.recommended_resources,
+        from_cache: false,
+        analysis_basis: 'electives'
+      };
+    } catch (error) {
+      console.warn('⚠️ Weakness by electives failed:', error);
+      return { ...DEFAULT_WEAKNESS_ANALYSIS, student_id: userId };
+    }
+  },
+
+  // ============== INTEREST PROFILE ==============
+
+  /**
+   * ✅ NEW: Get student interest profile
+   */
+  async getInterestProfile(userId: string): Promise<InterestProfile> {
+    try {
+      const response = await apiClient.get(`/weakness/${userId}/interests`);
+      return response.data;
+    } catch (error) {
+      console.warn('Could not fetch interest profile:', error);
+      return {
+        student_id: userId,
+        interests: [],
+        interest_levels: {},
+        career_goals: [],
+        preferred_electives: [],
+        honours_minors_interest: [],
+        skills: [],
+        skill_levels: {}
+      };
+    }
+  },
+
+  /**
+   * ✅ NEW: Sync interests from all sources
+   * This endpoint pulls interests from StudentProfile, StudentPerformance, etc.
+   * and consolidates them into StudentInterestProfile
+   */
+  async syncInterests(userId: string): Promise<InterestSyncResult> {
+    try {
+      console.log('🔄 Syncing interests for user:', userId);
+      const response = await apiClient.get(`/weakness/${userId}/sync-interests`);
+      console.log('✅ Interest sync result:', response.data);
+      return response.data;
+    } catch (error) {
+      console.error('❌ Interest sync failed:', error);
+      return {
+        status: 'failed',
+        interests: [],
+        career_goals: [],
+        sources: [],
+        error: 'Failed to sync interests'
+      };
+    }
+  },
+
+  /**
+   * ✅ NEW: Force sync interests from a specific source
+   */
+  async forceSyncInterests(
+    userId: string,
+    source?: 'profile' | 'performance' | 'all'
+  ): Promise<InterestSyncResult> {
+    try {
+      const params: Record<string, string> = {};
+      if (source) {
+        params.force_source = source;
+      }
+      
+      const response = await apiClient.post(`/weakness/${userId}/sync-interests`, null, { params });
+      return response.data;
+    } catch (error) {
+      console.error('Force sync failed:', error);
+      return {
+        status: 'failed',
+        interests: [],
+        career_goals: [],
+        sources: [],
+        error: 'Failed to force sync interests'
+      };
+    }
+  },
+
+  /**
+   * ✅ NEW: Check all interest sources (for debugging)
+   */
+  async checkInterestSources(userId: string): Promise<any> {
+    try {
+      const response = await apiClient.get(`/weakness/${userId}/interests-sources`);
+      return response.data;
+    } catch (error) {
+      console.error('Failed to check interest sources:', error);
+      return null;
+    }
+  },
+
+  // ============== STUDY RESOURCES ==============
 
   async getStudyResources(
     userId: string, 
@@ -671,6 +979,8 @@ export const engineeringService = {
     }
   },
 
+  // ============== STUDY PLAN & ACTIVITY ==============
+
   async getStudyPlan(userId: string, topicId: string): Promise<any> {
     try {
       const response = await apiClient.post(`/students/${userId}/study-plan`, { topicId });
@@ -696,7 +1006,7 @@ export const engineeringService = {
     }
   ): Promise<{ success: boolean }> {
     try {
-      const response = await apiClient.post(`/students/${userId}/activity`, activityData);
+      await apiClient.post(`/students/${userId}/activity`, activityData);
       return { success: true };
     } catch (error) {
       console.warn('📝 Activity tracking handled locally:', error);
@@ -704,7 +1014,7 @@ export const engineeringService = {
     }
   },
 
-  // ============== ADDITIONAL UTILITY METHODS ==============
+  // ============== UTILITY METHODS ==============
 
   /**
    * Get resources filtered by subject (useful for weakness-based recommendations)
@@ -732,6 +1042,13 @@ export const engineeringService = {
    */
   getDefaultResources(): StudyResource[] {
     return DEFAULT_STUDY_RESOURCES;
+  },
+
+  /**
+   * Get empty weakness analysis result
+   */
+  getEmptyWeaknessAnalysis(): WeaknessAnalysis {
+    return { ...DEFAULT_WEAKNESS_ANALYSIS };
   }
 };
 

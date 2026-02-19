@@ -30,6 +30,7 @@ from app.models.messages import Message, Conversation
 from app.models.faculty import Faculty
 from app.models.meeting_request import MeetingRequest
 from app.models.analytics import Analytics
+from app.models.readiness import (SubjectRequirementMap, ReadinessResult)
 from app.models.recommendation import (
     RecommendationRecord,
     RecommendationFeedback,
@@ -60,6 +61,8 @@ document_models = [
     RecommendationRecord,
     RecommendationFeedback,
     TrainingDataPoint,
+    SubjectRequirementMap,
+    ReadinessResult,
 ]
 
 
@@ -101,6 +104,13 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"❌ MongoDB connection failed: {e}")
         raise
+    try:
+        from app.services.readiness_service import get_readiness_service
+        svc = get_readiness_service()
+        await svc._ensure_seeded()
+        logger.info("✅ Readiness requirement maps ready")
+    except Exception as e:
+        logger.warning(f"⚠️ Readiness seed check: {e}")
 
     # Load ML models (optional)
     # Auto-train if no saved model exists
