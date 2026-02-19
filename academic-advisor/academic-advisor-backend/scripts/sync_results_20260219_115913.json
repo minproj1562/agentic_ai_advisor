@@ -1,0 +1,72 @@
+{
+  "synced": [
+    {
+      "name": "Dr. Priya Sharma",
+      "email": "priya.sharma@fcrit.ac.in",
+      "uid": "aIR1Kgry9VcM2uOmEQu1doKAM7n2",
+      "old_id": "faculty_002"
+    }
+  ],
+  "already_synced": [
+    {
+      "name": "Anna Shelby",
+      "email": "academicadvisor642@gmail.com",
+      "uid": "W7LunS0pb3ZRAJM1hkR7C4bcZAu1"
+    },
+    {
+      "name": "Priya Sharma",
+      "email": "priya.sharma@fcrit.ac.in",
+      "uid": "aIR1Kgry9VcM2uOmEQu1doKAM7n2"
+    }
+  ],
+  "created": [
+    {
+      "name": "Dr. Rajesh Kumar",
+      "email": "rajesh.kumar@fcrit.ac.in",
+      "uid": "dry_run_uid_rajesh.kumar@fcrit.ac.in",
+      "old_id": "faculty_001",
+      "password": "Faculty@FCRIT2024"
+    },
+    {
+      "name": "Dr. Amit Verma",
+      "email": "amit.verma@fcrit.ac.in",
+      "uid": "dry_run_uid_amit.verma@fcrit.ac.in",
+      "old_id": "faculty_003",
+      "password": "Faculty@FCRIT2024"
+    },
+    {
+      "name": "Dr. Sneha Patel",
+      "email": "sneha.patel@fcrit.ac.in",
+      "uid": "dry_run_uid_sneha.patel@fcrit.ac.in",
+      "old_id": "faculty_004",
+      "password": "Faculty@FCRIT2024"
+    },
+    {
+      "name": "Dr. Vikram Singh",
+      "email": "vikram.singh@fcrit.ac.in",
+      "uid": "dry_run_uid_vikram.singh@fcrit.ac.in",
+      "old_id": "faculty_005",
+      "password": "Faculty@FCRIT2024"
+    }
+  ],
+  "skipped": [],
+  "errors": [],
+  "references_updated": [
+    {
+      "name": "Dr. Rajesh Kumar",
+      "old_id": "faculty_001",
+      "new_id": "dry_run_uid_rajesh.kumar@fcrit.ac.in",
+      "changes": [
+        "MeetingRequests (faculty_id): 1"
+      ]
+    },
+    {
+      "name": "Dr. Priya Sharma",
+      "old_id": "faculty_002",
+      "new_id": "aIR1Kgry9VcM2uOmEQu1doKAM7n2",
+      "changes": [
+        "MeetingRequests (faculty_id): 2"
+      ]
+    }
+  ]
+}

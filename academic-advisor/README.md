@@ -1082,3 +1082,17 @@ pip freeze > requirements.txt
 
 # To check the loading routes
 python -c "from app.api.v1.api import api_router; print('Registered routes:'); [print('  {} {}'.format(r.methods if hasattr(r, 'methods') else '', r.path)) for r in api_router.routes if hasattr(r, 'path')]"
+
+# For syncing mongodb with firebase
+# Step 1: Preview what will happen (no changes)
+cd academic-advisor-backend
+python scripts/sync_faculty_to_firebase.py --dry-run
+
+# Step 2: Actually sync
+python scripts/sync_faculty_to_firebase.py
+
+# Step 3: Sync a specific faculty only
+python scripts/sync_faculty_to_firebase.py --email "rajesh.kumar@fcrit.ac.in"
+
+# Step 4: Custom password
+python scripts/sync_faculty_to_firebase.py --default-password "MyCustomPass@123"
