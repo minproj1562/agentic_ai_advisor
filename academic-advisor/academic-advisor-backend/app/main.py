@@ -121,6 +121,14 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"⚠️ Recommendation engine not loaded: {e}")
 
+    try:
+        from app.tasks.meeting_reminders import start_reminder_task
+        start_reminder_task()
+        logger.info("🔔 Meeting reminder task started")
+    except Exception as e:
+        logger.warning(f"⚠️ Meeting reminder task failed to start: {e}")
+
+
     yield
 
     logger.info("👋 Shutting down Academic Advisor API...")
