@@ -1,7 +1,8 @@
+// academic-advisor/academic-advisor-frontend/src/pages/Dashboard/index.tsx
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import StudentDashboard from './StudentDashboard';
-//import FacultyDashboard from './FacultyDashboard';
+import FacultyDashboard from './FacultyDashboard';
 import { Loader2 } from 'lucide-react';
 import { motion } from 'framer-motion';
 
@@ -50,10 +51,9 @@ const Dashboard: React.FC = () => {
   if (user.role === 'student') {
     return <StudentDashboard />;
   } 
-  //else if (user.role === 'faculty') {
-    //return <FacultyDashboard />;
-  //} 
-  else {
+  else if (user.role === 'faculty') {
+    return <FacultyDashboard />;
+  } else {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <p>Invalid user role</p>

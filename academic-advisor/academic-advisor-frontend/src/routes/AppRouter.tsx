@@ -9,6 +9,7 @@ import FacultyProfileEdit from '../pages/FacultyProfileEdit';
 
 // CORRECTED IMPORT PATH - moved from ../pages/FacultyDashboard
 import FacultyDashboard from '../pages/Dashboard/FacultyDashboard';
+import StudentDashboard from '../pages/Dashboard/StudentDashboard';
 
 // Lazy load all pages for optimal performance
 const HomePage = lazy(() => import('../pages/HomePage'));
@@ -145,6 +146,16 @@ const AppRouter: React.FC = () => {
       <FacultyProfileEdit />
     </ProtectedRoute>
   } 
+/>
+<Route
+  path="/student/dashboard/*"
+  element={
+    <ProtectedRoute role="student">
+      <React.Suspense fallback={<LoadingSpinner fullScreen />}>
+        <StudentDashboard />
+      </React.Suspense>
+    </ProtectedRoute>
+  }
 />
            {/* 404 Route */}
           <Route path="/404" element={<NotFound />} />

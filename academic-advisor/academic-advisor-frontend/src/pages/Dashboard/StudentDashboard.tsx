@@ -69,6 +69,7 @@ import { AcademicDataEntry } from '../../components/dashboard/AcademicDataEntry'
 import { InterestManagement } from '../../components/dashboard/InterestManagement';
 import { AcademicInsights } from '../../components/dashboard/AcademicInsights';
 import { auth } from '../../services/firebase.config';
+import MeetingsCalendar from '../../components/meetings/MeetingsCalendar';
 import { ComprehensiveAnalysis } from '../../services/student_projects_cloudinary.service';
 import { ReadinessAnalysis } from '../../components/dashboard/ReadinessAnalysis';
 import { useStudentInterests, useSyncInterests } from '../../hooks/useEngineeringGuidance';
@@ -259,6 +260,9 @@ const StudentDashboard: React.FC = () => {
   const [showProjectAnalysis, setShowProjectAnalysis] = useState(false);
   const [projectAnalysisResult, setProjectAnalysisResult] = useState<LegacyProjectAnalysisResult | null>(null);
   const [analysisLoading, setAnalysisLoading] = useState(false);
+
+  // Meetings view state (for sub-navigation: requests vs calendar)
+  const [meetingsView, setMeetingsView] = useState<'requests' | 'calendar'>('requests');
 
   // Recommendation stats for overview
   const [recommendationStats, setRecommendationStats] = useState({
@@ -744,83 +748,82 @@ const StudentDashboard: React.FC = () => {
   // ==================== Effects ====================
 
   // Effect 1: Event listeners (with full cache invalidation)
-  // ==================== Replace Effect 1 entirely ====================
+  useEffect(() => {
+    // Accept Event, cast inside
+    const handleProfileSaved = (event: Event) => {
+      const detail = (event as CustomEvent).detail;
+      console.log('Profile saved event received:', detail);
+      setUserProfile(detail);
+      saveProfileToStorage(detail);
+      updateDashboardWithProfile(detail);
+      toast.success('Profile data updated!');
+    };
 
-useEffect(() => {
-  // ✅ FIX: Accept Event, cast inside
-  const handleProfileSaved = (event: Event) => {
-    const detail = (event as CustomEvent).detail;
-    console.log('Profile saved event received:', detail);
-    setUserProfile(detail);
-    saveProfileToStorage(detail);
-    updateDashboardWithProfile(detail);
-    toast.success('Profile data updated!');
-  };
+    const handleProfileUpdated = async () => {
+      extendedAnalyticsService.clearCache();
+      await fetchUserProfile();
+      await fetchDashboardData(false);
+    };
 
-  const handleProfileUpdated = async () => {
-    extendedAnalyticsService.clearCache();
-    await fetchUserProfile();
-    await fetchDashboardData(false);
-  };
+    const handleAcademicDataUpdated = async () => {
+      console.log('📊 Academic data updated — refreshing everything');
 
-  const handleAcademicDataUpdated = async () => {
-    console.log('📊 Academic data updated — refreshing everything');
+      extendedAnalyticsService.clearCache();
+      invalidateAllCaches();
 
-    extendedAnalyticsService.clearCache();
-    invalidateAllCaches();
+      setPerformanceData(null);
+      setStudentData(null);
+      setDashboardStats(null);
+      setReadinessData(null);
 
-    setPerformanceData(null);
-    setStudentData(null);
-    setDashboardStats(null);
-    setReadinessData(null);
-
-    await fetchUserProfile();
-    await fetchDashboardData(true);
-    await fetchRecommendationStats();
-    await fetchReadiness();
-
-    toast.success('Dashboard updated with new academic data!');
-  };
-
-  // ✅ FIX: Accept Event, cast inside — no more "as EventListener"
-  const handleInterestsUpdated = async (event: Event) => {
-    const detail = (event as CustomEvent).detail;
-    console.log('🎯 Interests updated event received:', detail);
-
-    if (detail?.interests) {
-      setStudentInterests(detail.interests);
-    }
-
-    invalidateAllCaches();
-    setReadinessData(null);
-
-    setTimeout(async () => {
-      await fetchReadiness();
+      await fetchUserProfile();
+      await fetchDashboardData(true);
       await fetchRecommendationStats();
-    }, 500);
-  };
+      await fetchReadiness();
 
-  // ✅ FIX: Accept Event, cast inside
-  const handleProjectAnalysisComplete = (event: Event) => {
-    const detail = (event as CustomEvent<ComprehensiveAnalysis>).detail;
-    handleProjectAnalyzed(detail);
-  };
+      toast.success('Dashboard updated with new academic data!');
+    };
 
-  // ✅ No more "as EventListener" needed anywhere
-  window.addEventListener('profileSaved', handleProfileSaved);
-  window.addEventListener('profileUpdated', handleProfileUpdated);
-  window.addEventListener('academicDataUpdated', handleAcademicDataUpdated);
-  window.addEventListener('interestsUpdated', handleInterestsUpdated);
-  window.addEventListener('projectAnalysisComplete', handleProjectAnalysisComplete);
+    // Accept Event, cast inside
+    const handleInterestsUpdated = async (event: Event) => {
+      const detail = (event as CustomEvent).detail;
+      console.log('🎯 Interests updated event received:', detail);
 
-  return () => {
-    window.removeEventListener('profileSaved', handleProfileSaved);
-    window.removeEventListener('profileUpdated', handleProfileUpdated);
-    window.removeEventListener('academicDataUpdated', handleAcademicDataUpdated);
-    window.removeEventListener('interestsUpdated', handleInterestsUpdated);
-    window.removeEventListener('projectAnalysisComplete', handleProjectAnalysisComplete);
-  };
-}, [user, queryClient]);  // Effect 2: Fetch and sync interests
+      if (detail?.interests) {
+        setStudentInterests(detail.interests);
+      }
+
+      invalidateAllCaches();
+      setReadinessData(null);
+
+      setTimeout(async () => {
+        await fetchReadiness();
+        await fetchRecommendationStats();
+      }, 500);
+    };
+
+    // Accept Event, cast inside
+    const handleProjectAnalysisComplete = (event: Event) => {
+      const detail = (event as CustomEvent<ComprehensiveAnalysis>).detail;
+      handleProjectAnalyzed(detail);
+    };
+
+    window.addEventListener('profileSaved', handleProfileSaved);
+    window.addEventListener('profileUpdated', handleProfileUpdated);
+    window.addEventListener('academicDataUpdated', handleAcademicDataUpdated);
+    window.addEventListener('interestsUpdated', handleInterestsUpdated);
+    window.addEventListener('projectAnalysisComplete', handleProjectAnalysisComplete);
+
+    return () => {
+      window.removeEventListener('profileSaved', handleProfileSaved);
+      window.removeEventListener('profileUpdated', handleProfileUpdated);
+      window.removeEventListener('academicDataUpdated', handleAcademicDataUpdated);
+      window.removeEventListener('interestsUpdated', handleInterestsUpdated);
+      window.removeEventListener('projectAnalysisComplete', handleProjectAnalysisComplete);
+    };
+  }, [user, queryClient]);
+
+  // Effect 2: Fetch and sync interests
   useEffect(() => {
     const fetchAndSyncInterests = async () => {
       if (!user?.uid) return;
@@ -1020,7 +1023,7 @@ useEffect(() => {
   // ==================== Main Render ====================
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 flex">
       {/* Project Analysis Results Modal */}
       <AnimatePresence>
         {showProjectAnalysis && projectAnalysisResult && (
@@ -1035,6 +1038,18 @@ useEffect(() => {
           />
         )}
       </AnimatePresence>
+      {/* Mobile Backdrop Overlay */}
+      <AnimatePresence>
+        {sidebarOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 z-40 lg:hidden"
+            onClick={() => setSidebarOpen(false)}
+          />
+        )}
+      </AnimatePresence>
 
       {/* ==================== SIDEBAR ==================== */}
       <AnimatePresence>
@@ -1044,7 +1059,7 @@ useEffect(() => {
             animate={{ x: 0 }}
             exit={{ x: -300 }}
             transition={{ type: "spring", damping: 25 }}
-            className="fixed inset-y-0 left-0 z-50 w-72 bg-white shadow-2xl lg:relative lg:shadow-none"
+            className="fixed inset-y-0 left-0 z-50 w-72 bg-white shadow-2xl lg:relative lg:z-auto lg:shadow-none lg:border-r flex-shrink-0"
           >
             <div className="h-full flex flex-col">
               {/* Sidebar Header */}
@@ -1271,7 +1286,7 @@ useEffect(() => {
       </AnimatePresence>
 
       {/* ==================== MAIN CONTENT ==================== */}
-      <div className={`flex-1 ${sidebarOpen ? 'lg:ml-72' : ''}`}>
+      <div className={`flex-1 min-w-0 ${sidebarOpen ? 'lg:ml-72' : ''}`}>
         {/* Top Navigation */}
         <header className="bg-white shadow-sm border-b sticky top-0 z-40">
           <div className="px-4 sm:px-6 lg:px-8">
@@ -1292,7 +1307,7 @@ useEffect(() => {
                   {activeTab === 'electives' && 'AI-Powered Recommendations'}
                   {activeTab === 'weaknesses' && 'Weakness Analysis & Improvement'}
                   {activeTab === 'resources' && 'Smart Study Resources'}
-                  {activeTab === 'meetings' && 'Meeting Requests'}
+                  {activeTab === 'meetings' && (meetingsView === 'calendar' ? 'Meeting Calendar' : 'Meeting Requests')}
                   {activeTab === 'readiness' && 'Academic Readiness Analysis'}
                 </h1>
               </div>
@@ -1961,8 +1976,72 @@ useEffect(() => {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -20 }}
                 transition={{ duration: 0.3 }}
+                className="space-y-6"
               >
-                <StudentMeetingRequest />
+                {/* Sub-navigation: Requests | Calendar */}
+                <div className="flex gap-1 border-b border-gray-200 bg-white rounded-t-xl px-2 pt-2">
+                  <button
+                    onClick={() => setMeetingsView('requests')}
+                    className={`px-5 py-3 font-medium text-sm transition-colors relative rounded-t-lg ${
+                      meetingsView === 'requests'
+                        ? 'text-indigo-600 bg-indigo-50'
+                        : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+                    }`}
+                  >
+                    <span className="flex items-center gap-2">
+                      <FileText className="h-4 w-4" />
+                      Meeting Requests
+                    </span>
+                    {meetingsView === 'requests' && (
+                      <motion.div
+                        layoutId="meetingsSubTab"
+                        className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-600"
+                      />
+                    )}
+                  </button>
+                  <button
+                    onClick={() => setMeetingsView('calendar')}
+                    className={`px-5 py-3 font-medium text-sm transition-colors relative rounded-t-lg ${
+                      meetingsView === 'calendar'
+                        ? 'text-indigo-600 bg-indigo-50'
+                        : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+                    }`}
+                  >
+                    <span className="flex items-center gap-2">
+                      <Calendar className="h-4 w-4" />
+                      Calendar View
+                    </span>
+                    {meetingsView === 'calendar' && (
+                      <motion.div
+                        layoutId="meetingsSubTab"
+                        className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-600"
+                      />
+                    )}
+                  </button>
+                </div>
+
+                {/* Content */}
+                <AnimatePresence mode="wait">
+                  {meetingsView === 'requests' ? (
+                    <motion.div
+                      key="requests-view"
+                      initial={{ opacity: 0, x: -10 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      exit={{ opacity: 0, x: 10 }}
+                    >
+                      <StudentMeetingRequest />
+                    </motion.div>
+                  ) : (
+                    <motion.div
+                      key="calendar-view"
+                      initial={{ opacity: 0, x: 10 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      exit={{ opacity: 0, x: -10 }}
+                    >
+                      <MeetingsCalendar />
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </motion.div>
             )}
 
