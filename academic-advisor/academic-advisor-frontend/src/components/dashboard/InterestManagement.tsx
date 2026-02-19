@@ -1,4 +1,5 @@
 // src/components/dashboard/InterestManagement.tsx
+// COMPLETE REPLACEMENT
 
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -17,10 +18,13 @@ import {
   AlertCircle,
   TrendingUp,
   BookOpen,
-  Award
+  Award,
+  RefreshCw
 } from 'lucide-react';
 import { mlService, InterestProfile } from '../../services/ml.service';
+import { getWeaknessService } from '../../services/weakness.service';
 import { useAuth } from '../../contexts/AuthContext';
+import { useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 
 interface InterestManagementProps {
@@ -65,8 +69,10 @@ const SKILL_OPTIONS = [
 
 export const InterestManagement: React.FC<InterestManagementProps> = ({ onInterestsUpdated }) => {
   const { user } = useAuth();
+  const queryClient = useQueryClient();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [profile, setProfile] = useState<InterestProfile | null>(null);
   
   // Form state
@@ -78,6 +84,7 @@ export const InterestManagement: React.FC<InterestManagementProps> = ({ onIntere
   
   const [activeSection, setActiveSection] = useState<'interests' | 'careers' | 'skills'>('interests');
   const [showRecommendations, setShowRecommendations] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<string | null>(null);
 
   useEffect(() => {
     if (user?.uid) {
@@ -95,10 +102,28 @@ export const InterestManagement: React.FC<InterestManagementProps> = ({ onIntere
       setSelectedSkills(data.skills || []);
     } catch (error) {
       console.error('Error fetching interest profile:', error);
-      // Initialize with empty values
-      setSelectedInterests([]);
-      setSelectedCareerGoals([]);
-      setSelectedSkills([]);
+      
+      // Also try loading from weakness service
+      if (user?.uid) {
+        try {
+          const weaknessService = getWeaknessService();
+          const interestProfile = await weaknessService.getInterests(user.uid);
+          if (interestProfile.interests?.length) {
+            setSelectedInterests(interestProfile.interests);
+            setSelectedCareerGoals(interestProfile.career_goals || []);
+            setSelectedSkills(interestProfile.skills || []);
+          }
+        } catch (e) {
+          console.warn('Could not load from weakness service either:', e);
+        }
+      }
+      
+      // Initialize with empty values if both fail
+      if (selectedInterests.length === 0) {
+        setSelectedInterests([]);
+        setSelectedCareerGoals([]);
+        setSelectedSkills([]);
+      }
     } finally {
       setLoading(false);
     }
@@ -108,23 +133,76 @@ export const InterestManagement: React.FC<InterestManagementProps> = ({ onIntere
     try {
       setSaving(true);
       
-      await mlService.updateInterests(
-        selectedInterests,
-        selectedCareerGoals,
-        selectedSkills
-      );
+      // 1. Save to ML service (for recommendations tab)
+      try {
+        await mlService.updateInterests(
+          selectedInterests,
+          selectedCareerGoals,
+          selectedSkills
+        );
+        console.log('✅ Saved to ML service');
+      } catch (mlError) {
+        console.warn('⚠️ ML service save failed (non-critical):', mlError);
+      }
+      
+      // 2. CRITICAL: Save to weakness service's StudentInterestProfile
+      // This is what WeaknessAnalysis and ReadinessAnalysis actually read
+      if (user?.uid) {
+        try {
+          const weaknessService = getWeaknessService();
+          await weaknessService.updateInterests(user.uid, {
+            interests: selectedInterests,
+            career_goals: selectedCareerGoals,
+            skills: selectedSkills,
+            skill_levels: {},
+            interest_levels: {},
+          });
+          console.log('✅ Saved to StudentInterestProfile (weakness service)');
+          setSyncStatus('synced');
+        } catch (syncError) {
+          console.error('❌ Failed to sync to weakness service:', syncError);
+          setSyncStatus('failed');
+          
+          // Try the direct save endpoint as fallback
+          try {
+            const weaknessService = getWeaknessService();
+            await weaknessService.saveInterests(user.uid, selectedInterests);
+            console.log('✅ Saved interests via fallback endpoint');
+            setSyncStatus('synced');
+          } catch (fallbackError) {
+            console.error('❌ Fallback save also failed:', fallbackError);
+          }
+        }
+      }
+      
+      // 3. Invalidate ALL related React Query caches
+      // This ensures WeaknessAnalyzer and ReadinessAnalysis refetch with new interests
+      queryClient.invalidateQueries({ queryKey: ['weakness-analysis'] });
+      queryClient.invalidateQueries({ queryKey: ['student-interests'] });
+      queryClient.invalidateQueries({ queryKey: ['performance-metrics'] });
+      queryClient.invalidateQueries({ queryKey: ['study-resources'] });
+      queryClient.invalidateQueries({ queryKey: ['elective-recommendations'] });
       
       toast.success('Interests updated successfully!');
       
-      // Refresh profile
+      // 4. Refresh profile
       await fetchInterestProfile();
       
-      // Notify parent
+      // 5. Dispatch event so StudentDashboard knows to refresh readiness + weakness
+      window.dispatchEvent(new CustomEvent('interestsUpdated', { 
+        detail: { 
+          interests: selectedInterests, 
+          careerGoals: selectedCareerGoals,
+          skills: selectedSkills 
+        }
+      }));
+      
+      // 6. Notify parent component
       if (onInterestsUpdated) {
         onInterestsUpdated();
       }
       
-      // Show recommendations
+      // 7. Show recommendations
       setShowRecommendations(true);
       
     } catch (error) {
@@ -132,6 +210,34 @@ export const InterestManagement: React.FC<InterestManagementProps> = ({ onIntere
       toast.error('Failed to save interests');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleForceSync = async () => {
+    if (!user?.uid) return;
+    
+    setSyncing(true);
+    try {
+      const weaknessService = getWeaknessService();
+      const result = await weaknessService.syncInterests(user.uid);
+      
+      if (result.status === 'success' && result.interests?.length) {
+        setSelectedInterests(result.interests);
+        toast.success(`Synced ${result.interests.length} interests from ${result.sources?.join(', ') || 'all sources'}`);
+        
+        // Invalidate caches
+        queryClient.invalidateQueries({ queryKey: ['weakness-analysis'] });
+        queryClient.invalidateQueries({ queryKey: ['student-interests'] });
+      } else if (result.status === 'no_interests') {
+        toast('No interests found in any source. Please select your interests above.', { icon: 'ℹ️' });
+      } else {
+        toast.error('Sync failed. Please save your interests first.');
+      }
+    } catch (error) {
+      console.error('Sync error:', error);
+      toast.error('Failed to sync interests');
+    } finally {
+      setSyncing(false);
     }
   };
 
@@ -196,10 +302,21 @@ export const InterestManagement: React.FC<InterestManagementProps> = ({ onIntere
               Tell us what excites you for personalized recommendations
             </p>
           </div>
-          <div className="bg-white/20 rounded-lg p-3">
-            <div className="text-center">
-              <p className="text-xs text-purple-100">Profile Complete</p>
-              <p className="text-2xl font-bold">{profile?.profile_completeness || 0}%</p>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleForceSync}
+              disabled={syncing}
+              className="px-3 py-2 bg-white/20 rounded-lg hover:bg-white/30 flex items-center gap-2 text-sm"
+              title="Sync interests from all sources"
+            >
+              <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
+              {syncing ? 'Syncing...' : 'Sync'}
+            </button>
+            <div className="bg-white/20 rounded-lg p-3">
+              <div className="text-center">
+                <p className="text-xs text-purple-100">Profile Complete</p>
+                <p className="text-2xl font-bold">{profile?.profile_completeness || 0}%</p>
+              </div>
             </div>
           </div>
         </div>
@@ -213,6 +330,19 @@ export const InterestManagement: React.FC<InterestManagementProps> = ({ onIntere
             />
           </div>
         </div>
+        
+        {/* Sync status indicator */}
+        {syncStatus && (
+          <div className={`mt-3 flex items-center gap-2 text-sm ${
+            syncStatus === 'synced' ? 'text-green-200' : 'text-yellow-200'
+          }`}>
+            {syncStatus === 'synced' ? (
+              <><CheckCircle className="w-4 h-4" /> Interests synced to all services</>
+            ) : (
+              <><AlertCircle className="w-4 h-4" /> Sync incomplete — weakness analysis may use cached data</>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Section Tabs */}
@@ -448,6 +578,22 @@ export const InterestManagement: React.FC<InterestManagementProps> = ({ onIntere
         )}
       </AnimatePresence>
 
+      {/* Info Banner about sync */}
+      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+        <div className="flex items-start gap-2">
+          <AlertCircle className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" />
+          <div>
+            <p className="font-medium text-blue-900">How interests affect your dashboard</p>
+            <ul className="mt-1 text-sm text-blue-700 space-y-1">
+              <li>• <strong>Weakness Analysis:</strong> Shows gaps in subjects required for your interests</li>
+              <li>• <strong>Readiness Analysis:</strong> Scores how prepared you are for chosen electives/honours</li>
+              <li>• <strong>AI Recommendations:</strong> Suggests electives and career paths matching your interests</li>
+              <li>• <strong>Study Resources:</strong> Curated materials for your weak areas</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
       {/* Save Button */}
       <div className="flex justify-end">
         <button
@@ -458,7 +604,7 @@ export const InterestManagement: React.FC<InterestManagementProps> = ({ onIntere
           {saving ? (
             <>
               <Loader2 className="w-5 h-5 animate-spin" />
-              Saving...
+              Saving & Syncing...
             </>
           ) : (
             <>

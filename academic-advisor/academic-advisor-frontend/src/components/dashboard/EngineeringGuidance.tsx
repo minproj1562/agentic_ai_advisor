@@ -1,4 +1,4 @@
-// src/components/dashboard/EngineeringGuidance.tsx - FIXED VERSION (NO DARK MODE)
+// src/components/dashboard/EngineeringGuidance.tsx - COMPLETE FIXED VERSION
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
@@ -45,8 +45,8 @@ const extractWeaknessMetadata = (data: any) => {
     highCount: 0,
     mediumCount: 0,
     lowCount: 0,
-    priorityAreas: [],
-    keyInsights: []
+    priorityAreas: [] as string[],
+    keyInsights: [] as string[]
   };
 
   if (!data) return defaultMeta;
@@ -507,28 +507,226 @@ const LearningContext = React.createContext<LearningContextType>({
 });
 
 export const useLearningContext = () => React.useContext(LearningContext);
-
-
 // ============== WEAKNESS ANALYZER COMPONENT ==============
+// Replace the entire WeaknessAnalyzer component with this:
 
 interface WeaknessAnalyzerProps {
   onStartLearning?: (topicId: string, subject: string) => void;
+  interests?: string[];
+  electives?: string[];
 }
 
-export const WeaknessAnalyzer: React.FC<WeaknessAnalyzerProps> = ({ onStartLearning }) => {
+export const WeaknessAnalyzer: React.FC<WeaknessAnalyzerProps> = ({ 
+  onStartLearning,
+  interests: propInterests,
+  electives: propElectives
+}) => {
   const { data: metrics } = usePerformanceMetrics();
-  const { data: rawWeaknessData, isLoading, refetch, error } = useWeaknessAnalysis();
+  
+  // Props > metrics fallback for interests
+  const interests = useMemo(() => {
+    if (propInterests && propInterests.length > 0) return propInterests;
+    if (metrics?.interests && metrics.interests.length > 0) return metrics.interests;
+    return [];
+  }, [propInterests, metrics?.interests]);
+
+  const electives = useMemo(() => {
+    if (propElectives && propElectives.length > 0) return propElectives;
+    return [];
+  }, [propElectives]);
+
+  const analysisParams = useMemo(() => {
+    const params: { interests?: string[]; electives?: string[] } = {};
+    if (interests.length > 0) params.interests = interests;
+    if (electives.length > 0) params.electives = electives;
+    return Object.keys(params).length > 0 ? params : undefined;
+  }, [interests, electives]);
+
+  // ===== Source 1: Existing hook-based weakness analysis =====
+  const { data: rawWeaknessData, isLoading: hookLoading, refetch: hookRefetch, error: hookError } = useWeaknessAnalysis(analysisParams);
+
+  // ===== Source 2: Academic Recommendations API (same as AcademicInsights) =====
+  const [academicData, setAcademicData] = useState<any>(null);
+  const [academicLoading, setAcademicLoading] = useState(true);
+  const [academicError, setAcademicError] = useState<string | null>(null);
+  const [needsSetup, setNeedsSetup] = useState(false);
+
   const trackActivity = useTrackActivity();
 
-  const weaknesses = useMemo(() => {
+  // Fetch academic recommendations (same API as AcademicInsights)
+  const fetchAcademicWeaknesses = useCallback(async () => {
+    try {
+      setAcademicLoading(true);
+      setAcademicError(null);
+      setNeedsSetup(false);
+
+      const { mlService } = await import('../../services/ml.service');
+      const data = await mlService.getAcademicRecommendations();
+      setAcademicData(data);
+      console.log('✅ WeaknessAnalyzer: Academic recommendations loaded', {
+        weaknesses: data.weaknesses?.length || 0,
+        actions: data.curriculum_recommendations?.immediate_actions?.length || 0,
+        focus: data.curriculum_recommendations?.focus_areas?.length || 0
+      });
+    } catch (err: any) {
+      console.error('WeaknessAnalyzer: Error fetching academic recommendations:', err);
+      if (err.message?.includes('profile') || err.message?.includes('not found') || err.response?.status === 404) {
+        setNeedsSetup(true);
+      } else {
+        setAcademicError(err.message || 'Failed to load academic analysis');
+      }
+    } finally {
+      setAcademicLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchAcademicWeaknesses();
+
+    const handleUpdate = () => fetchAcademicWeaknesses();
+    window.addEventListener('academicDataUpdated', handleUpdate);
+    window.addEventListener('profileSaved', handleUpdate);
+    return () => {
+      window.removeEventListener('academicDataUpdated', handleUpdate);
+      window.removeEventListener('profileSaved', handleUpdate);
+    };
+  }, [fetchAcademicWeaknesses]);
+
+  // ===== Merge both data sources =====
+  const hookWeaknesses = useMemo(() => {
     const normalized = normalizeWeaknessData(rawWeaknessData);
     return normalized.map((item, index) => transformWeaknessItem(item, index));
   }, [rawWeaknessData]);
 
-  const metadata = useMemo(() => {
+  const hookMetadata = useMemo(() => {
     return extractWeaknessMetadata(rawWeaknessData);
   }, [rawWeaknessData]);
 
+  // Academic weaknesses from AcademicInsights API
+  const academicWeaknesses = useMemo(() => {
+    if (!academicData?.weaknesses) return [];
+    return academicData.weaknesses;
+  }, [academicData]);
+
+  const immediateActions = useMemo(() => {
+    return academicData?.curriculum_recommendations?.immediate_actions || [];
+  }, [academicData]);
+
+  const focusAreas = useMemo(() => {
+    return academicData?.curriculum_recommendations?.focus_areas || [];
+  }, [academicData]);
+
+  const studentInfo = useMemo(() => {
+    return academicData?.student_info || null;
+  }, [academicData]);
+
+  // Merge: deduplicate by subject name, prefer academic data (richer)
+  const mergedWeaknesses = useMemo(() => {
+    const seenSubjects = new Set<string>();
+    const merged: any[] = [];
+
+    // First: add all academic weaknesses (richer data, same source as AcademicInsights)
+    academicWeaknesses.forEach((aw: any, index: number) => {
+      const key = (aw.subject || '').toLowerCase().trim();
+      if (key && !seenSubjects.has(key)) {
+        seenSubjects.add(key);
+        merged.push({
+          id: `academic-weakness-${index}`,
+          subject: aw.subject,
+          subjectCode: aw.subject_code || `AW${index}`,
+          semester: 'Current',
+          overallScore: aw.average_score || 0,
+          targetScore: (aw.average_score || 0) + (aw.gap || 20),
+          severity: aw.severity || 'medium',
+          confidence: aw.confidence || 0.8,
+          gapPercentage: aw.gap || 0,
+          estimatedTime: aw.improvement_plan?.timeline || '4-6 weeks',
+          source: 'academic', // tag so we know where it came from
+          topics: aw.topics?.length > 0
+            ? aw.topics.map((t: string, tidx: number) => ({
+                id: `aw-topic-${index}-${tidx}`,
+                name: t,
+                currentScore: aw.average_score || 0,
+                targetScore: (aw.average_score || 0) + (aw.gap || 20),
+                severity: aw.severity || 'medium',
+                improvement: `+${aw.gap || 20}%`,
+                examWeight: '—',
+                resources: aw.resources?.length || 2,
+                timeEstimate: aw.improvement_plan?.timeline || '2-3 hours',
+                relatedTopics: []
+              }))
+            : [{
+                id: `aw-topic-${index}-0`,
+                name: aw.subject,
+                currentScore: aw.average_score || 0,
+                targetScore: (aw.average_score || 0) + (aw.gap || 20),
+                severity: aw.severity || 'medium',
+                improvement: `+${aw.gap || 20}%`,
+                examWeight: '—',
+                resources: 2,
+                timeEstimate: '2-3 hours',
+                relatedTopics: []
+              }],
+          improvementSuggestions: aw.improvement_plan?.steps || [],
+          recommendedResources: (aw.resources || []).map((r: any) =>
+            typeof r === 'string' ? { title: r, url: '#', platform: 'Online' } : r
+          ),
+          impactOnInterest: interests.some(i =>
+            (aw.subject || '').toLowerCase().includes(i.toLowerCase())
+          )
+            ? `Directly related to your interest in "${interests.find(i => (aw.subject || '').toLowerCase().includes(i.toLowerCase()))}"`
+            : null,
+          impactOnElective: null,
+          impactOnCareer: null,
+          aiAnalysis: {
+            rootCause: `Performance gap of ${aw.gap?.toFixed(1) || 0}% detected in ${aw.subject}`,
+            studyStrategy: aw.improvement_plan?.steps?.[0] || 'Focus on fundamentals and practice regularly',
+            estimatedImprovementTime: aw.improvement_plan?.timeline || '4-6 weeks'
+          }
+        });
+      }
+    });
+
+    // Then: add hook-based weaknesses that aren't already present
+    hookWeaknesses.forEach((hw: any) => {
+      const key = (hw.subject || '').toLowerCase().trim();
+      if (key && !seenSubjects.has(key)) {
+        seenSubjects.add(key);
+        merged.push({ ...hw, source: 'hook' });
+      }
+    });
+
+    return merged;
+  }, [academicWeaknesses, hookWeaknesses, interests]);
+
+  // Severity counts from merged data
+  const severityCounts = useMemo(() => ({
+    critical: mergedWeaknesses.filter(w => w.severity === 'critical').length,
+    high: mergedWeaknesses.filter(w => w.severity === 'high').length,
+    medium: mergedWeaknesses.filter(w => w.severity === 'medium').length,
+    low: mergedWeaknesses.filter(w => w.severity === 'low').length
+  }), [mergedWeaknesses]);
+
+  const overallRiskScore = useMemo(() => {
+    if (hookMetadata.overallRiskScore > 0) return hookMetadata.overallRiskScore;
+    // Compute from merged weaknesses
+    if (mergedWeaknesses.length === 0) return 0;
+    const severityWeights: Record<string, number> = { critical: 25, high: 15, medium: 8, low: 3 };
+    return Math.min(100, mergedWeaknesses.reduce((sum, w) =>
+      sum + (severityWeights[w.severity] || 5), 0
+    ));
+  }, [hookMetadata, mergedWeaknesses]);
+
+  const averageGap = useMemo(() => {
+    if (mergedWeaknesses.length === 0) return 0;
+    return mergedWeaknesses.reduce((sum, w) => sum + (w.gapPercentage || 0), 0) / mergedWeaknesses.length;
+  }, [mergedWeaknesses]);
+
+  // Combined loading state
+  const isLoading = hookLoading && academicLoading;
+  const hasAnyData = mergedWeaknesses.length > 0 || immediateActions.length > 0 || focusAreas.length > 0;
+
+  // ===== Helpers =====
   const getTrendIcon = (score: number, targetScore: number) => {
     if (score >= targetScore) return <CheckCircle className="w-5 h-5 text-green-500" />;
     if (score >= targetScore * 0.8) return <TrendingUp className="w-5 h-5 text-yellow-500" />;
@@ -553,16 +751,8 @@ export const WeaknessAnalyzer: React.FC<WeaknessAnalyzerProps> = ({ onStartLearn
   };
 
   const handleStartLearning = (topicId: string, subject: string) => {
-    trackActivity.mutate({
-      type: 'topic_completed',
-      topicId
-    });
-    
-    // Call the callback to notify parent
-    if (onStartLearning) {
-      onStartLearning(topicId, subject);
-    }
-    
+    trackActivity.mutate({ type: 'topic_completed', topicId });
+    if (onStartLearning) onStartLearning(topicId, subject);
     toast.success(`📚 Study plan for "${subject}" created! Scroll down to Resources.`, {
       duration: 4000,
       icon: '🎯'
@@ -571,20 +761,24 @@ export const WeaknessAnalyzer: React.FC<WeaknessAnalyzerProps> = ({ onStartLearn
 
   const handleRefresh = async () => {
     try {
-      await refetch();
+      await Promise.all([
+        hookRefetch(),
+        fetchAcademicWeaknesses()
+      ]);
       toast.success('Weakness analysis refreshed!');
     } catch (err) {
       toast.error('Failed to refresh analysis');
     }
   };
 
+  // ===== Loading =====
   if (isLoading) {
     return (
       <div className="bg-white rounded-2xl shadow-lg border border-purple-100 p-6">
         <div className="animate-pulse space-y-4">
           <div className="h-8 bg-gray-200 rounded w-1/2"></div>
           <div className="h-24 bg-purple-100 rounded-xl"></div>
-          {[1, 2].map((i) => (
+          {[1, 2].map(i => (
             <div key={i} className="h-48 bg-gray-100 rounded-xl"></div>
           ))}
         </div>
@@ -592,7 +786,32 @@ export const WeaknessAnalyzer: React.FC<WeaknessAnalyzerProps> = ({ onStartLearn
     );
   }
 
-  if (error) {
+  // ===== Needs Setup =====
+  if (needsSetup && !hasAnyData) {
+    return (
+      <div className="bg-gradient-to-r from-yellow-50 to-orange-50 border border-yellow-200 rounded-2xl p-8">
+        <div className="flex flex-col items-center text-center">
+          <div className="p-4 bg-yellow-100 rounded-full mb-4">
+            <GraduationCap className="w-10 h-10 text-yellow-600" />
+          </div>
+          <h3 className="text-xl font-semibold text-yellow-900 mb-2">Academic Profile Required</h3>
+          <p className="text-yellow-700 mb-6 max-w-md">
+            Add your academic details and semester scores to unlock AI-powered weakness analysis and improvement recommendations.
+          </p>
+          <button
+            onClick={() => window.dispatchEvent(new CustomEvent('navigateToAcademic'))}
+            className="px-6 py-3 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-colors flex items-center gap-2"
+          >
+            <GraduationCap className="w-5 h-5" />
+            Setup Academic Profile
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ===== Error =====
+  if (hookError && academicError && !hasAnyData) {
     return (
       <div className="bg-white rounded-2xl shadow-lg border border-red-100 p-6">
         <div className="flex items-center gap-3 mb-4">
@@ -600,27 +819,34 @@ export const WeaknessAnalyzer: React.FC<WeaknessAnalyzerProps> = ({ onStartLearn
           <h2 className="text-xl font-bold text-gray-900">Error Loading Analysis</h2>
         </div>
         <p className="text-gray-600 mb-4">Unable to load weakness analysis. Please try again.</p>
-        <button
-          onClick={handleRefresh}
-          className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg"
-        >
+        <button onClick={handleRefresh} className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg">
           Retry
         </button>
       </div>
     );
   }
 
+  // ==================== MAIN RENDER ====================
   return (
     <div className="bg-white rounded-2xl shadow-lg border border-purple-100 p-6">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
-          <div className="bg-gradient-to-br from-purple-500 to-purple-600 p-3 rounded-xl">
+          <div className="bg-gradient-to-br from-orange-500 to-red-600 p-3 rounded-xl">
             <AlertCircle className="text-white" size={24} />
           </div>
           <div>
             <h2 className="text-2xl font-bold text-gray-900">AI Weakness Analysis & Improvement Roadmap</h2>
-            <p className="text-gray-500 text-sm">Personalized study plans based on performance data</p>
+            <p className="text-gray-500 text-sm">
+              {interests.length > 0
+                ? `Based on your interests: ${interests.slice(0, 3).join(', ')}${interests.length > 3 ? '...' : ''}`
+                : 'Personalized analysis based on your academic performance'}
+              {studentInfo && (
+                <span className="ml-2 text-purple-600 font-medium">
+                  • CGPA: {studentInfo.cgpa?.toFixed(2)} • {studentInfo.branch} Sem {studentInfo.semester}
+                </span>
+              )}
+            </p>
           </div>
         </div>
         <button
@@ -632,47 +858,102 @@ export const WeaknessAnalyzer: React.FC<WeaknessAnalyzerProps> = ({ onStartLearn
         </button>
       </div>
 
-      {/* Risk Score Summary */}
-      {metadata.totalWeaknesses > 0 && (
+      {/* ===== Severity Summary Cards ===== */}
+      {mergedWeaknesses.length > 0 && (
         <div className="bg-gradient-to-r from-purple-50 to-orange-50 border border-purple-200 rounded-xl p-4 mb-6">
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-            <div className={cn('rounded-lg p-3 text-center', getRiskColor(metadata.overallRiskScore))}>
+          <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
+            <div className={cn('rounded-lg p-3 text-center', getRiskColor(overallRiskScore))}>
               <p className="text-xs font-medium mb-1">Risk Score</p>
-              <p className="text-2xl font-bold">{metadata.overallRiskScore.toFixed(0)}%</p>
+              <p className="text-2xl font-bold">{overallRiskScore.toFixed(0)}%</p>
             </div>
-            <div className="bg-red-50 rounded-lg p-3 text-center">
+            <div className="bg-white rounded-lg p-3 text-center border">
+              <p className="text-xs text-gray-600 font-medium mb-1">Total</p>
+              <p className="text-2xl font-bold text-gray-900">{mergedWeaknesses.length}</p>
+            </div>
+            <div className="bg-red-50 rounded-lg p-3 text-center border border-red-100">
               <p className="text-xs text-red-600 font-medium mb-1">Critical</p>
-              <p className="text-2xl font-bold text-red-700">{metadata.criticalCount}</p>
+              <p className="text-2xl font-bold text-red-700">{severityCounts.critical}</p>
             </div>
-            <div className="bg-orange-50 rounded-lg p-3 text-center">
+            <div className="bg-orange-50 rounded-lg p-3 text-center border border-orange-100">
               <p className="text-xs text-orange-600 font-medium mb-1">High</p>
-              <p className="text-2xl font-bold text-orange-700">{metadata.highCount}</p>
+              <p className="text-2xl font-bold text-orange-700">{severityCounts.high}</p>
             </div>
-            <div className="bg-yellow-50 rounded-lg p-3 text-center">
+            <div className="bg-yellow-50 rounded-lg p-3 text-center border border-yellow-100">
               <p className="text-xs text-yellow-600 font-medium mb-1">Medium</p>
-              <p className="text-2xl font-bold text-yellow-700">{metadata.mediumCount}</p>
+              <p className="text-2xl font-bold text-yellow-700">{severityCounts.medium}</p>
             </div>
-            <div className="bg-green-50 rounded-lg p-3 text-center">
-              <p className="text-xs text-green-600 font-medium mb-1">Low</p>
-              <p className="text-2xl font-bold text-green-700">{metadata.lowCount}</p>
+            <div className="bg-green-50 rounded-lg p-3 text-center border border-green-100">
+              <p className="text-xs text-green-600 font-medium mb-1">Avg Gap</p>
+              <p className="text-2xl font-bold text-green-700">{averageGap.toFixed(1)}%</p>
             </div>
           </div>
         </div>
       )}
 
-      {/* Priority Areas */}
-      {metadata.priorityAreas.length > 0 && (
+      {/* ===== Immediate Actions (from Academic Recommendations) ===== */}
+      {immediateActions.length > 0 && (
+        <div className="mb-6">
+          <h3 className="text-lg font-semibold text-gray-900 mb-3 flex items-center gap-2">
+            <Zap className="w-5 h-5 text-red-500" />
+            Immediate Actions Required
+          </h3>
+          <div className="space-y-2">
+            {immediateActions.map((action: any, index: number) => (
+              <motion.div
+                key={index}
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: index * 0.1 }}
+                className={cn(
+                  'p-4 rounded-lg border-l-4',
+                  action.priority === 'critical'
+                    ? 'border-red-500 bg-red-50'
+                    : action.priority === 'high'
+                    ? 'border-orange-500 bg-orange-50'
+                    : 'border-yellow-500 bg-yellow-50'
+                )}
+              >
+                <div className="flex items-start justify-between">
+                  <div className="flex-1">
+                    <p className="font-medium text-gray-900">{action.action}</p>
+                    {action.reason && (
+                      <p className="text-sm text-gray-600 mt-1">{action.reason}</p>
+                    )}
+                    {action.subjects && action.subjects.length > 0 && (
+                      <div className="flex flex-wrap gap-1 mt-2">
+                        {action.subjects.map((subj: string, i: number) => (
+                          <span key={i} className="px-2 py-0.5 bg-white/70 rounded text-xs font-medium text-gray-700 border">
+                            {subj}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <span className={cn(
+                    'text-xs font-bold uppercase px-2 py-1 rounded ml-3',
+                    action.priority === 'critical' ? 'bg-red-200 text-red-800'
+                      : action.priority === 'high' ? 'bg-orange-200 text-orange-800'
+                      : 'bg-yellow-200 text-yellow-800'
+                  )}>
+                    {action.priority}
+                  </span>
+                </div>
+              </motion.div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ===== Priority Areas ===== */}
+      {hookMetadata.priorityAreas.length > 0 && (
         <div className="mb-6">
           <h3 className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
             <AlertTriangle className="w-4 h-4 text-orange-500" />
             Priority Areas
           </h3>
           <div className="flex flex-wrap gap-2">
-            {metadata.priorityAreas.map((area: string, idx: number) => (
-              <span 
-                key={idx} 
-                className="bg-orange-100 text-orange-700 px-3 py-1 rounded-full text-sm font-medium"
-              >
+            {hookMetadata.priorityAreas.map((area: string, idx: number) => (
+              <span key={idx} className="bg-orange-100 text-orange-700 px-3 py-1 rounded-full text-sm font-medium">
                 {area}
               </span>
             ))}
@@ -680,15 +961,15 @@ export const WeaknessAnalyzer: React.FC<WeaknessAnalyzerProps> = ({ onStartLearn
         </div>
       )}
 
-      {/* Key Insights */}
-      {metadata.keyInsights.length > 0 && (
+      {/* ===== Key Insights ===== */}
+      {hookMetadata.keyInsights.length > 0 && (
         <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4 mb-6">
           <h3 className="text-sm font-semibold text-indigo-900 mb-2 flex items-center gap-2">
             <Lightbulb className="w-4 h-4 text-indigo-500" />
             Key Insights
           </h3>
           <ul className="space-y-2">
-            {metadata.keyInsights.map((insight: string, idx: number) => (
+            {hookMetadata.keyInsights.map((insight: string, idx: number) => (
               <li key={idx} className="text-sm text-indigo-700 flex items-start gap-2">
                 <ChevronRight className="w-4 h-4 mt-0.5 flex-shrink-0" />
                 {insight}
@@ -698,30 +979,36 @@ export const WeaknessAnalyzer: React.FC<WeaknessAnalyzerProps> = ({ onStartLearn
         </div>
       )}
 
-      {/* Performance Summary */}
+      {/* ===== Performance Summary ===== */}
       <div className="bg-purple-50 border border-purple-200 rounded-xl p-4 mb-6">
         <div className="flex items-center justify-between flex-wrap gap-4">
           <div>
             <p className="text-sm text-purple-600 font-medium mb-1">📊 Current Performance</p>
-            <p className="text-2xl font-bold text-purple-700">CGPA: {metrics?.overallCGPA || 'N/A'}</p>
-          </div>
-          <div className="text-right">
-            <p className="text-sm text-purple-600 font-medium mb-1">🎯 Potential CGPA</p>
-            <p className="text-2xl font-bold text-green-600">
-              {metrics?.overallCGPA ? ((metrics.overallCGPA) + 0.7).toFixed(1) : 'N/A'}+ achievable
+            <p className="text-2xl font-bold text-purple-700">
+              CGPA: {studentInfo?.cgpa?.toFixed(2) || metrics?.overallCGPA || 'N/A'}
             </p>
           </div>
-          <div className="text-center">
-            <p className="text-sm text-gray-600 mb-1">📈 Improvement</p>
-            <p className="text-xl font-bold text-orange-600">+0.7 points</p>
-          </div>
+          {(studentInfo?.cgpa || metrics?.overallCGPA) && (
+            <>
+              <div className="text-right">
+                <p className="text-sm text-purple-600 font-medium mb-1">🎯 Potential CGPA</p>
+                <p className="text-2xl font-bold text-green-600">
+                  {(((studentInfo?.cgpa || metrics?.overallCGPA || 7) as number) + 0.7).toFixed(1)}+ achievable
+                </p>
+              </div>
+              <div className="text-center">
+                <p className="text-sm text-gray-600 mb-1">📈 Total Weaknesses</p>
+                <p className="text-xl font-bold text-orange-600">{mergedWeaknesses.length} subjects</p>
+              </div>
+            </>
+          )}
         </div>
       </div>
 
-      {/* Weakness List */}
+      {/* ===== Merged Weakness List ===== */}
       <div className="space-y-6">
         <AnimatePresence>
-          {weaknesses.map((weak, idx) => (
+          {mergedWeaknesses.map((weak, idx) => (
             <motion.div
               key={weak.id}
               initial={{ opacity: 0, y: 20 }}
@@ -729,6 +1016,16 @@ export const WeaknessAnalyzer: React.FC<WeaknessAnalyzerProps> = ({ onStartLearn
               transition={{ delay: idx * 0.1 }}
               className="bg-gradient-to-r from-purple-50 to-white rounded-xl p-5 border border-purple-200"
             >
+              {/* Source badge */}
+              {weak.source === 'academic' && (
+                <div className="flex items-center gap-2 mb-3">
+                  <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded text-xs font-semibold flex items-center gap-1">
+                    <Brain className="w-3 h-3" />
+                    From Academic Analysis
+                  </span>
+                </div>
+              )}
+
               <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
                 <div>
                   <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
@@ -747,10 +1044,10 @@ export const WeaknessAnalyzer: React.FC<WeaknessAnalyzerProps> = ({ onStartLearn
                     'px-3 py-1 rounded-full text-sm font-semibold mb-1 border',
                     getSeverityColor(weak.severity)
                   )}>
-                    {weak.severity?.toUpperCase()} - {weak.overallScore}%
+                    {weak.severity?.toUpperCase()} — {weak.overallScore?.toFixed?.(1) || weak.overallScore}%
                   </div>
                   <p className="text-xs text-gray-500">
-                    {weak.topics?.length || 1} topic(s) need attention
+                    Gap: {weak.gapPercentage?.toFixed?.(1) || weak.gapPercentage}%
                   </p>
                 </div>
               </div>
@@ -759,7 +1056,7 @@ export const WeaknessAnalyzer: React.FC<WeaknessAnalyzerProps> = ({ onStartLearn
               {(weak.impactOnInterest || weak.impactOnElective || weak.impactOnCareer) && (
                 <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4">
                   <p className="text-sm text-blue-700">
-                    <strong>Impact:</strong> {weak.impactOnInterest || weak.impactOnElective || weak.impactOnCareer}
+                    <strong>💡 Impact:</strong> {weak.impactOnInterest || weak.impactOnElective || weak.impactOnCareer}
                   </p>
                 </div>
               )}
@@ -771,14 +1068,14 @@ export const WeaknessAnalyzer: React.FC<WeaknessAnalyzerProps> = ({ onStartLearn
                     <Brain className="w-5 h-5 text-indigo-600 flex-shrink-0 mt-0.5" />
                     <div>
                       <h4 className="font-semibold text-indigo-900 mb-2">AI Analysis</h4>
-                      <p className="text-sm text-indigo-700 mb-2">
+                      <p className="text-sm text-indigo-700 mb-1">
                         <strong>Root Cause:</strong> {weak.aiAnalysis.rootCause}
                       </p>
-                      <p className="text-sm text-indigo-700 mb-2">
+                      <p className="text-sm text-indigo-700 mb-1">
                         <strong>Strategy:</strong> {weak.aiAnalysis.studyStrategy}
                       </p>
                       <p className="text-xs text-indigo-600">
-                        ⏱️ Estimated improvement time: {weak.aiAnalysis.estimatedImprovementTime}
+                        ⏱️ Estimated improvement: {weak.aiAnalysis.estimatedImprovementTime}
                       </p>
                     </div>
                   </div>
@@ -790,19 +1087,21 @@ export const WeaknessAnalyzer: React.FC<WeaknessAnalyzerProps> = ({ onStartLearn
                 <div className="mb-4">
                   <h4 className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
                     <Lightbulb className="w-4 h-4 text-yellow-500" />
-                    Improvement Suggestions
+                    Improvement Steps
                   </h4>
                   <ul className="space-y-1">
-                    {weak.improvementSuggestions.slice(0, 4).map((suggestion: string, sidx: number) => (
+                    {weak.improvementSuggestions.slice(0, 5).map((suggestion: string, sidx: number) => (
                       <li key={sidx} className="text-sm text-gray-600 flex items-start gap-2">
-                        <CheckCircle className="w-4 h-4 text-green-500 mt-0.5 flex-shrink-0" />
+                        <div className="mt-1 w-5 h-5 rounded-full bg-blue-100 text-blue-600 text-xs flex items-center justify-center font-bold flex-shrink-0">
+                          {sidx + 1}
+                        </div>
                         {suggestion}
                       </li>
                     ))}
                   </ul>
                 </div>
               )}
-              
+
               {/* Topics */}
               <div className="space-y-3">
                 {weak.topics?.map((topic: any, tidx: number) => (
@@ -813,7 +1112,7 @@ export const WeaknessAnalyzer: React.FC<WeaknessAnalyzerProps> = ({ onStartLearn
                         <span className={cn('px-3 py-1 rounded-full text-xs font-semibold border', getSeverityColor(topic.severity))}>
                           {topic.severity?.toUpperCase()}
                         </span>
-                        {topic.examWeight && (
+                        {topic.examWeight && topic.examWeight !== '—' && (
                           <span className="bg-blue-50 text-blue-700 px-2 py-1 rounded text-xs font-medium">
                             📝 Exam: {topic.examWeight}
                           </span>
@@ -830,19 +1129,19 @@ export const WeaknessAnalyzer: React.FC<WeaknessAnalyzerProps> = ({ onStartLearn
 
                     <div className="mb-3">
                       <div className="flex justify-between text-xs text-gray-600 mb-1">
-                        <span>Current: {topic.currentScore}%</span>
-                        <span>Target: {topic.targetScore}%</span>
+                        <span>Current: {topic.currentScore?.toFixed?.(1) || topic.currentScore}%</span>
+                        <span>Target: {topic.targetScore?.toFixed?.(1) || topic.targetScore}%</span>
                       </div>
                       <div className="w-full bg-gray-200 rounded-full h-2.5 relative overflow-hidden">
-                        <motion.div 
+                        <motion.div
                           initial={{ width: 0 }}
-                          animate={{ width: `${topic.currentScore}%` }}
-                          transition={{ duration: 1, ease: "easeOut" }}
+                          animate={{ width: `${Math.min(topic.currentScore, 100)}%` }}
+                          transition={{ duration: 1, ease: 'easeOut' }}
                           className="h-2.5 rounded-full bg-gradient-to-r from-purple-500 to-purple-600"
                         />
-                        <div 
+                        <div
                           className="absolute top-0 h-2.5 w-0.5 bg-green-500"
-                          style={{ left: `${topic.targetScore}%` }}
+                          style={{ left: `${Math.min(topic.targetScore, 100)}%` }}
                         />
                       </div>
                     </div>
@@ -859,7 +1158,7 @@ export const WeaknessAnalyzer: React.FC<WeaknessAnalyzerProps> = ({ onStartLearn
                         </div>
                       </div>
                     )}
-                    
+
                     <div className="flex items-center justify-between flex-wrap gap-2">
                       <div className="flex items-center gap-4 text-sm text-gray-600">
                         <span className="flex items-center gap-1">
@@ -871,7 +1170,7 @@ export const WeaknessAnalyzer: React.FC<WeaknessAnalyzerProps> = ({ onStartLearn
                           {topic.timeEstimate}
                         </span>
                       </div>
-                      <button 
+                      <button
                         onClick={() => handleStartLearning(topic.id, weak.subject)}
                         className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors flex items-center gap-2"
                       >
@@ -893,13 +1192,15 @@ export const WeaknessAnalyzer: React.FC<WeaknessAnalyzerProps> = ({ onStartLearn
                     {weak.recommendedResources.slice(0, 3).map((resource: any, ridx: number) => (
                       <a
                         key={ridx}
-                        href={resource.url}
+                        href={resource.url || '#'}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="flex items-center gap-2 px-3 py-2 bg-white border border-purple-200 rounded-lg hover:border-purple-400 hover:shadow-sm transition-all text-sm"
                       >
                         <span className="text-gray-900">{resource.title}</span>
-                        <span className="text-xs text-gray-500">({resource.platform})</span>
+                        {resource.platform && (
+                          <span className="text-xs text-gray-500">({resource.platform})</span>
+                        )}
                         <ExternalLink className="w-3 h-3 text-purple-500" />
                       </a>
                     ))}
@@ -910,21 +1211,98 @@ export const WeaknessAnalyzer: React.FC<WeaknessAnalyzerProps> = ({ onStartLearn
           ))}
         </AnimatePresence>
 
-        {weaknesses.length === 0 && (
+        {/* Empty State */}
+        {mergedWeaknesses.length === 0 && (
           <div className="text-center py-12 bg-green-50 rounded-xl border border-green-200">
             <CheckCircle className="w-16 h-16 text-green-500 mx-auto mb-4" />
-            <h3 className="text-xl font-bold text-green-800 mb-2">Excellent Performance!</h3>
-            <p className="text-green-700">No significant weaknesses detected. Keep up the great work!</p>
-            <p className="text-sm text-green-600 mt-2">
-              Tip: Set your interests to get analysis based on your career goals.
+            <h3 className="text-xl font-bold text-green-800 mb-2">
+              {interests.length > 0 ? 'Great Performance for Your Interests!' : 'Excellent Performance!'}
+            </h3>
+            <p className="text-green-700">
+              {interests.length > 0
+                ? `No significant weaknesses detected for your interests (${interests.slice(0, 2).join(', ')}). Keep up the great work!`
+                : 'No significant weaknesses detected. Keep up the great work!'}
             </p>
+            {interests.length === 0 && (
+              <p className="text-sm text-green-600 mt-2">
+                Tip: Set your interests to get analysis based on your career goals.
+              </p>
+            )}
           </div>
         )}
       </div>
+
+      {/* ===== Strong Areas (from Academic Recommendations) ===== */}
+      {focusAreas.length > 0 && (
+        <div className="mt-6 bg-green-50 border border-green-200 rounded-xl p-5">
+          <h3 className="font-semibold text-green-900 mb-3 flex items-center gap-2">
+            <TrendingUp className="w-5 h-5 text-green-600" />
+            Your Strong Areas
+          </h3>
+          <div className="flex flex-wrap gap-2">
+            {focusAreas.map((area: any, index: number) => (
+              <span key={index} className="px-3 py-1.5 bg-green-100 text-green-700 rounded-full text-sm font-medium">
+                ⭐ {area.area} ({area.average_score?.toFixed(0) || 0}%)
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ===== AI Tips ===== */}
+      {mergedWeaknesses.length > 0 && (
+        <div className="mt-6 bg-gradient-to-r from-blue-50 to-purple-50 border border-blue-200 rounded-xl p-5">
+          <h3 className="font-semibold text-blue-900 mb-3 flex items-center gap-2">
+            <Brain className="w-5 h-5 text-purple-600" />
+            AI Improvement Tips
+          </h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {severityCounts.critical > 0 && (
+              <div className="flex items-start gap-3 bg-white rounded-lg p-3 border">
+                <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-sm font-medium text-gray-900">
+                    {severityCounts.critical} critical subject{severityCounts.critical > 1 ? 's' : ''} need daily attention
+                  </p>
+                  <p className="text-xs text-gray-500 mt-1">Dedicate at least 1 hour daily to each critical subject</p>
+                </div>
+              </div>
+            )}
+            {severityCounts.high > 0 && (
+              <div className="flex items-start gap-3 bg-white rounded-lg p-3 border">
+                <AlertTriangle className="w-5 h-5 text-orange-600 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-sm font-medium text-gray-900">
+                    {severityCounts.high} high priority subject{severityCounts.high > 1 ? 's' : ''} need regular practice
+                  </p>
+                  <p className="text-xs text-gray-500 mt-1">Solve previous year papers and practice problems</p>
+                </div>
+              </div>
+            )}
+            <div className="flex items-start gap-3 bg-white rounded-lg p-3 border">
+              <Target className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm font-medium text-gray-900">
+                  Average gap: {averageGap.toFixed(1)}% across {mergedWeaknesses.length} subjects
+                </p>
+                <p className="text-xs text-gray-500 mt-1">
+                  Closing this gap could improve your CGPA by ~{(averageGap * 0.05).toFixed(2)} points
+                </p>
+              </div>
+            </div>
+            <div className="flex items-start gap-3 bg-white rounded-lg p-3 border">
+              <BookOpen className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm font-medium text-gray-900">Use active recall & spaced repetition</p>
+                <p className="text-xs text-gray-500 mt-1">Most effective study techniques for closing knowledge gaps</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
-
 
 // ============== STUDY RESOURCES COMPONENT ==============
 

@@ -30,7 +30,8 @@ class Settings(BaseSettings):
     MONGODB_DATABASE: str = "academic_advisor"
     DATABASE_NAME: str = "academic_advisor"
     
-    # Redis
+    # Redis - ✅ ADDED ENABLE FLAG
+    REDIS_ENABLED: bool = False  # Set to False to skip Redis
     REDIS_URL: str = "redis://localhost:6379"
     
     # Firebase Config
@@ -61,8 +62,6 @@ class Settings(BaseSettings):
     SMTP_PASSWORD: Optional[str] = None
     
     # ============== YouTube API (Optional - FREE tier available) ==============
-    # Get free API key from: https://console.cloud.google.com/apis/credentials
-    # Enable "YouTube Data API v3" - gives 10,000 units/day FREE
     YOUTUBE_API_KEY: Optional[str] = None
     
     # CORS - Added port 5173 for Vite
