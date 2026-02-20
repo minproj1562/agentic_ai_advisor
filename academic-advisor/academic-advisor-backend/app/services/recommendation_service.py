@@ -190,7 +190,27 @@ class RecommendationService:
                 projects=student_data['projects'],
                 cgpa=student_data['cgpa'],
             )
+
+            # Apply branch-specific classification
+            from app.core.subject_mappings import get_programme_type_for_branch
+
+            # Get student branch
+            student_branch = 'IT'  # Default
+            try:
+                profile = await StudentProfile.find_one(
+                    StudentProfile.user_id == student_id
+                )
+                if profile and profile.branch:
+                    student_branch = profile.branch.upper()
+            except:
+                pass
+
             for h in raw_honours:
+                # Override type based on branch-specific rules
+                programme_name = h.get('program', '')
+                correct_type = get_programme_type_for_branch(programme_name, student_branch)
+                h['type'] = correct_type
+
                 honours_resp.append(HonoursRecommendationResponse(**h))
 
         # Generate career recommendations

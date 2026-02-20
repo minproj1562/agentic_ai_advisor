@@ -420,99 +420,165 @@ class StudentProjectsCloudinaryService {
     return recommendations;
   }
 
-  private recommendHonoursPrograms(
-    projectData: any, 
-    branch: string,
-    interests: InferredInterest[]
-  ): HonoursRecommendation[] {
-    const recommendations: HonoursRecommendation[] = [];
-    
-    // AI & ML Honours
-    if (interests.some(i => i.domain.includes('AI') || i.domain.includes('Machine Learning'))) {
-      if (['IT', 'COMP', 'EXTC'].includes(branch)) {
-        recommendations.push({
-          program: 'AI & Machine Learning',
-          type: 'Honours',
-          match_score: 90,
-          reasons: [
-            'Strong alignment with your AI/ML interests',
-            'Your programming skills provide solid foundation',
-            'Excellent career prospects in AI field'
-          ],
-          courses: ['Knowledge Engineering', 'Foundation ML', 'Deep Learning', 'Advanced AI'],
-          career_paths: ['ML Engineer', 'AI Researcher', 'Data Scientist'],
-          skills_to_develop: ['TensorFlow', 'PyTorch', 'Neural Networks', 'NLP'],
-          semester_commitment: '4 semesters (Sem V-VIII)',
-          credits: 18,
-          eligibility_met: true
-        });
-      }
+private recommendHonoursPrograms(
+  projectData: any, 
+  branch: string,
+  interests: InferredInterest[]
+): HonoursRecommendation[] {
+  const recommendations: HonoursRecommendation[] = [];
+  
+  // IT Department specific programmes
+  const IT_HONOURS = ['Cybersecurity', 'AI & Machine Learning', 'AIML'];
+  const IT_MINORS = ['Data Science', 'Cloud Computing', 'Blockchain', 'Full Stack Development', 'IoT', 'DevOps'];
+  
+  // Helper function to determine type for IT branch
+  const getProgrammeTypeForIT = (programName: string): 'Honours' | 'Minor' => {
+    const nameLower = programName.toLowerCase();
+    if (IT_HONOURS.some(h => nameLower.includes(h.toLowerCase()))) {
+      return 'Honours';
     }
-
-    // Blockchain Minor for MECH
-    if (branch === 'MECH' && projectData.programmingLanguages?.includes('Solidity')) {
+    return 'Minor';
+  };
+  
+  // AI & ML - Honours for IT
+  if (interests.some(i => i.domain.includes('AI') || i.domain.includes('Machine Learning'))) {
+    if (['IT', 'COMP', 'EXTC'].includes(branch)) {
       recommendations.push({
-        program: 'Blockchain',
-        type: 'Minor',
-        match_score: 78,
+        program: 'AI & Machine Learning',
+        type: branch === 'IT' ? 'Honours' : (branch === 'COMP' ? 'Honours' : 'Minor'),
+        match_score: 90,
         reasons: [
-          'Cross-disciplinary opportunity',
-          'Growing field with mechanical applications',
-          'Unique skill combination'
+          'Strong alignment with your AI/ML interests',
+          'Your programming skills provide solid foundation',
+          'Excellent career prospects in AI field'
         ],
-        courses: ['Intro Blockchain', 'Smart Contracts', 'DApp Development'],
-        career_paths: ['Blockchain Developer', 'Smart Contract Engineer'],
-        skills_to_develop: ['Solidity', 'Web3', 'Ethereum'],
+        courses: ['Knowledge Engineering', 'Foundation ML', 'Deep Learning', 'Advanced AI'],
+        career_paths: ['ML Engineer', 'AI Researcher', 'Data Scientist'],
+        skills_to_develop: ['TensorFlow', 'PyTorch', 'Neural Networks', 'NLP'],
         semester_commitment: '4 semesters (Sem V-VIII)',
         credits: 18,
         eligibility_met: true
       });
     }
-
-    // Data Science Minor
-    if (interests.some(i => i.domain.includes('Data'))) {
-      recommendations.push({
-        program: 'Data Science',
-        type: branch === 'IT' ? 'Honours' : 'Minor',
-        match_score: 85,
-        reasons: [
-          'Aligns with data-focused projects',
-          'High industry demand',
-          'Complements programming skills'
-        ],
-        courses: ['Statistical Methods', 'Big Data', 'Machine Learning', 'Visualization'],
-        career_paths: ['Data Scientist', 'Data Analyst', 'Business Intelligence Analyst'],
-        skills_to_develop: ['Python', 'R', 'SQL', 'Tableau'],
-        semester_commitment: '4 semesters (Sem V-VIII)',
-        credits: 18,
-        eligibility_met: true
-      });
-    }
-
-    // Research option
-    if (projectData.projectType === 'research' || projectData.keyAchievements?.some((a: string) => 
-      a.toLowerCase().includes('publish') || a.toLowerCase().includes('paper')
-    )) {
-      recommendations.push({
-        program: 'Honours in Research',
-        type: 'Research',
-        match_score: 88,
-        reasons: [
-          'Research experience demonstrated',
-          'Path to publication/patent',
-          'IIT/TIFR collaboration opportunity'
-        ],
-        courses: ['Research Methodology', 'Literature Review', 'Research Project'],
-        career_paths: ['Research Scientist', 'PhD Candidate', 'R&D Engineer'],
-        skills_to_develop: ['Research Methods', 'Academic Writing', 'Data Analysis'],
-        semester_commitment: '4 semesters (Sem V-VIII)',
-        credits: 18,
-        eligibility_met: true
-      });
-    }
-
-    return recommendations;
   }
+
+  // Cybersecurity - Honours for IT
+  if (interests.some(i => 
+    i.domain.includes('Security') || 
+    i.domain.includes('Cyber') ||
+    i.domain.includes('Network')
+  ) || projectData.tools?.some((t: string) => 
+    ['Security', 'Crypto', 'Firewall', 'Penetration'].some(kw => 
+      t.toLowerCase().includes(kw.toLowerCase())
+    )
+  )) {
+    recommendations.push({
+      program: 'Cybersecurity',
+      type: branch === 'IT' ? 'Honours' : 'Minor',  // ✅ FIXED: Honours for IT only
+      match_score: 85,
+      reasons: [
+        'Strong alignment with security interests',
+        'High industry demand for cybersecurity professionals',
+        'Critical for modern tech careers'
+      ],
+      courses: ['Network Security', 'Cryptography', 'Ethical Hacking', 'Security Operations'],
+      career_paths: ['Security Analyst', 'Penetration Tester', 'Security Architect'],
+      skills_to_develop: ['Ethical Hacking', 'SIEM', 'Incident Response', 'Compliance'],
+      semester_commitment: '4 semesters (Sem V-VIII)',
+      credits: 18,
+      eligibility_met: true
+    });
+  }
+
+  // Data Science - Minor for IT
+  if (interests.some(i => i.domain.includes('Data'))) {
+    recommendations.push({
+      program: 'Data Science',
+      type: branch === 'IT' ? 'Minor' : (branch === 'COMP' ? 'Honours' : 'Minor'),  // ✅ FIXED: Minor for IT
+      match_score: 85,
+      reasons: [
+        'Aligns with data-focused projects',
+        'High industry demand',
+        'Complements programming skills'
+      ],
+      courses: ['Statistical Methods', 'Big Data', 'Machine Learning', 'Visualization'],
+      career_paths: ['Data Scientist', 'Data Analyst', 'Business Intelligence Analyst'],
+      skills_to_develop: ['Python', 'R', 'SQL', 'Tableau'],
+      semester_commitment: '4 semesters (Sem V-VIII)',
+      credits: 18,
+      eligibility_met: true
+    });
+  }
+
+  // Cloud Computing - Minor for IT
+  if (projectData.tools?.some((t: string) => 
+    ['Docker', 'AWS', 'Cloud', 'Kubernetes', 'Azure', 'GCP'].some(keyword => 
+      t.toLowerCase().includes(keyword.toLowerCase())
+    )
+  )) {
+    recommendations.push({
+      program: 'Cloud Computing',
+      type: 'Minor',  // ✅ Always Minor for IT
+      match_score: 80,
+      reasons: [
+        'Your DevOps tools experience is valuable',
+        'High industry demand for cloud skills',
+        'Natural progression from your current skills'
+      ],
+      courses: ['Cloud Architecture', 'AWS Services', 'Azure', 'Kubernetes'],
+      career_paths: ['Cloud Architect', 'DevOps Engineer', 'SRE'],
+      skills_to_develop: ['AWS', 'Azure', 'Docker', 'Kubernetes', 'Terraform'],
+      semester_commitment: '4 semesters (Sem V-VIII)',
+      credits: 18,
+      eligibility_met: true
+    });
+  }
+
+  // Blockchain - Minor for IT
+  if (projectData.programmingLanguages?.includes('Solidity') ||
+      interests.some(i => i.domain.toLowerCase().includes('blockchain'))) {
+    recommendations.push({
+      program: 'Blockchain Technology',
+      type: 'Minor',  // ✅ Always Minor for IT
+      match_score: 78,
+      reasons: [
+        'Emerging field with high potential',
+        'Unique skill combination',
+        'Growing industry demand'
+      ],
+      courses: ['Intro Blockchain', 'Smart Contracts', 'DApp Development', 'Web3'],
+      career_paths: ['Blockchain Developer', 'Smart Contract Engineer', 'Web3 Developer'],
+      skills_to_develop: ['Solidity', 'Web3.js', 'Ethereum', 'Hyperledger'],
+      semester_commitment: '4 semesters (Sem V-VIII)',
+      credits: 18,
+      eligibility_met: true
+    });
+  }
+
+  // Research option
+  if (projectData.projectType === 'research' || projectData.keyAchievements?.some((a: string) => 
+    a.toLowerCase().includes('publish') || a.toLowerCase().includes('paper')
+  )) {
+    recommendations.push({
+      program: 'Honours in Research',
+      type: 'Research',
+      match_score: 88,
+      reasons: [
+        'Research experience demonstrated',
+        'Path to publication/patent',
+        'IIT/TIFR collaboration opportunity'
+      ],
+      courses: ['Research Methodology', 'Literature Review', 'Research Project'],
+      career_paths: ['Research Scientist', 'PhD Candidate', 'R&D Engineer'],
+      skills_to_develop: ['Research Methods', 'Academic Writing', 'Data Analysis'],
+      semester_commitment: '4 semesters (Sem V-VIII)',
+      credits: 18,
+      eligibility_met: true
+    });
+  }
+
+  return recommendations;
+}
 
   private generateCareerPaths(
     interests: InferredInterest[],

@@ -15,20 +15,21 @@ interface FirebaseConfig {
   messagingSenderId: string;
   appId: string;
   measurementId?: string;
-  databaseURL: string;
+  databaseURL?: string; // FIXED: Made optional — RTDB may not be enabled
 }
-
-/// src/core/integrations/firebase/config.ts - Make it match firebase.config.ts
 
 const firebaseConfig: FirebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyDC4gI0K6lHI64QvkuPhLvj7RwPb-C5Bo8",
   authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "academic-advisor-6ed1a.firebaseapp.com",
   projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "academic-advisor-6ed1a",
   storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "academic-advisor-6ed1a.appspot.com",
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "495055909288",
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "495055309288",
   appId: import.meta.env.VITE_FIREBASE_APP_ID || "1:495055909288:web:9decbf9c8cd56d6975ad9d",
   measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || "G-TT1278L4X4",
-  databaseURL: import.meta.env.VITE_FIREBASE_DATABASE_URL || "https://academic-advisor-6ed1a-default-rtdb.firebaseio.com"
+  // FIXED: Only include databaseURL if env var is set — prevents RTDB error if not provisioned
+  ...(import.meta.env.VITE_FIREBASE_DATABASE_URL
+    ? { databaseURL: import.meta.env.VITE_FIREBASE_DATABASE_URL }
+    : {})
 };
 
 class FirebaseService {
@@ -41,6 +42,7 @@ class FirebaseService {
   public analytics: Analytics | null = null;
   private initialized: boolean = false;
   private error: Error | null = null;
+  private rtdbAvailable: boolean = false;
 
   private constructor() {
     // Private constructor for singleton pattern
@@ -55,13 +57,12 @@ class FirebaseService {
 
   public initialize(): FirebaseApp {
     if (this.initialized && this.app) {
-      console.log('✅ Firebase already initialized');
       return this.app;
     }
 
     try {
       console.log('🔄 Initializing Firebase...');
-      
+
       // Check for existing apps
       const existingApps = getApps();
       if (existingApps.length > 0) {
@@ -72,16 +73,41 @@ class FirebaseService {
         console.log('✅ Firebase initialized successfully');
       }
 
-      // Initialize services
+      // Initialize core services (these always work)
       this.auth = getAuth(this.app);
       this.firestore = getFirestore(this.app);
-      this.database = getDatabase(this.app);
       this.storage = getStorage(this.app);
-      
+
+      // FIXED: Initialize Realtime Database only if databaseURL is configured
+      if (firebaseConfig.databaseURL) {
+        try {
+          this.database = getDatabase(this.app);
+          this.rtdbAvailable = true;
+          console.log('✅ Firebase Realtime Database initialized');
+        } catch (rtdbError) {
+          console.warn(
+            '⚠️ Firebase Realtime Database not available. This is OK if you only use Firestore.',
+            (rtdbError as Error).message
+          );
+          this.database = null;
+          this.rtdbAvailable = false;
+        }
+      } else {
+        console.log('ℹ️ Firebase Realtime Database URL not configured — skipping RTDB init');
+        this.database = null;
+        this.rtdbAvailable = false;
+      }
+
       this.initialized = true;
       this.error = null;
-      
-      console.log('🔥 All Firebase services initialized');
+
+      console.log('🔥 Firebase services initialized', {
+        auth: !!this.auth,
+        firestore: !!this.firestore,
+        storage: !!this.storage,
+        rtdb: this.rtdbAvailable
+      });
+
       return this.app;
     } catch (error) {
       console.error('❌ Firebase initialization error:', error);
@@ -106,11 +132,27 @@ class FirebaseService {
     return this.firestore!;
   }
 
-  public getDatabase(): Database {
-    if (!this.database || !this.initialized) {
+  /**
+   * FIXED: Returns null if RTDB is not available instead of throwing
+   */
+  public getDatabase(): Database | null {
+    if (!this.initialized) {
       this.initialize();
     }
-    return this.database!;
+
+    if (!this.rtdbAvailable || !this.database) {
+      console.warn('⚠️ Realtime Database requested but not available');
+      return null;
+    }
+
+    return this.database;
+  }
+
+  /**
+   * Check if Realtime Database is available
+   */
+  public isRTDBAvailable(): boolean {
+    return this.rtdbAvailable;
   }
 
   public getStorage(): FirebaseStorage {
@@ -122,7 +164,7 @@ class FirebaseService {
 
   public async getAnalytics(): Promise<Analytics | null> {
     if (this.analytics) return this.analytics;
-    
+
     try {
       if (typeof window === 'undefined') return null;
       if (!firebaseConfig.measurementId) return null;
@@ -150,12 +192,11 @@ class FirebaseService {
     try {
       this.initialize();
       const firestore = this.getFirestore();
-      
-      // Try a simple query to test connection
+
       const testQuery = await getDocs(collection(firestore, 'students'));
       console.log('✅ Firebase connection test successful');
       console.log(`📊 Found ${testQuery.size} students in database`);
-      
+
       return true;
     } catch (error) {
       console.error('❌ Firebase connection test failed:', error);
