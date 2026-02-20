@@ -77,92 +77,104 @@ class AnalyticsService {
   /**
    * Get performance trends for a student
    */
-  async getPerformanceTrends(
-    studentId: string,
-    options: TrendOptions = {}
-  ): Promise<PerformanceTrend> {
-    try {
-      const cacheKey = `trends-${studentId}-${JSON.stringify(options)}`;
-      const cached = this.getFromCache(cacheKey);
-      
-      if (cached) {
-        return cached;
-      }
+// In getPerformanceTrends method, replace the mock data section with:
 
-      // Mock implementation - replace with actual API call
-      console.log('Fetching performance trends for student:', studentId, options);
-      
-      // Simulate API delay
-      await new Promise(resolve => setTimeout(resolve, 500));
+async getPerformanceTrends(
+  studentId: string,
+  options: TrendOptions = {}
+): Promise<PerformanceTrend> {
+  try {
+    const cacheKey = `trends-${studentId}-${JSON.stringify(options)}`;
+    const cached = this.getFromCache(cacheKey);
 
-      // Mock response data
-      const mockData: PerformanceTrend = {
-        studentId,
-        dataPoints: [
-          { date: '2024-01-01T00:00:00Z', gpa: 3.2, percentile: 65 },
-          { date: '2024-02-01T00:00:00Z', gpa: 3.4, percentile: 70 },
-          { date: '2024-03-01T00:00:00Z', gpa: 3.6, percentile: 78 },
-          { date: '2024-04-01T00:00:00Z', gpa: 3.5, percentile: 75 },
-          { date: '2024-05-01T00:00:00Z', gpa: 3.7, percentile: 82 },
-          { date: '2024-06-01T00:00:00Z', gpa: 3.8, percentile: 85 }
-        ],
-        currentGPA: 3.8,
-        percentile: 85,
-        subjects: [
-          {
-            id: 'math-101',
-            name: 'Mathematics',
-            category: 'core',
-            credits: 4,
-            currentGrade: 88,
-            previousGrade: 85,
-            classAverage: 76,
-            trend: 3.5
-          },
-          {
-            id: 'phys-101',
-            name: 'Physics',
-            category: 'core',
-            credits: 4,
-            currentGrade: 82,
-            previousGrade: 78,
-            classAverage: 72,
-            trend: 4.0
-          },
-          {
-            id: 'chem-101',
-            name: 'Chemistry',
-            category: 'core',
-            credits: 3,
-            currentGrade: 75,
-            previousGrade: 80,
-            classAverage: 71,
-            trend: -5.0
-          }
-        ],
-        lastUpdated: new Date().toISOString()
-      };
-
-      // Transform and validate data
-      const transformedData = transformRawData(mockData);
-      const validatedData = validateAnalyticsData(transformedData);
-
-      // Enrich with additional metrics
-      const finalData: PerformanceTrend = {
-        ...validatedData,
-        metrics: aggregateMetrics(validatedData.dataPoints),
-        lastUpdated: new Date().toISOString()
-      };
-
-      // Cache the result
-      this.setCache(cacheKey, finalData);
-
-      return finalData;
-    } catch (error) {
-      console.error('Failed to fetch performance trends:', error);
-      throw this.handleError(error);
+    if (cached) {
+      return cached;
     }
+
+    // REAL API CALL - Fetch from backend
+    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+    const token = await this.getAuthToken();
+    
+    const response = await fetch(`${API_URL}/api/v1/student-profile/me/full`, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch performance data: ${response.status}`);
+    }
+
+    const profileData = await response.json();
+    
+    // Transform backend data to chart format
+    const dataPoints = (profileData.sgpa_trend || []).map((sem: any) => ({
+      date: `${profileData.admission_year + Math.floor((sem.semester - 1) / 2)}-${sem.semester % 2 === 1 ? '07' : '01'}-01T00:00:00Z`,
+      gpa: sem.sgpa,
+      percentile: Math.round(sem.sgpa * 10), // Approximate percentile
+      semester: sem.semester,
+      improvement: 0 // Calculate if needed
+    }));
+
+    // Calculate improvement between semesters
+    for (let i = 1; i < dataPoints.length; i++) {
+      dataPoints[i].improvement = ((dataPoints[i].gpa - dataPoints[i-1].gpa) / dataPoints[i-1].gpa) * 100;
+    }
+
+    const subjects = (profileData.semester_records || [])
+      .flatMap((sem: any) => sem.subjects || [])
+      .map((sub: any) => ({
+        id: sub.subject_code,
+        name: sub.subject_name,
+        category: sub.is_elective ? 'Elective' : 'Core',
+        credits: sub.credits,
+        currentGrade: sub.total_marks,
+        previousGrade: sub.total_marks - 5, // Approximate
+        classAverage: 70, // Would need class data
+        trend: 0
+      }));
+
+    const mockData: PerformanceTrend = {
+      studentId,
+      dataPoints,
+      currentGPA: profileData.latest_sgpa || profileData.cgpa || 0,
+      percentile: Math.round((profileData.cgpa || 0) * 10),
+      subjects,
+      lastUpdated: profileData.last_updated || new Date().toISOString()
+    };
+
+    const finalData: PerformanceTrend = {
+      ...mockData,
+      metrics: aggregateMetrics(mockData.dataPoints),
+      enriched: true
+    };
+
+    this.setCache(cacheKey, finalData);
+    return finalData;
+
+  } catch (error) {
+    console.error('Failed to fetch performance trends:', error);
+    // Return empty structure instead of throwing
+    return {
+      studentId,
+      dataPoints: [],
+      currentGPA: 0,
+      percentile: 0,
+      subjects: [],
+      lastUpdated: new Date().toISOString(),
+      metrics: { avg: 0, max: 0, min: 0, count: 0, sum: 0, stdDev: 0 }
+    };
   }
+}
+
+// Add helper method to get auth token
+private async getAuthToken(): Promise<string> {
+  const { auth } = await import('../../../../services/firebase.config');
+  const user = auth.currentUser;
+  if (!user) throw new Error('Not authenticated');
+  return user.getIdToken();
+}
 
   /**
    * Update performance trend

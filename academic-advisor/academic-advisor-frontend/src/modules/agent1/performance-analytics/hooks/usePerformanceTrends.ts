@@ -1,5 +1,5 @@
 // modules/agent1/performance-analytics/hooks/usePerformanceTrends.ts
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import useSWR, { SWRConfiguration } from 'swr';
 import { PerformanceTrend, TrendOptions, TrendAnalysis } from '../types/analytics.types';
 import { analyticsService } from '../services/analytics.service';
@@ -40,30 +40,36 @@ export const usePerformanceTrends = (
 
   const [localData, setLocalData] = useState<PerformanceTrend | null>(null);
   const [analysis, setAnalysis] = useState<TrendAnalysis | null>(null);
-  // FIXED: Added studentId parameter to useAgent1Data hook
-   const { subscribeToUpdates, unsubscribe } = useAgent1Data({ studentId });
+  const { subscribeToUpdates, unsubscribe } = useAgent1Data({ studentId });
 
-  // SWR configuration
+  // Stable serialized key for trendOptions to prevent SWR key churn
+  const trendOptionsKey = useRef(JSON.stringify(trendOptions));
+  useEffect(() => {
+    trendOptionsKey.current = JSON.stringify(trendOptions);
+  }, [JSON.stringify(trendOptions)]);
+
+  // SWR configuration — disable retry on error to prevent infinite loops
   const swrConfig: SWRConfiguration = {
     refreshInterval: cacheTime,
-    revalidateOnFocus: true,
+    revalidateOnFocus: false, // Prevent refetch on tab focus
     revalidateOnReconnect: true,
-    shouldRetryOnError: true,
-    errorRetryCount: 3,
-    errorRetryInterval: 5000,
-    dedupingInterval: 2000,
+    shouldRetryOnError: false, // FIXED: Disable automatic retry to prevent infinite loops
+    errorRetryCount: 0, // FIXED: No retries
+    dedupingInterval: 10000, // FIXED: Increased dedup interval to 10s
     onError: (error) => {
-      console.error('Performance trends error:', error);
+      console.warn('Performance trends error:', error?.message || error);
       onError?.(error);
     },
     onSuccess: (data) => {
-      setLocalData(data);
-      onSuccess?.(data);
+      if (data) {
+        setLocalData(data);
+        onSuccess?.(data);
+      }
     }
   };
 
-  // Fetch function for SWR
-  const fetcher = useCallback(async (key: string) => {
+  // Fetch function for SWR — never throws, always returns data or null
+  const fetcher = useCallback(async (_key: string): Promise<PerformanceTrend | null> => {
     try {
       // Fetch base performance data
       const performanceData = await analyticsService.getPerformanceTrends(
@@ -71,8 +77,15 @@ export const usePerformanceTrends = (
         trendOptions
       );
 
-      // Add predictions if enabled
-      if (enablePrediction && performanceData) {
+      // If no data returned, return null gracefully
+      if (!performanceData) {
+        console.warn('No performance data returned for student:', studentId);
+        return null;
+      }
+
+      // Add predictions if enabled and there's enough data
+      // trendService.generatePredictions now returns [] on insufficient data instead of throwing
+      if (enablePrediction && performanceData?.dataPoints?.length > 0) {
         const predictions = await trendService.generatePredictions(
           performanceData,
           trendOptions.timeRange || '3m'
@@ -80,40 +93,41 @@ export const usePerformanceTrends = (
         performanceData.projection = predictions;
       }
 
-      // Calculate trend analysis
+      // Calculate trend analysis — now returns default analysis instead of throwing
       const trendAnalysis = await trendService.analyzeTrends(performanceData);
       setAnalysis(trendAnalysis);
 
       return performanceData;
     } catch (error) {
-      console.error('Failed to fetch performance trends:', error);
-      throw error;
+      console.warn('Failed to fetch performance trends:', (error as Error)?.message || error);
+      // Return null instead of throwing — prevents SWR from retrying
+      return null;
     }
-  }, [studentId, trendOptions, enablePrediction]);
+  }, [studentId, enablePrediction]); // FIXED: removed trendOptions from deps (use ref instead)
 
-  // SWR hook for data fetching
+  // SWR hook — key is null when no studentId, preventing fetch
   const {
     data,
     error,
     mutate,
     isValidating
   } = useSWR(
-    studentId ? `${CACHE_KEYS.PERFORMANCE_TRENDS}-${studentId}-${JSON.stringify(trendOptions)}` : null,
+    studentId ? `${CACHE_KEYS.PERFORMANCE_TRENDS}-${studentId}-${trendOptionsKey.current}` : null,
     fetcher,
     swrConfig
   );
 
-  // Realtime subscription
+  // Realtime subscription — only subscribe once per studentId
   useEffect(() => {
     if (!enableRealtime || !studentId) return;
+
+    let cancelled = false;
 
     const unsubscribeFunc = subscribeToUpdates(
       `performance/${studentId}`,
       async (update: any) => {
-        // Validate update
-        if (!update || !update.data) return;
+        if (cancelled || !update?.data) return;
 
-        // Merge with existing data
         const mergedData = {
           ...localData,
           ...update.data,
@@ -121,39 +135,34 @@ export const usePerformanceTrends = (
         };
 
         setLocalData(mergedData);
-        
-        // Trigger revalidation
         await mutate(mergedData, false);
 
-        // Recalculate analysis
-        if (mergedData) {
+        if (mergedData?.dataPoints?.length > 0) {
           const newAnalysis = await trendService.analyzeTrends(mergedData);
-          setAnalysis(newAnalysis);
+          if (!cancelled) {
+            setAnalysis(newAnalysis);
+          }
         }
       }
     );
 
     return () => {
+      cancelled = true;
       unsubscribeFunc();
     };
-  }, [enableRealtime, studentId, localData, mutate, subscribeToUpdates]);
+    // FIXED: removed localData from deps to prevent re-subscription loops
+  }, [enableRealtime, studentId, mutate, subscribeToUpdates]);
 
   // Update trend function
-  // FIXED: Changed return type from Promise<PerformanceTrend> to Promise<void>
   const updateTrend = useCallback(async (data: Partial<PerformanceTrend>): Promise<void> => {
     try {
       const updatedData = await analyticsService.updatePerformanceTrend(
         studentId,
         data
       );
-      
-      // Update local state
+
       setLocalData(updatedData);
-      
-      // Trigger revalidation
       await mutate(updatedData, false);
-      
-      // FIXED: Don't return the data since the return type expects Promise<void>
     } catch (error) {
       console.error('Failed to update trend:', error);
       throw error;
@@ -165,8 +174,7 @@ export const usePerformanceTrends = (
     try {
       await mutate();
     } catch (error) {
-      console.error('Failed to refetch:', error);
-      throw error;
+      console.warn('Failed to refetch:', error);
     }
   }, [mutate]);
 
@@ -185,7 +193,7 @@ export const usePerformanceTrends = (
 
   return {
     trends: processedTrends || localData,
-    loading: !data && !error,
+    loading: !data && !error && !!studentId,
     error,
     refetch,
     isValidating,
@@ -197,21 +205,20 @@ export const usePerformanceTrends = (
 // Helper functions
 function calculateDataQuality(data: PerformanceTrend): number {
   if (!data.dataPoints || data.dataPoints.length === 0) return 0;
-  
-  // FIXED: Added null check for lastUpdated
+
   const factors = {
-    completeness: data.dataPoints.filter(d => d.gpa !== null).length / data.dataPoints.length,
+    completeness: data.dataPoints.filter(d => d.gpa !== null && d.gpa !== undefined).length / data.dataPoints.length,
     recency: isDataRecent(data.lastUpdated || '') ? 1 : 0.5,
     consistency: checkDataConsistency(data.dataPoints),
     coverage: data.subjects ? Math.min(data.subjects.length / 10, 1) : 0.5
   };
-  
+
   return Object.values(factors).reduce((acc, val) => acc + val, 0) / Object.keys(factors).length;
 }
 
 function isDataRecent(lastUpdated: string): boolean {
   if (!lastUpdated) return false;
-  
+
   const lastUpdate = new Date(lastUpdated);
   const daysSinceUpdate = (Date.now() - lastUpdate.getTime()) / (1000 * 60 * 60 * 24);
   return daysSinceUpdate < 7;
@@ -219,37 +226,37 @@ function isDataRecent(lastUpdated: string): boolean {
 
 function checkDataConsistency(dataPoints: any[]): number {
   if (dataPoints.length < 2) return 1;
-  
+
   let consistencyScore = 1;
   for (let i = 1; i < dataPoints.length; i++) {
     const diff = Math.abs((dataPoints[i].gpa || 0) - (dataPoints[i - 1].gpa || 0));
     if (diff > 1) consistencyScore -= 0.1;
   }
-  
+
   return Math.max(0, consistencyScore);
 }
 
 function generateInsights(data: PerformanceTrend, analysis: TrendAnalysis | null): string[] {
   const insights: string[] = [];
-  
+
   if (analysis) {
     if (analysis.trend === 'improving') {
       insights.push(`Your performance is improving with ${(analysis.confidence * 100).toFixed(0)}% confidence`);
     } else if (analysis.trend === 'declining') {
       insights.push(`Performance decline detected - consider seeking academic support`);
     }
-    
+
     if (analysis.projectedGPA && analysis.currentGPA && analysis.projectedGPA > analysis.currentGPA) {
       insights.push(`Expected GPA improvement to ${analysis.projectedGPA.toFixed(2)} next semester`);
     }
   }
-  
+
   if (data.subjects) {
     const weakSubjects = data.subjects.filter(s => s.currentGrade < 60);
     if (weakSubjects.length > 0) {
       insights.push(`${weakSubjects.length} subjects need immediate attention`);
     }
   }
-  
+
   return insights;
 }

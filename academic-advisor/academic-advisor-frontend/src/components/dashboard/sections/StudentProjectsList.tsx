@@ -429,37 +429,51 @@ export const StudentProjectsList: React.FC<StudentProjectsListProps> = ({ onAddP
     }
   };
 
-  const fetchPerformanceMetrics = async () => {
-    try {
-      const userId = localStorage.getItem('userId') || '';
-      const analysis = comprehensiveAnalysis || await mlService.getComprehensiveAnalysis(userId);
-      
-      const metrics: PerformanceMetrics = {
-        productivityScore: 75,
-        consistencyScore: 68,
-        qualityScore: 82,
-        learningVelocity: 90,
-        trendDirection: analysis.performanceMetrics.performanceTrend === 'improving' ? 'up' : 
-                       analysis.performanceMetrics.performanceTrend === 'declining' ? 'down' : 'stable',
-        predictedGrowth: 15,
-        strengths: analysis.performanceMetrics.strengthAreas,
-        improvements: analysis.performanceMetrics.weaknessAreas
-      };
-      setPerformanceMetrics(metrics);
-    } catch (error) {
-      console.error('Error fetching performance metrics:', error);
-      setPerformanceMetrics({
-        productivityScore: 75,
-        consistencyScore: 68,
-        qualityScore: 82,
-        learningVelocity: 90,
-        trendDirection: 'up',
-        predictedGrowth: 15,
-        strengths: ['Fast learner', 'Diverse skill set', 'Good documentation'],
-        improvements: ['Need more testing', 'Improve UI/UX', 'Add CI/CD pipelines']
-      });
+const fetchPerformanceMetrics = async () => {
+  try {
+    const userId = localStorage.getItem('userId') || '';
+    
+    // Safe fallback if comprehensive analysis fails
+    let analysis = comprehensiveAnalysis;
+    
+    if (!analysis) {
+      try {
+        analysis = await mlService.getComprehensiveAnalysis(userId);
+        setComprehensiveAnalysis(analysis);
+      } catch (e) {
+        console.warn('Comprehensive analysis unavailable');
+        analysis = null;
+      }
     }
-  };
+    
+    const metrics: PerformanceMetrics = {
+      productivityScore: 75,
+      consistencyScore: 68,
+      qualityScore: 82,
+      learningVelocity: 90,
+      // Safe access with optional chaining and fallbacks
+      trendDirection: analysis?.performanceMetrics?.performanceTrend === 'improving' ? 'up' : 
+                     analysis?.performanceMetrics?.performanceTrend === 'declining' ? 'down' : 'stable',
+      predictedGrowth: 15,
+      strengths: analysis?.performanceMetrics?.strengthAreas || ['Fast learner', 'Diverse skill set', 'Good documentation'],
+      improvements: analysis?.performanceMetrics?.weaknessAreas || ['Need more testing', 'Improve UI/UX', 'Add CI/CD pipelines']
+    };
+    setPerformanceMetrics(metrics);
+  } catch (error) {
+    console.error('Error fetching performance metrics:', error);
+    // Set safe defaults
+    setPerformanceMetrics({
+      productivityScore: 75,
+      consistencyScore: 68,
+      qualityScore: 82,
+      learningVelocity: 90,
+      trendDirection: 'stable',
+      predictedGrowth: 15,
+      strengths: ['Fast learner', 'Diverse skill set'],
+      improvements: ['Need more testing', 'Improve UI/UX']
+    });
+  }
+};
 
   const fetchPortfolioAnalysis = async () => {
     try {
@@ -818,26 +832,32 @@ export const StudentProjectsList: React.FC<StudentProjectsListProps> = ({ onAddP
           </div>
 
           {/* ML-Based Insights Bar */}
-          {comprehensiveAnalysis && (
-            <div className="mt-6 p-4 bg-white/10 backdrop-blur-sm rounded-lg">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-4">
-                  <div className="flex items-center space-x-2">
-                    <GraduationCap className="w-5 h-5" />
-                    <span className="text-sm">Predicted CGPA: {comprehensiveAnalysis.performanceMetrics.predictedCGPA.toFixed(2)}</span>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <Building className="w-5 h-5" />
-                    <span className="text-sm">Placement Ready: {comprehensiveAnalysis.futureProjections.placementProbability}%</span>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <Target className="w-5 h-5" />
-                    <span className="text-sm">Top Match: {comprehensiveAnalysis.careerInsights[0]?.domain}</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
+{comprehensiveAnalysis && comprehensiveAnalysis.performanceMetrics && (
+  <div className="mt-6 p-4 bg-white/10 backdrop-blur-sm rounded-lg">
+    <div className="flex items-center justify-between">
+      <div className="flex items-center space-x-4">
+        <div className="flex items-center space-x-2">
+          <GraduationCap className="w-5 h-5" />
+          <span className="text-sm">
+            Predicted CGPA: {comprehensiveAnalysis.performanceMetrics.predictedCGPA?.toFixed(2) || 'N/A'}
+          </span>
+        </div>
+        <div className="flex items-center space-x-2">
+          <Building className="w-5 h-5" />
+          <span className="text-sm">
+            Placement Ready: {comprehensiveAnalysis.futureProjections?.placementProbability || 0}%
+          </span>
+        </div>
+        <div className="flex items-center space-x-2">
+          <Target className="w-5 h-5" />
+          <span className="text-sm">
+            Top Match: {comprehensiveAnalysis.careerInsights?.[0]?.domain || 'N/A'}
+          </span>
+        </div>
+      </div>
+    </div>
+  </div>
+)}
         </div>
       </motion.div>
 
@@ -1884,12 +1904,13 @@ export const StudentProjectsList: React.FC<StudentProjectsListProps> = ({ onAddP
       </AnimatePresence>
 
       {/* AI Recommendations Footer */}
-      {comprehensiveAnalysis && comprehensiveAnalysis.personalizedRecommendations.immediateActions.length > 0 && (
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="bg-gradient-to-r from-purple-600 to-indigo-600 rounded-xl p-6 text-white"
-        >
+{comprehensiveAnalysis?.personalizedRecommendations?.immediateActions && 
+ comprehensiveAnalysis.personalizedRecommendations.immediateActions.length > 0 && (
+  <motion.div
+    initial={{ opacity: 0, y: 20 }}
+    animate={{ opacity: 1, y: 0 }}
+    className="bg-gradient-to-r from-purple-600 to-indigo-600 rounded-xl p-6 text-white"
+  >
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-xl font-semibold flex items-center">
               <Zap className="w-6 h-6 mr-2" />
