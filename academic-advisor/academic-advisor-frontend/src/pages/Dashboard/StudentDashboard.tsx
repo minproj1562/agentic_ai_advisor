@@ -44,7 +44,11 @@ import {
   ChevronLeft,
   Loader2,
   Heart,
-  Zap
+  Zap,
+  MessageSquare,  // ADD THIS - for chatbot icon
+  Bot,            // ADD THIS - for chatbot icon
+  Minimize2,      // ADD THIS - for floating chatbot
+  Maximize2       // ADD THIS - for floating chatbot
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useQueryClient } from '@tanstack/react-query';
@@ -75,6 +79,7 @@ import { ReadinessAnalysis } from '../../components/dashboard/ReadinessAnalysis'
 import { useStudentInterests, useSyncInterests } from '../../hooks/useEngineeringGuidance';
 import ReadinessIndicator from '../../components/dashboard/ReadinessIndicator';
 import { getWeaknessService } from '../../services/weakness.service';
+import AcademicChatbot from '../../components/dashboard/AcademicChatbot';
 
 // ==================== Interfaces ====================
 
@@ -248,7 +253,7 @@ const StudentDashboard: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState<
-    'overview' | 'performance' | 'electives' | 'weaknesses' | 'resources' | 'projects' | 'academic' | 'interests' | 'meetings' | 'readiness'
+    'overview' | 'performance' | 'electives' | 'weaknesses' | 'resources' | 'projects' | 'academic' | 'interests' | 'meetings' | 'readiness' | 'chatbot'
   >('overview');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -290,6 +295,9 @@ const StudentDashboard: React.FC = () => {
 
   // User profile state
   const [userProfile, setUserProfile] = useState<any>(null);
+
+  // ==================== ADD: Floating Chatbot State ====================
+  const [showFloatingChatbot, setShowFloatingChatbot] = useState(false);
 
   // Get performance metrics for engineering guidance
   const engineeringMetrics = usePerformanceMetrics();
@@ -1119,6 +1127,27 @@ const StudentDashboard: React.FC = () => {
                       <span className="font-medium">Overview</span>
                     </button>
                   </li>
+
+                  {/* ==================== ADD: CHATBOT TAB ==================== */}
+                  <li>
+                    <button
+                      onClick={() => { 
+                        setActiveTab('chatbot'); 
+                        setShowFloatingChatbot(false); // Hide floating when using full page
+                        analyticsService.trackEvent('tab_switched', { tab: 'chatbot' }); 
+                      }}
+                      className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-all ${
+                        activeTab === 'chatbot' ? 'bg-gradient-to-r from-blue-50 to-purple-50 text-blue-600 shadow-sm' : 'hover:bg-gray-50 text-gray-700'
+                      }`}
+                    >
+                      <Bot className="h-5 w-5" />
+                      <span className="font-medium">AI Assistant</span>
+                      <span className="ml-auto bg-gradient-to-r from-blue-500 to-purple-500 text-white text-xs px-2 py-1 rounded-full font-semibold animate-pulse">
+                        AI
+                      </span>
+                    </button>
+                  </li>
+
                   <li>
                     <button
                       onClick={() => { setActiveTab('performance'); analyticsService.trackEvent('tab_switched', { tab: 'performance' }); }}
@@ -1350,6 +1379,68 @@ const StudentDashboard: React.FC = () => {
                 transition={{ duration: 0.3 }}
                 className="space-y-6"
               >
+
+                {/* ==================== ADD: AI ASSISTANT QUICK ACCESS CARD ==================== */}
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="bg-gradient-to-r from-blue-600 to-purple-600 rounded-xl p-6 text-white shadow-lg"
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-4">
+                      <div className="h-14 w-14 rounded-full bg-white/20 backdrop-blur flex items-center justify-center">
+                        <Bot className="h-8 w-8 text-white" />
+                      </div>
+                      <div>
+                        <h3 className="text-xl font-bold">AI Academic Assistant</h3>
+                        <p className="text-white/80 text-sm">
+                          Get instant help with syllabus, faculty info, performance analysis, and career guidance
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={() => setShowFloatingChatbot(true)}
+                        className="px-4 py-2 bg-white/20 backdrop-blur hover:bg-white/30 rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
+                      >
+                        <MessageSquare className="h-4 w-4" />
+                        Quick Chat
+                      </button>
+                      <button
+                        onClick={() => setActiveTab('chatbot')}
+                        className="px-4 py-2 bg-white text-blue-600 rounded-lg text-sm font-medium hover:bg-gray-100 transition-colors flex items-center gap-2"
+                      >
+                        Open Full Assistant
+                        <ChevronRight className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </div>
+                  
+                  {/* Quick Suggestions */}
+                  <div className="mt-4 pt-4 border-t border-white/20">
+                    <p className="text-xs text-white/70 mb-2">Try asking:</p>
+                    <div className="flex flex-wrap gap-2">
+                      {[
+                        "Explain deadlock in OS",
+                        "Who teaches DBMS?",
+                        "Show my performance",
+                        "Recommend electives"
+                      ].map((suggestion, idx) => (
+                        <button
+                          key={idx}
+                          onClick={() => {
+                            setActiveTab('chatbot');
+                            // You can pass initial message through context or state if needed
+                          }}
+                          className="px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-full text-xs transition-colors"
+                        >
+                          {suggestion}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </motion.div>
+
                 {/* Projects Preview Card */}
                 <motion.div
                   initial={{ opacity: 0, y: 20 }}
@@ -1754,6 +1845,27 @@ const StudentDashboard: React.FC = () => {
               </motion.div>
             )}
 
+            
+            {/* ==================== CHATBOT TAB ==================== */}
+            {activeTab === 'chatbot' && (
+              <motion.div
+                key="chatbot"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+                transition={{ duration: 0.3 }}
+                className="h-[calc(100vh-180px)]"
+              >
+                <div className="bg-white rounded-xl shadow-lg overflow-hidden h-full">
+                  <AcademicChatbot 
+                    isFloating={false} 
+                    defaultOpen={true}
+                    className="h-full"
+                  />
+                </div>
+              </motion.div>
+            )}
+
             {/* ==================== PERFORMANCE TAB ==================== */}
             {activeTab === 'performance' && (
               <motion.div
@@ -2111,6 +2223,15 @@ const StudentDashboard: React.FC = () => {
           </AnimatePresence>
         </main>
       </div>
+      {/* ==================== FLOATING CHATBOT ==================== */}
+      {/* This appears as a floating widget when not on the chatbot tab */}
+      {activeTab !== 'chatbot' && (
+        <AcademicChatbot 
+          isFloating={true} 
+          defaultOpen={showFloatingChatbot}
+          className=""
+        />
+      )}
     </div>
   );
 };

@@ -74,6 +74,9 @@ api_router.include_router(meeting_requests_router, prefix="/meetings", tags=["Me
 from app.api.v1.endpoints import readiness as readiness_endpoints
 api_router.include_router(readiness_endpoints.router, prefix="/readiness", tags=["Readiness Analysis"])
 
+from app.api.v1.endpoints.chatbot import router as chatbot_router
+api_router.include_router(chatbot_router, prefix="/chatbot", tags=["Chatbot"])
+
 # ==================== OPTIONAL ROUTERS ====================
 
 try:
