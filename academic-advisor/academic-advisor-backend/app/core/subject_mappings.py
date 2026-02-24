@@ -1275,3 +1275,145 @@ def get_subject_mapping_service() -> SubjectMappingService:
     if _mapping_service is None:
         _mapping_service = SubjectMappingService()
     return _mapping_service
+
+# ============== IT DEPARTMENT HONOURS/MINORS CLASSIFICATION ==============
+# For IT Department ONLY:
+# - Honours: Cybersecurity, AIML
+# - Minors: Everything else
+
+IT_HONOURS_PROGRAMS = [
+    "Cybersecurity",
+    "Cyber Security", 
+    "Cybersecurity Honours",
+    "AIML",
+    "AI/ML",
+    "Artificial Intelligence & Machine Learning",
+    "AI & Machine Learning",
+    "AI & ML Honours",
+    "AI/ML Honours",
+]
+
+IT_MINOR_PROGRAMS = [
+    "Data Science",
+    "Data Science Minor",
+    "Cloud Computing",
+    "Cloud Computing Minor",
+    "Blockchain",
+    "Blockchain Technology",
+    "Full Stack Development",
+    "Full Stack Development Minor",
+    "IoT",
+    "Internet of Things",
+    "DevOps",
+    "DevOps Minor",
+    "AR/VR",
+    "AR/VR Technologies",
+    "Game Development",
+    "Quantum Computing",
+]
+
+def get_programme_type_for_branch(programme_name: str, branch: str) -> str:
+    """
+    Determine if a programme is Honours or Minor for a specific branch.
+    
+    For IT Department:
+    - Honours: Cybersecurity, AIML
+    - Minor: Everything else
+    
+    For other departments, use generic logic.
+    """
+    programme_lower = programme_name.lower().strip()
+    
+    if branch.upper() == 'IT':
+        # Check if it's an IT Honours program
+        for honours in IT_HONOURS_PROGRAMS:
+            if honours.lower() in programme_lower or programme_lower in honours.lower():
+                return 'honours'
+        
+        # Check if it's explicitly an IT Minor
+        for minor in IT_MINOR_PROGRAMS:
+            if minor.lower() in programme_lower or programme_lower in minor.lower():
+                return 'minor'
+        
+        # Default for IT: if not in honours list, it's a minor
+        return 'minor'
+    
+    # For COMP department
+    elif branch.upper() == 'COMP':
+        # COMP honours might include AI/ML, Data Science
+        if any(h.lower() in programme_lower for h in ['aiml', 'ai/ml', 'data science', 'machine learning']):
+            return 'honours'
+        return 'minor'
+    
+    # For EXTC department
+    elif branch.upper() == 'EXTC':
+        if any(h.lower() in programme_lower for h in ['iot', 'vlsi', 'embedded', 'communication']):
+            return 'honours'
+        return 'minor'
+    
+    # Default: use naming convention
+    if 'honours' in programme_lower:
+        return 'honours'
+    elif 'minor' in programme_lower:
+        return 'minor'
+    
+    # Fallback based on common programmes
+    honours_keywords = ['cybersecurity', 'aiml', 'ai/ml', 'artificial intelligence']
+    if any(kw in programme_lower for kw in honours_keywords):
+        return 'honours'
+    
+    return 'minor'
+
+
+def get_available_programmes_for_branch(branch: str) -> Dict[str, List[str]]:
+    """Get available Honours and Minor programmes for a branch."""
+    
+    if branch.upper() == 'IT':
+        return {
+            'honours': [
+                'Cybersecurity',
+                'AI & Machine Learning',
+            ],
+            'minors': [
+                'Data Science',
+                'Cloud Computing', 
+                'Blockchain Technology',
+                'Full Stack Development',
+                'IoT',
+                'DevOps',
+            ]
+        }
+    
+    elif branch.upper() == 'COMP':
+        return {
+            'honours': [
+                'AI & Machine Learning',
+                'Data Science',
+            ],
+            'minors': [
+                'Cybersecurity',
+                'Cloud Computing',
+                'Blockchain Technology',
+                'Full Stack Development',
+            ]
+        }
+    
+    elif branch.upper() == 'EXTC':
+        return {
+            'honours': [
+                'IoT',
+                'VLSI Design',
+                'Embedded Systems',
+            ],
+            'minors': [
+                'AI & Machine Learning',
+                'Data Science',
+                'Robotics',
+            ]
+        }
+    
+    # Default for other branches
+    return {
+        'honours': ['AI & Machine Learning'],
+        'minors': ['Data Science', 'Cloud Computing', 'Full Stack Development']
+    }

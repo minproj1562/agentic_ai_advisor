@@ -68,15 +68,24 @@ class DashboardAnalyticsService {
   private cacheTimestamp = 0;
   private readonly CACHE_TTL = 60_000; // 1 minute
 
+  /**
+   * FIXED: Fetch from the CORRECT endpoint that returns sgpa_trend
+   */
   async fetchFullDashboardData(forceRefresh = false): Promise<any> {
     if (!forceRefresh && this.cachedFullData && Date.now() - this.cacheTimestamp < this.CACHE_TTL) {
       return this.cachedFullData;
     }
     try {
+      // FIXED: Use the correct endpoint
       const data = await apiFetch('/api/v1/student-profile/me/full');
       if (data) {
         this.cachedFullData = data;
         this.cacheTimestamp = Date.now();
+        console.log('✅ Full dashboard data fetched:', {
+          sgpa_trend_count: data.sgpa_trend?.length || 0,
+          latest_sgpa: data.latest_sgpa,
+          cgpa: data.cgpa
+        });
       }
       return data;
     } catch (error) {
@@ -93,10 +102,15 @@ class DashboardAnalyticsService {
   async getPerformanceMetrics(_studentId: string): Promise<any[]> {
     try {
       const data = await this.fetchFullDashboardData();
-      if (!data?.sgpa_trend) return [];
+      if (!data?.sgpa_trend) {
+        console.warn('No sgpa_trend in response');
+        return [];
+      }
+      
+      // FIXED: Map the correct fields from backend response
       return data.sgpa_trend.map((s: any) => ({
         semester: s.semester,
-        sgpi: s.sgpa,
+        sgpi: s.sgpa, // Backend uses 'sgpa', frontend expects 'sgpi'
         credits: s.credits,
         courses: s.subjects_count || 0
       }));
@@ -112,12 +126,21 @@ class DashboardAnalyticsService {
       if (!data) return this.getEmptyStats();
 
       const sgpaTrend = data.sgpa_trend || [];
+      
+      // FIXED: Calculate stats from actual backend data
+      const currentSGPI = data.latest_sgpa || 0;
+      const previousSGPI = data.previous_sgpa || currentSGPI;
+      const percentageChange = data.percentage_change || 0;
+
       return {
-        currentSGPI: data.latest_sgpa || 0,
-        previousSGPI: data.previous_sgpa || data.latest_sgpa || 0,
+        currentSGPI,
+        previousSGPI,
         averageSGPI: sgpaTrend.length > 0
-          ? sgpaTrend.reduce((sum: number, s: any) => sum + s.sgpa, 0) / sgpaTrend.length : 0,
-        bestSGPI: sgpaTrend.length > 0 ? Math.max(...sgpaTrend.map((s: any) => s.sgpa)) : 0,
+          ? sgpaTrend.reduce((sum: number, s: any) => sum + s.sgpa, 0) / sgpaTrend.length 
+          : 0,
+        bestSGPI: sgpaTrend.length > 0 
+          ? Math.max(...sgpaTrend.map((s: any) => s.sgpa)) 
+          : 0,
         totalCredits: data.total_credits_earned || 0,
         currentSemester: data.current_semester || 1,
         cgpa: data.cgpa || 0,
@@ -126,7 +149,7 @@ class DashboardAnalyticsService {
         department: data.branch || '',
         completedCourses: sgpaTrend.reduce((sum: number, s: any) => sum + (s.subjects_count || 0), 0),
         trend: data.trend || 'stable',
-        percentageChange: data.percentage_change || 0
+        percentageChange
       };
     } catch (error) {
       console.error('Error getting dashboard stats:', error);
@@ -134,22 +157,38 @@ class DashboardAnalyticsService {
     }
   }
 
+  /**
+   * FIXED: Map backend data to PerformanceChart format
+   */
   async getPerformanceChartData(_studentId: string): Promise<any> {
     try {
       const data = await this.fetchFullDashboardData();
-      if (!data?.sgpa_trend?.length) return null;
-      return {
+      if (!data?.sgpa_trend?.length) {
+        console.warn('No SGPA trend data available');
+        return null;
+      }
+
+      // FIXED: Map backend fields to chart format
+      const chartData = {
         currentSGPI: data.latest_sgpa || 0,
         previousSGPI: data.previous_sgpa || data.latest_sgpa || 0,
         trend: data.trend || 'stable',
         percentageChange: data.percentage_change || 0,
         semesterWiseData: data.sgpa_trend.map((s: any) => ({
           semester: s.semester,
-          sgpi: s.sgpa,
+          sgpi: s.sgpa, // CRITICAL: Backend uses 'sgpa', chart expects 'sgpi'
           credits: s.credits,
           courses: s.subjects_count || 0
         }))
       };
+
+      console.log('📊 Chart data prepared:', {
+        semesters: chartData.semesterWiseData.length,
+        current: chartData.currentSGPI,
+        trend: chartData.trend
+      });
+
+      return chartData;
     } catch (error) {
       console.error('Error getting chart data:', error);
       return null;

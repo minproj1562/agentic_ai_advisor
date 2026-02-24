@@ -1,5 +1,4 @@
 // modules/agent1/performance-analytics/services/trend.service.ts
-import { apiService } from '../../../shared/services/api.service';
 import {
   PerformanceTrend,
   TrendAnalysis,
@@ -7,19 +6,51 @@ import {
   TrendPattern,
   SeasonalPattern
 } from '../types/analytics.types';
-import { TREND_ENDPOINTS, TREND_THRESHOLDS } from '../constants/thresholds';
+import { TREND_THRESHOLDS } from '../constants/thresholds';
 
 class TrendService {
   private readonly MIN_DATA_POINTS = 5;
   private readonly SMOOTHING_WINDOW = 3;
 
   /**
+   * Create a default/fallback TrendAnalysis when data is insufficient
+   */
+  private createDefaultAnalysis(data?: PerformanceTrend): TrendAnalysis {
+    const currentGPA = data?.currentGPA ??
+      (data?.dataPoints?.length ? data.dataPoints[data.dataPoints.length - 1].gpa : 0);
+
+    return {
+      trend: 'stable',
+      slope: 0,
+      intercept: currentGPA,
+      r2Score: 0,
+      confidence: 0,
+      patterns: [],
+      insights: ['Insufficient data for trend analysis. Add more semester results to enable predictions.'],
+      currentGPA,
+      projectedGPA: currentGPA,
+      gpaChange: 0,
+      percentile: data?.percentile ?? 50,
+      percentileChange: 0,
+      improvementRate: 0,
+      dataPointsCount: data?.dataPoints?.length ?? 0,
+      analysisDate: new Date().toISOString()
+    };
+  }
+
+  /**
    * Analyze trends in performance data
+   * Returns a default analysis instead of throwing when data is insufficient
    */
   async analyzeTrends(data: PerformanceTrend): Promise<TrendAnalysis> {
     try {
-      if (!data.dataPoints || data.dataPoints.length < this.MIN_DATA_POINTS) {
-        throw new Error('Insufficient data points for trend analysis');
+      // Guard: return default analysis if insufficient data (NO throw)
+      if (!data?.dataPoints || data.dataPoints.length < this.MIN_DATA_POINTS) {
+        console.warn(
+          `Trend analysis: only ${data?.dataPoints?.length ?? 0} data points available, ` +
+          `need ${this.MIN_DATA_POINTS}. Returning default analysis.`
+        );
+        return this.createDefaultAnalysis(data);
       }
 
       // Smooth data to reduce noise
@@ -56,21 +87,32 @@ class TrendService {
       };
     } catch (error) {
       console.error('Trend analysis failed:', error);
-      throw error;
+      // Return default instead of re-throwing — prevents SWR infinite retry
+      return this.createDefaultAnalysis(data);
     }
   }
 
   /**
    * Generate predictions based on trends
+   * Returns empty array instead of throwing when data is insufficient
    */
   async generatePredictions(
     data: PerformanceTrend,
     timeRange: string
   ): Promise<DataPoint[]> {
     try {
+      // Guard: return empty predictions if insufficient data
+      if (!data?.dataPoints || data.dataPoints.length < this.MIN_DATA_POINTS) {
+        console.warn(
+          `Prediction generation: only ${data?.dataPoints?.length ?? 0} data points available, ` +
+          `need ${this.MIN_DATA_POINTS}. Returning empty predictions.`
+        );
+        return [];
+      }
+
       const trendAnalysis = await this.analyzeTrends(data);
       const predictions: DataPoint[] = [];
-      
+
       const lastDate = new Date(data.dataPoints[data.dataPoints.length - 1].date);
       const daysToPredict = this.getHorizonDays(timeRange);
       const interval = Math.ceil(daysToPredict / 10); // 10 prediction points
@@ -98,7 +140,8 @@ class TrendService {
       return predictions;
     } catch (error) {
       console.error('Prediction generation failed:', error);
-      throw error;
+      // Return empty array instead of re-throwing
+      return [];
     }
   }
 
@@ -106,6 +149,8 @@ class TrendService {
    * Detect anomalies in performance data
    */
   detectAnomalies(dataPoints: DataPoint[]): any[] {
+    if (!dataPoints || dataPoints.length < 2) return [];
+
     const anomalies = [];
     const smoothed = this.smoothData(dataPoints);
     const stdDev = this.calculateStdDev(smoothed.map(d => d.gpa));
@@ -116,7 +161,6 @@ class TrendService {
       const expected = smoothed[i].gpa;
       const deviation = Math.abs(current - expected);
 
-      // Check for statistical anomaly (2 standard deviations)
       if (deviation > 2 * stdDev) {
         anomalies.push({
           date: dataPoints[i].date,
@@ -129,18 +173,20 @@ class TrendService {
         });
       }
 
-      // Check for sudden changes
-      const changeRate = Math.abs(current - dataPoints[i - 1].gpa) / dataPoints[i - 1].gpa;
-      if (changeRate > 0.2) { // 20% change
-        anomalies.push({
-          date: dataPoints[i].date,
-          value: current,
-          previous: dataPoints[i - 1].gpa,
-          changeRate,
-          type: 'sudden_change',
-          severity: changeRate > 0.3 ? 'high' : 'medium',
-          description: `Sudden ${changeRate > 0 ? 'increase' : 'decrease'} of ${(changeRate * 100).toFixed(1)}% detected`
-        });
+      const previousGpa = dataPoints[i - 1].gpa;
+      if (previousGpa > 0) {
+        const changeRate = Math.abs(current - previousGpa) / previousGpa;
+        if (changeRate > 0.2) {
+          anomalies.push({
+            date: dataPoints[i].date,
+            value: current,
+            previous: previousGpa,
+            changeRate,
+            type: 'sudden_change',
+            severity: changeRate > 0.3 ? 'high' : 'medium',
+            description: `Sudden ${current > previousGpa ? 'increase' : 'decrease'} of ${(changeRate * 100).toFixed(1)}% detected`
+          });
+        }
       }
     }
 
@@ -155,37 +201,33 @@ class TrendService {
     const x = data.map((_, i) => i);
     const y = data.map(d => d.gpa);
 
-    // Calculate linear regression
     const sumX = x.reduce((a, b) => a + b, 0);
     const sumY = y.reduce((a, b) => a + b, 0);
     const sumXY = x.reduce((sum, xi, i) => sum + xi * y[i], 0);
     const sumX2 = x.reduce((sum, xi) => sum + xi * xi, 0);
 
-    const slope = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX);
+    const denominator = n * sumX2 - sumX * sumX;
+    const slope = denominator !== 0 ? (n * sumXY - sumX * sumY) / denominator : 0;
     const intercept = (sumY - slope * sumX) / n;
 
-    // Calculate R² score
     const yMean = sumY / n;
     const ssTotal = y.reduce((sum, yi) => sum + Math.pow(yi - yMean, 2), 0);
     const ssRes = y.reduce((sum, yi, i) => {
       const predicted = slope * i + intercept;
       return sum + Math.pow(yi - predicted, 2);
     }, 0);
-    const r2Score = 1 - (ssRes / ssTotal);
+    const r2Score = ssTotal !== 0 ? 1 - (ssRes / ssTotal) : 0;
 
-    // Determine direction
     let direction: 'improving' | 'declining' | 'stable';
     if (slope > TREND_THRESHOLDS.IMPROVEMENT) direction = 'improving';
     else if (slope < -TREND_THRESHOLDS.IMPROVEMENT) direction = 'declining';
     else direction = 'stable';
 
-    // Calculate percentage change
     const firstValue = y[0];
     const lastValue = y[n - 1];
-    const percentageChange = ((lastValue - firstValue) / firstValue) * 100;
+    const percentageChange = firstValue !== 0 ? ((lastValue - firstValue) / firstValue) * 100 : 0;
 
-    // Calculate improvement rate
-    const improvementRate = slope * 30; // Monthly improvement rate
+    const improvementRate = slope * 30;
 
     return {
       slope,
@@ -203,19 +245,15 @@ class TrendService {
   private detectPatterns(data: DataPoint[]): TrendPattern[] {
     const patterns: TrendPattern[] = [];
 
-    // Detect seasonal patterns
     const seasonalPattern = this.detectSeasonalPattern(data);
     if (seasonalPattern) patterns.push(seasonalPattern);
 
-    // Detect cyclical patterns
     const cyclicalPattern = this.detectCyclicalPattern(data);
     if (cyclicalPattern) patterns.push(cyclicalPattern);
 
-    // Detect acceleration/deceleration
     const accelerationPattern = this.detectAcceleration(data);
     if (accelerationPattern) patterns.push(accelerationPattern);
 
-    // Detect plateaus
     const plateauPattern = this.detectPlateau(data);
     if (plateauPattern) patterns.push(plateauPattern);
 
@@ -226,6 +264,8 @@ class TrendService {
    * Smooth data using moving average
    */
   private smoothData(data: DataPoint[]): DataPoint[] {
+    if (!data || data.length === 0) return [];
+
     const smoothed: DataPoint[] = [];
     const window = this.SMOOTHING_WINDOW;
 
@@ -233,7 +273,7 @@ class TrendService {
       const start = Math.max(0, i - Math.floor(window / 2));
       const end = Math.min(data.length, i + Math.floor(window / 2) + 1);
       const subset = data.slice(start, end);
-      
+
       const avgGPA = subset.reduce((sum, d) => sum + d.gpa, 0) / subset.length;
       const avgPercentile = subset.reduce((sum, d) => sum + (d.percentile || 0), 0) / subset.length;
 
@@ -253,18 +293,14 @@ class TrendService {
   private calculateConfidence(data: DataPoint[], metrics: any): number {
     let confidence = 0;
 
-    // Factor 1: R² score (40% weight)
-    confidence += metrics.r2Score * 0.4;
+    confidence += (metrics.r2Score || 0) * 0.4;
 
-    // Factor 2: Data quantity (20% weight)
     const dataQuality = Math.min(data.length / 20, 1);
     confidence += dataQuality * 0.2;
 
-    // Factor 3: Data consistency (20% weight)
     const consistency = this.calculateConsistency(data);
     confidence += consistency * 0.2;
 
-    // Factor 4: Recent data availability (20% weight)
     const recency = this.calculateRecency(data);
     confidence += recency * 0.2;
 
@@ -277,7 +313,6 @@ class TrendService {
   private generateInsights(metrics: any, patterns: TrendPattern[]): string[] {
     const insights: string[] = [];
 
-    // Trend direction insight
     if (metrics.direction === 'improving') {
       insights.push(`Performance improving at ${(metrics.improvementRate * 100).toFixed(1)}% per month`);
     } else if (metrics.direction === 'declining') {
@@ -286,12 +321,10 @@ class TrendService {
       insights.push('Performance is stable');
     }
 
-    // Pattern insights
     patterns.forEach(pattern => {
       insights.push(pattern.description);
     });
 
-    // Statistical insights
     if (metrics.r2Score > 0.8) {
       insights.push('High confidence in trend prediction');
     } else if (metrics.r2Score < 0.5) {
@@ -303,25 +336,25 @@ class TrendService {
 
   // Helper methods
   private projectGPA(analysis: any, semestersAhead: number): number {
-    return analysis.intercept + (analysis.slope * semestersAhead * 120);
+    return (analysis.intercept || 0) + ((analysis.slope || 0) * semestersAhead * 120);
   }
 
   private projectPercentile(analysis: any, daysAhead: number): number {
-    // Simple projection - in production, use more sophisticated method
-    return Math.min(100, Math.max(0, analysis.percentile + (analysis.percentileChange * daysAhead / 30)));
+    return Math.min(100, Math.max(0,
+      (analysis.percentile || 50) + ((analysis.percentileChange || 0) * daysAhead / 30)
+    ));
   }
 
   private calculatePercentileChange(data: PerformanceTrend): number {
     if (!data.dataPoints || data.dataPoints.length < 2) return 0;
-    
+
     const first = data.dataPoints[0].percentile || 50;
     const last = data.dataPoints[data.dataPoints.length - 1].percentile || 50;
-    
+
     return last - first;
   }
 
   private getHorizonDays(timeRange: string): number {
-    // FIXED: Added index signature to horizons object
     const horizons: { [key: string]: number } = {
       '1m': 30,
       '3m': 90,
@@ -332,6 +365,7 @@ class TrendService {
   }
 
   private calculateStdDev(values: number[]): number {
+    if (values.length === 0) return 0;
     const mean = values.reduce((sum, v) => sum + v, 0) / values.length;
     const squaredDiffs = values.map(v => Math.pow(v - mean, 2));
     const avgSquaredDiff = squaredDiffs.reduce((sum, v) => sum + v, 0) / values.length;
@@ -341,40 +375,39 @@ class TrendService {
   private generateAnomalyDescription(actual: number, expected: number, date: string): string {
     const diff = actual - expected;
     const formattedDate = new Date(date).toLocaleDateString();
-    
+
     if (diff > 0) {
-      return `Unusually high performance on ${formattedDate} - ${(diff * 100 / expected).toFixed(1)}% above expected`;
+      return `Unusually high performance on ${formattedDate} - ${expected !== 0 ? (diff * 100 / expected).toFixed(1) : '0'}% above expected`;
     } else {
-      return `Performance drop on ${formattedDate} - ${Math.abs(diff * 100 / expected).toFixed(1)}% below expected`;
+      return `Performance drop on ${formattedDate} - ${expected !== 0 ? Math.abs(diff * 100 / expected).toFixed(1) : '0'}% below expected`;
     }
   }
 
   private detectSeasonalPattern(data: DataPoint[]): TrendPattern | null {
-    // Implement seasonal pattern detection
-    // This is a simplified version
     return null;
   }
 
   private detectCyclicalPattern(data: DataPoint[]): TrendPattern | null {
-    // Implement cyclical pattern detection
     return null;
   }
 
   private detectAcceleration(data: DataPoint[]): TrendPattern | null {
     if (data.length < 3) return null;
-    
+
     const firstDerivative = [];
     for (let i = 1; i < data.length; i++) {
       firstDerivative.push(data[i].gpa - data[i - 1].gpa);
     }
-    
+
     const secondDerivative = [];
     for (let i = 1; i < firstDerivative.length; i++) {
       secondDerivative.push(firstDerivative[i] - firstDerivative[i - 1]);
     }
-    
+
+    if (secondDerivative.length === 0) return null;
+
     const avgAcceleration = secondDerivative.reduce((a, b) => a + b, 0) / secondDerivative.length;
-    
+
     if (Math.abs(avgAcceleration) > 0.01) {
       return {
         type: avgAcceleration > 0 ? 'accelerating' : 'decelerating',
@@ -384,16 +417,16 @@ class TrendService {
         endDate: data[data.length - 1].date
       };
     }
-    
+
     return null;
   }
 
   private detectPlateau(data: DataPoint[]): TrendPattern | null {
     if (data.length < 5) return null;
-    
+
     const recentData = data.slice(-5);
     const variance = this.calculateVariance(recentData.map(d => d.gpa));
-    
+
     if (variance < 0.01) {
       return {
         type: 'plateau',
@@ -403,26 +436,28 @@ class TrendService {
         endDate: recentData[recentData.length - 1].date
       };
     }
-    
+
     return null;
   }
 
   private calculateConsistency(data: DataPoint[]): number {
     if (data.length < 2) return 1;
-    
+
     let consistencyScore = 1;
     for (let i = 1; i < data.length; i++) {
       const change = Math.abs(data[i].gpa - data[i - 1].gpa);
       if (change > 0.5) consistencyScore -= 0.1;
     }
-    
+
     return Math.max(0, consistencyScore);
   }
 
   private calculateRecency(data: DataPoint[]): number {
+    if (data.length === 0) return 0;
+
     const lastDate = new Date(data[data.length - 1].date);
     const daysSince = (Date.now() - lastDate.getTime()) / (1000 * 60 * 60 * 24);
-    
+
     if (daysSince < 7) return 1;
     if (daysSince < 30) return 0.8;
     if (daysSince < 90) return 0.5;
@@ -430,6 +465,7 @@ class TrendService {
   }
 
   private calculateVariance(values: number[]): number {
+    if (values.length === 0) return 0;
     const mean = values.reduce((sum, v) => sum + v, 0) / values.length;
     const squaredDiffs = values.map(v => Math.pow(v - mean, 2));
     return squaredDiffs.reduce((sum, v) => sum + v, 0) / values.length;

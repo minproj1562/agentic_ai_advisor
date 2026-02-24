@@ -1,7 +1,7 @@
 // src/pages/Dashboard/StudentDashboard.tsx
-// COMPLETE FILE — All dynamic data fixes applied
+// COMPLETE FILE — All effect loops, duplicate fetches, and re-render issues fixed
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import StudentMeetingRequest from '../../components/meetings/StudentMeetingRequest';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -44,7 +44,11 @@ import {
   ChevronLeft,
   Loader2,
   Heart,
-  Zap
+  Zap,
+  MessageSquare,  // ADD THIS - for chatbot icon
+  Bot,            // ADD THIS - for chatbot icon
+  Minimize2,      // ADD THIS - for floating chatbot
+  Maximize2       // ADD THIS - for floating chatbot
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useQueryClient } from '@tanstack/react-query';
@@ -75,6 +79,7 @@ import { ReadinessAnalysis } from '../../components/dashboard/ReadinessAnalysis'
 import { useStudentInterests, useSyncInterests } from '../../hooks/useEngineeringGuidance';
 import ReadinessIndicator from '../../components/dashboard/ReadinessIndicator';
 import { getWeaknessService } from '../../services/weakness.service';
+import AcademicChatbot from '../../components/dashboard/AcademicChatbot';
 
 // ==================== Interfaces ====================
 
@@ -187,33 +192,6 @@ const transformWeaknessData = (weakness: WeaknessData): ExtendedWeaknessData => 
   };
 };
 
-const transformStudentData = (studentDetails: any): ExtendedDetailedAnalysis => {
-  return {
-    weaknesses: studentDetails.weaknesses || [],
-    performance_data: (studentDetails as any).performance_data || {},
-    improvement_trend: (studentDetails as any).improvement_trend || 'stable',
-    department: (studentDetails as any).department || 'Unknown',
-    current_semester: (studentDetails as any).current_semester || 1,
-    latest_sgpa: (studentDetails as any).latest_sgpa || 0,
-    cgpa: (studentDetails as any).cgpa || 0,
-    weakness_count: (studentDetails as any).weakness_count || 0,
-    metadata: (studentDetails as any).metadata || {},
-    risk_level: (studentDetails as any).risk_level || 'low',
-    attendance: (studentDetails as any).attendance || 0,
-    batch: (studentDetails as any).batch || 2020,
-    profile_completeness: (studentDetails as any).profile_completeness || 0
-  };
-};
-
-const transformPredictionData = (mlPredictions: any): ExtendedPredictionResult => {
-  return {
-    failure_risk: (mlPredictions as any).failure_risk || 'low',
-    next_semester_sgpa: (mlPredictions as any).next_semester_sgpa || 0,
-    confidence_score: (mlPredictions as any).confidence_score || 0,
-    expected_graduation_cgpa: (mlPredictions as any).expected_graduation_cgpa || 0
-  };
-};
-
 // Performance metrics hook
 const usePerformanceMetrics = () => {
   const [metrics] = useState({
@@ -248,7 +226,7 @@ const StudentDashboard: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState<
-    'overview' | 'performance' | 'electives' | 'weaknesses' | 'resources' | 'projects' | 'academic' | 'interests' | 'meetings' | 'readiness'
+    'overview' | 'performance' | 'electives' | 'weaknesses' | 'resources' | 'projects' | 'academic' | 'interests' | 'meetings' | 'readiness' | 'chatbot'
   >('overview');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -261,7 +239,7 @@ const StudentDashboard: React.FC = () => {
   const [projectAnalysisResult, setProjectAnalysisResult] = useState<LegacyProjectAnalysisResult | null>(null);
   const [analysisLoading, setAnalysisLoading] = useState(false);
 
-  // Meetings view state (for sub-navigation: requests vs calendar)
+  // Meetings view state
   const [meetingsView, setMeetingsView] = useState<'requests' | 'calendar'>('requests');
 
   // Recommendation stats for overview
@@ -275,7 +253,7 @@ const StudentDashboard: React.FC = () => {
   const [readinessData, setReadinessData] = useState<any>(null);
   const [loadingReadiness, setLoadingReadiness] = useState(false);
 
-  // Student interests/electives/honours for passing to components
+  // Student interests/electives/honours
   const [studentInterests, setStudentInterests] = useState<string[]>([]);
   const [studentElectives, setStudentElectives] = useState<string[]>([]);
   const [studentHonours, setStudentHonours] = useState<string[]>([]);
@@ -291,40 +269,50 @@ const StudentDashboard: React.FC = () => {
   // User profile state
   const [userProfile, setUserProfile] = useState<any>(null);
 
+  // ==================== ADD: Floating Chatbot State ====================
+  const [showFloatingChatbot, setShowFloatingChatbot] = useState(false);
+
   // Get performance metrics for engineering guidance
   const engineeringMetrics = usePerformanceMetrics();
 
   // Type-safe user display name
   const userDisplayName = (user as AuthUser)?.displayName || 'Student';
 
-  // ==================== Helper: Invalidate All Caches ====================
+  // ==================== Refs to prevent duplicate fetches ====================
 
-  const invalidateAllCaches = () => {
+  const initialFetchDone = useRef(false);
+  const projectCountFetchedFor = useRef<string | null>(null);
+  const interestsSyncedFor = useRef<string | null>(null);
+  const readinessFetchingRef = useRef(false);
+
+  // ==================== Stable Callbacks ====================
+
+  const invalidateAllCaches = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ['weakness-analysis'] });
     queryClient.invalidateQueries({ queryKey: ['student-interests'] });
     queryClient.invalidateQueries({ queryKey: ['performance-metrics'] });
     queryClient.invalidateQueries({ queryKey: ['study-resources'] });
     queryClient.invalidateQueries({ queryKey: ['elective-recommendations'] });
-  };
+  }, [queryClient]);
 
-  // ==================== Data Fetching Functions ====================
-
-  const fetchRecommendationStats = async () => {
+  const fetchRecommendationStats = useCallback(async () => {
     try {
       const data = await mlService.getRecommendations(true, true, true, false);
       setRecommendationStats({
         careerPaths: data.careers?.length || 0,
-        honoursProgramsMatch: data.honours?.filter(h => h.eligibility)?.length || 0,
+        honoursProgramsMatch: data.honours?.filter((h: any) => h.eligibility)?.length || 0,
         electivesRecommended: data.electives?.length || 0
       });
     } catch (error) {
       console.error('Error fetching recommendation stats:', error);
     }
-  };
+  }, []);
 
-  const fetchReadiness = async () => {
+  const fetchReadiness = useCallback(async () => {
     if (!user?.uid) return;
+    if (readinessFetchingRef.current) return; // FIXED: Prevent concurrent calls
 
+    readinessFetchingRef.current = true;
     setLoadingReadiness(true);
     try {
       const service = getWeaknessService();
@@ -338,18 +326,209 @@ const StudentDashboard: React.FC = () => {
       console.log('✅ Readiness data loaded:', {
         score: data.overall_readiness_score,
         level: data.readiness_level,
-        interests_used: studentInterests,
-        weaknesses_count: data.weaknesses?.length
       });
     } catch (error) {
       console.error('Error fetching readiness:', error);
-      toast.error('Failed to load readiness analysis');
     } finally {
       setLoadingReadiness(false);
+      readinessFetchingRef.current = false;
     }
-  };
+  }, [user?.uid, studentInterests, studentElectives, studentHonours]);
 
-  const handleProjectAnalyzed = async (analysisResponse: ComprehensiveAnalysis) => {
+  const updateDashboardWithProfile = useCallback((profile: any) => {
+    setDashboardStats((prev: DashboardStats | null) => ({
+      ...(prev || {
+        currentSGPI: 0,
+        previousSGPI: 0,
+        averageSGPI: 0,
+        bestSGPI: 0,
+        totalCredits: 0,
+        currentSemester: 1,
+        rank: '0/0',
+        totalStudents: '0',
+        department: '',
+        completedCourses: 0,
+        trend: 'stable',
+        percentageChange: 0
+      }),
+      currentSGPI: profile.cgpa || 0,
+      cgpa: profile.cgpa,
+      totalCredits: profile.total_credits,
+      currentSemester: profile.semester,
+      department: profile.branch
+    }));
+  }, []);
+
+  const fetchProjectCount = useCallback(async () => {
+    if (!user?.uid) return;
+    // FIXED: Prevent duplicate project count fetches
+    if (projectCountFetchedFor.current === user.uid) return;
+    projectCountFetchedFor.current = user.uid;
+
+    try {
+      setProjectsLoading(true);
+      console.log('Fetching project count for user:', user.uid);
+      const projects = await studentProjectsService.getUserProjects();
+      console.log('Projects fetched:', projects);
+      setProjectCount(projects.length);
+    } catch (error) {
+      console.error('Error fetching project count:', error);
+      setProjectCount(0);
+    } finally {
+      setProjectsLoading(false);
+    }
+  }, [user?.uid]);
+
+  // Force refetch project count (used after upload)
+  const refetchProjectCount = useCallback(async () => {
+    if (!user?.uid) return;
+    projectCountFetchedFor.current = null; // Reset guard
+    await fetchProjectCount();
+  }, [user?.uid, fetchProjectCount]);
+
+  const fetchUserProfile = useCallback(async () => {
+    if (!user?.uid) return;
+
+    const cachedProfile = loadProfileFromStorage();
+    if (cachedProfile) {
+      setUserProfile(cachedProfile);
+      updateDashboardWithProfile(cachedProfile);
+    }
+
+    try {
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
+        console.error('No authenticated user found');
+        return;
+      }
+
+      const token = await currentUser.getIdToken(true);
+      if (!token) {
+        console.error('Failed to get auth token');
+        return;
+      }
+
+      let response = await fetch(`${BACKEND_URL}/api/v1/student-profile/me`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (response.status === 404) {
+        response = await fetch(`${BACKEND_URL}/api/v1/student-profile/profile`, {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        });
+      }
+
+      if (response.ok) {
+        const data = await response.json();
+
+        const profile = {
+          name: data.name,
+          branch: data.branch,
+          semester: data.current_semester,
+          cgpa: data.cgpa,
+          admission_year: data.admission_year,
+          academic_year: data.current_academic_year,
+          total_credits: data.total_credits_earned,
+          roll_number: data.roll_number,
+          interests: data.interests || [],
+          career_goals: data.career_goals || []
+        };
+
+        setUserProfile(profile);
+        saveProfileToStorage(profile);
+        updateDashboardWithProfile(profile);
+
+        localStorage.setItem('userBranch', profile.branch);
+        localStorage.setItem('userSemester', profile.semester.toString());
+
+        window.dispatchEvent(new CustomEvent('profileLoaded', { detail: profile }));
+      } else if (response.status === 404) {
+        console.log('Profile not found - user needs to create profile');
+        localStorage.removeItem(PROFILE_STORAGE_KEY);
+        setUserProfile(null);
+      } else {
+        console.error('Failed to fetch profile:', response.status);
+      }
+    } catch (error) {
+      console.error('Error fetching profile:', error);
+      if (!userProfile && cachedProfile) {
+        toast('Using cached profile data');
+      }
+    }
+  }, [user?.uid, updateDashboardWithProfile]);
+
+  const fetchDashboardData = useCallback(async (showLoader = true) => {
+    if (!user?.uid) { setLoading(false); return; }
+
+    try {
+      if (showLoader) setLoading(true);
+
+      const [chartData, stats, metrics] = await Promise.all([
+        extendedAnalyticsService.getPerformanceChartData(user.uid),
+        extendedAnalyticsService.getDashboardStats(user.uid),
+        extendedAnalyticsService.getPerformanceMetrics(user.uid)
+      ]);
+
+      const insightsData = await extendedAnalyticsService.generateInsights(metrics);
+
+      setPerformanceData(chartData);
+      setDashboardStats(stats as DashboardStats);
+      setInsights(insightsData);
+
+      const fullData = await extendedAnalyticsService.fetchFullDashboardData();
+      if (fullData) {
+        setStudentData({
+          weaknesses: fullData.weaknesses || [],
+          performance_data: { sgpa_trend: fullData.sgpa_trend || [] },
+          improvement_trend: fullData.trend || 'stable',
+          department: fullData.branch,
+          current_semester: fullData.current_semester,
+          latest_sgpa: fullData.latest_sgpa,
+          cgpa: fullData.cgpa,
+          weakness_count: fullData.weakness_count,
+          metadata: { total_credits: fullData.total_credits_earned },
+          risk_level: fullData.cgpa < 6 ? 'high' : fullData.cgpa < 7 ? 'medium' : 'low',
+          attendance: 0,
+          batch: fullData.admission_year,
+          profile_completeness: fullData.completion_percentage
+        });
+      }
+
+      setLastUpdated(new Date());
+    } catch (error) {
+      console.error('Dashboard fetch error:', error);
+      toast.error('Failed to load dashboard data');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [user?.uid]);
+
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    invalidateAllCaches();
+    projectCountFetchedFor.current = null; // Allow re-fetch
+    interestsSyncedFor.current = null;
+    readinessFetchingRef.current = false;
+
+    await Promise.all([
+      fetchDashboardData(false),
+      fetchRecommendationStats(),
+      fetchReadiness(),
+      refetchProjectCount(),
+    ]);
+    toast.success('Dashboard refreshed!');
+  }, [invalidateAllCaches, fetchDashboardData, fetchRecommendationStats, fetchReadiness, refetchProjectCount]);
+
+  const handleProjectAnalyzed = useCallback(async (analysisResponse: ComprehensiveAnalysis) => {
     try {
       const legacyFormat: LegacyProjectAnalysisResult = {
         inferred_interests: analysisResponse.inferred_interests.map(i => ({
@@ -434,282 +613,9 @@ const StudentDashboard: React.FC = () => {
       console.error('Error processing analysis:', error);
       toast.error('Failed to process analysis results');
     }
-  };
+  }, []);
 
-  const fetchUserProfile = async () => {
-    if (!user?.uid) return;
-
-    const cachedProfile = loadProfileFromStorage();
-    if (cachedProfile) {
-      setUserProfile(cachedProfile);
-      updateDashboardWithProfile(cachedProfile);
-    }
-
-    try {
-      const currentUser = auth.currentUser;
-      if (!currentUser) {
-        console.error('No authenticated user found');
-        return;
-      }
-
-      const token = await currentUser.getIdToken(true);
-
-      if (!token) {
-        console.error('Failed to get auth token');
-        return;
-      }
-
-      let response = await fetch(`${BACKEND_URL}/api/v1/student-profile/me`, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
-      });
-
-      if (response.status === 404) {
-        response = await fetch(`${BACKEND_URL}/api/v1/student-profile/profile`, {
-          method: 'GET',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          }
-        });
-      }
-
-      if (response.ok) {
-        const data = await response.json();
-
-        const profile = {
-          name: data.name,
-          branch: data.branch,
-          semester: data.current_semester,
-          cgpa: data.cgpa,
-          admission_year: data.admission_year,
-          academic_year: data.current_academic_year,
-          total_credits: data.total_credits_earned,
-          roll_number: data.roll_number,
-          interests: data.interests || [],
-          career_goals: data.career_goals || []
-        };
-
-        setUserProfile(profile);
-        saveProfileToStorage(profile);
-        updateDashboardWithProfile(profile);
-
-        localStorage.setItem('userBranch', profile.branch);
-        localStorage.setItem('userSemester', profile.semester.toString());
-
-        window.dispatchEvent(new CustomEvent('profileLoaded', { detail: profile }));
-
-      } else if (response.status === 404) {
-        console.log('Profile not found - user needs to create profile');
-        localStorage.removeItem(PROFILE_STORAGE_KEY);
-        setUserProfile(null);
-      } else {
-        console.error('Failed to fetch profile:', response.status);
-      }
-    } catch (error) {
-      console.error('Error fetching profile:', error);
-      if (!userProfile && cachedProfile) {
-        toast('Using cached profile data');
-      }
-    }
-  };
-
-  const updateDashboardWithProfile = (profile: any) => {
-    setDashboardStats((prev: DashboardStats | null) => ({
-      ...(prev || {
-        currentSGPI: 0,
-        previousSGPI: 0,
-        averageSGPI: 0,
-        bestSGPI: 0,
-        totalCredits: 0,
-        currentSemester: 1,
-        rank: '0/0',
-        totalStudents: '0',
-        department: '',
-        completedCourses: 0,
-        trend: 'stable',
-        percentageChange: 0
-      }),
-      currentSGPI: profile.cgpa || 0,
-      cgpa: profile.cgpa,
-      totalCredits: profile.total_credits,
-      currentSemester: profile.semester,
-      department: profile.branch
-    }));
-  };
-
-  const calculatePercentageChange = (data: ExtendedDetailedAnalysis): number => {
-    const sgpaTrend = data.performance_data?.sgpa_trend;
-    if (!sgpaTrend || sgpaTrend.length < 2) return 0;
-
-    const current = sgpaTrend[sgpaTrend.length - 1].sgpa;
-    const previous = sgpaTrend[sgpaTrend.length - 2].sgpa;
-    return previous ? ((current - previous) / previous) * 100 : 0;
-  };
-
-  const calculateAverageSGPA = (sgpaTrend: any[]): number => {
-    if (!sgpaTrend || sgpaTrend.length === 0) return 0;
-    return sgpaTrend.reduce((sum, semester) => sum + semester.sgpa, 0) / sgpaTrend.length;
-  };
-
-  const generateRealInsights = (data: ExtendedDetailedAnalysis, preds: ExtendedPredictionResult) => {
-    const weaknesses = data.weaknesses || [];
-    const performanceTrend = data.improvement_trend;
-
-    const recommendations: Array<{ message: string; priority: string; type: string }> = [];
-
-    weaknesses.forEach((weakness) => {
-      const extendedWeakness = transformWeaknessData(weakness);
-      if (extendedWeakness.severity === 'high' || extendedWeakness.severity === 'critical') {
-        recommendations.push({
-          message: `Focus on ${extendedWeakness.subject}: ${extendedWeakness.topic || 'key concepts'} (${extendedWeakness.gap || 0}% gap)`,
-          priority: 'high',
-          type: 'alert'
-        });
-      } else if (extendedWeakness.severity === 'medium') {
-        recommendations.push({
-          message: `Practice ${extendedWeakness.subject} to improve ${extendedWeakness.gap || 0}% gap`,
-          priority: 'medium',
-          type: 'warning'
-        });
-      }
-    });
-
-    if (performanceTrend === 'declining') {
-      recommendations.push({
-        message: 'Performance trend declining. Review study strategies and seek guidance',
-        priority: 'high',
-        type: 'warning'
-      });
-    } else if (performanceTrend === 'improving') {
-      recommendations.push({
-        message: 'Great improvement trend! Maintain your current study approach',
-        priority: 'low',
-        type: 'success'
-      });
-    }
-
-    if (preds.failure_risk === 'high') {
-      recommendations.push({
-        message: 'High failure risk detected. Consider additional support and resources',
-        priority: 'high',
-        type: 'alert'
-      });
-    }
-
-    if (recommendations.length === 0) {
-      recommendations.push({
-        message: 'Good performance! Focus on maintaining consistency and exploring advanced topics',
-        priority: 'low',
-        type: 'success'
-      });
-    }
-
-    const riskFactors = weaknesses
-      .map(w => transformWeaknessData(w))
-      .filter(w => w.severity === 'high' || w.severity === 'critical')
-      .map(w => ({
-        factor: `${w.subject} - ${w.topic || 'Overall'}`,
-        severity: w.severity
-      }));
-
-    return {
-      recommendations,
-      trends: {
-        overall: performanceTrend,
-        confidence: 0.85,
-        averageChange: calculatePercentageChange(data)
-      },
-      predictions: {
-        nextSGPI: preds.next_semester_sgpa,
-        confidence: preds.confidence_score && preds.confidence_score > 0.8 ? 'high' :
-                   preds.confidence_score && preds.confidence_score > 0.6 ? 'medium' : 'low',
-        rSquared: 0.76
-      },
-      riskFactors
-    };
-  };
-
-  const fetchProjectCount = async () => {
-    if (!user) return;
-
-    try {
-      setProjectsLoading(true);
-      console.log('Fetching project count for user:', user.uid);
-      const projects = await studentProjectsService.getUserProjects();
-      console.log('Projects fetched:', projects);
-      setProjectCount(projects.length);
-    } catch (error) {
-      console.error('Error fetching project count:', error);
-      setProjectCount(0);
-    } finally {
-      setProjectsLoading(false);
-    }
-  };
-
-  const fetchDashboardData = async (showLoader = true) => {
-    if (!user?.uid) { setLoading(false); return; }
-
-    try {
-      if (showLoader) setLoading(true);
-
-      const [chartData, stats, metrics] = await Promise.all([
-        extendedAnalyticsService.getPerformanceChartData(user.uid),
-        extendedAnalyticsService.getDashboardStats(user.uid),
-        extendedAnalyticsService.getPerformanceMetrics(user.uid)
-      ]);
-
-      const insightsData = await extendedAnalyticsService.generateInsights(metrics);
-
-      setPerformanceData(chartData);
-      setDashboardStats(stats as DashboardStats);
-      setInsights(insightsData);
-
-      const fullData = await extendedAnalyticsService.fetchFullDashboardData();
-      if (fullData) {
-        setStudentData({
-          weaknesses: fullData.weaknesses || [],
-          performance_data: { sgpa_trend: fullData.sgpa_trend || [] },
-          improvement_trend: fullData.trend || 'stable',
-          department: fullData.branch,
-          current_semester: fullData.current_semester,
-          latest_sgpa: fullData.latest_sgpa,
-          cgpa: fullData.cgpa,
-          weakness_count: fullData.weakness_count,
-          metadata: { total_credits: fullData.total_credits_earned },
-          risk_level: fullData.cgpa < 6 ? 'high' : fullData.cgpa < 7 ? 'medium' : 'low',
-          attendance: 0,
-          batch: fullData.admission_year,
-          profile_completeness: fullData.completion_percentage
-        });
-      }
-
-      setLastUpdated(new Date());
-
-    } catch (error) {
-      console.error('Dashboard fetch error:', error);
-      toast.error('Failed to load dashboard data');
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  };
-
-  const handleRefresh = async () => {
-    setRefreshing(true);
-    invalidateAllCaches();
-    await Promise.all([
-      fetchDashboardData(false),
-      fetchRecommendationStats(),
-      fetchReadiness(),
-    ]);
-    toast.success('Dashboard refreshed!');
-  };
-
-  const handleDownloadReport = () => {
+  const handleDownloadReport = useCallback(() => {
     const reportData = {
       student: userDisplayName,
       date: new Date().toLocaleDateString(),
@@ -734,7 +640,6 @@ const StudentDashboard: React.FC = () => {
 
     const dataStr = JSON.stringify(reportData, null, 2);
     const dataUri = 'data:application/json;charset=utf-8,' + encodeURIComponent(dataStr);
-
     const exportFileDefaultName = `academic_report_${new Date().toISOString().split('T')[0]}.json`;
 
     const linkElement = document.createElement('a');
@@ -743,13 +648,12 @@ const StudentDashboard: React.FC = () => {
     linkElement.click();
 
     toast.success('Report downloaded!');
-  };
+  }, [userDisplayName, user?.uid, userProfile, studentData, dashboardStats, performanceData, predictions, insights, recommendationStats, readinessData, lastUpdated, engineeringMetrics]);
 
   // ==================== Effects ====================
 
-  // Effect 1: Event listeners (with full cache invalidation)
+  // Effect 1: Event listeners
   useEffect(() => {
-    // Accept Event, cast inside
     const handleProfileSaved = (event: Event) => {
       const detail = (event as CustomEvent).detail;
       console.log('Profile saved event received:', detail);
@@ -775,6 +679,7 @@ const StudentDashboard: React.FC = () => {
       setStudentData(null);
       setDashboardStats(null);
       setReadinessData(null);
+      readinessFetchingRef.current = false;
 
       await fetchUserProfile();
       await fetchDashboardData(true);
@@ -784,7 +689,6 @@ const StudentDashboard: React.FC = () => {
       toast.success('Dashboard updated with new academic data!');
     };
 
-    // Accept Event, cast inside
     const handleInterestsUpdated = async (event: Event) => {
       const detail = (event as CustomEvent).detail;
       console.log('🎯 Interests updated event received:', detail);
@@ -795,14 +699,15 @@ const StudentDashboard: React.FC = () => {
 
       invalidateAllCaches();
       setReadinessData(null);
+      readinessFetchingRef.current = false;
 
+      // Small delay to let state settle
       setTimeout(async () => {
         await fetchReadiness();
         await fetchRecommendationStats();
       }, 500);
     };
 
-    // Accept Event, cast inside
     const handleProjectAnalysisComplete = (event: Event) => {
       const detail = (event as CustomEvent<ComprehensiveAnalysis>).detail;
       handleProjectAnalyzed(detail);
@@ -821,12 +726,15 @@ const StudentDashboard: React.FC = () => {
       window.removeEventListener('interestsUpdated', handleInterestsUpdated);
       window.removeEventListener('projectAnalysisComplete', handleProjectAnalysisComplete);
     };
-  }, [user, queryClient]);
+  }, [user?.uid, queryClient, fetchUserProfile, fetchDashboardData, fetchRecommendationStats, fetchReadiness, invalidateAllCaches, updateDashboardWithProfile, handleProjectAnalyzed]);
 
-  // Effect 2: Fetch and sync interests
+  // Effect 2: Fetch and sync interests — ONCE per user
   useEffect(() => {
     const fetchAndSyncInterests = async () => {
       if (!user?.uid) return;
+      // FIXED: Prevent duplicate interest sync
+      if (interestsSyncedFor.current === user.uid) return;
+      interestsSyncedFor.current = user.uid;
 
       try {
         const service = getWeaknessService();
@@ -873,66 +781,66 @@ const StudentDashboard: React.FC = () => {
     };
 
     fetchAndSyncInterests();
-  }, [user?.uid, userProfile?.interests]);
+    // FIXED: Only depend on user.uid, not userProfile.interests (which changes and causes loops)
+  }, [user?.uid]);
+
+  // Effect 2b: If userProfile loads later with interests and we have none, use them
+  useEffect(() => {
+    if (studentInterests.length === 0 && userProfile?.interests?.length > 0) {
+      console.log('📝 Late-loading interests from userProfile');
+      setStudentInterests(userProfile.interests);
+    }
+  }, [userProfile?.interests, studentInterests.length]);
 
   // Effect 3: Re-fetch readiness when interests/electives/honours change
+  // FIXED: Use serialized strings for stable dependency comparison
+  const interestsKey = studentInterests.join(',');
+  const electivesKey = studentElectives.join(',');
+  const honoursKey = studentHonours.join(',');
+
   useEffect(() => {
-    if (user?.uid && (studentInterests.length > 0 || studentElectives.length > 0 || studentHonours.length > 0)) {
-      console.log('📊 Goals changed, re-fetching readiness...', {
-        interests: studentInterests.length,
-        electives: studentElectives.length,
-        honours: studentHonours.length
-      });
+    if (user?.uid && (interestsKey || electivesKey || honoursKey)) {
+      console.log('📊 Goals changed, re-fetching readiness...');
+      readinessFetchingRef.current = false; // Allow new fetch
       fetchReadiness();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    user?.uid,
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    studentInterests.join(','),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    studentElectives.join(','),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    studentHonours.join(',')
-  ]);
+  }, [user?.uid, interestsKey, electivesKey, honoursKey, fetchReadiness]);
 
   // Effect 4: Project uploaded event
   useEffect(() => {
     const handleProjectUploaded = () => {
       console.log('Project uploaded event received');
-      fetchProjectCount();
+      refetchProjectCount();
       fetchRecommendationStats();
     };
 
     window.addEventListener('projectUploaded', handleProjectUploaded);
-
     return () => {
       window.removeEventListener('projectUploaded', handleProjectUploaded);
     };
-  }, []);
+  }, [refetchProjectCount, fetchRecommendationStats]);
 
-  // Effect 5: Initial data load
+  // Effect 5: Initial data load — ONCE
   useEffect(() => {
-    if (user) {
+    if (user && !initialFetchDone.current) {
+      initialFetchDone.current = true;
       fetchUserProfile();
       fetchDashboardData();
       fetchProjectCount();
       fetchRecommendationStats();
-      fetchReadiness();
-    } else {
+      // Readiness will be fetched by Effect 3 once interests are loaded
+    } else if (!user) {
       setLoading(false);
     }
-  }, [user]);
+  }, [user, fetchUserProfile, fetchDashboardData, fetchProjectCount, fetchRecommendationStats]);
 
-  // Effect 6: Tab-based data refresh
+  // Effect 6: Tab-based data refresh — only fetch what's missing
   useEffect(() => {
-    if (activeTab === 'projects' || activeTab === 'overview') {
+    if (activeTab === 'projects' && projectCount === 0 && !projectsLoading) {
+      projectCountFetchedFor.current = null; // Allow re-check
       fetchProjectCount();
     }
-    if (activeTab === 'electives' || activeTab === 'overview') {
-      fetchRecommendationStats();
-    }
-  }, [activeTab]);
+  }, [activeTab, projectCount, projectsLoading, fetchProjectCount]);
 
   // Effect 7: Real-time subscriptions
   useEffect(() => {
@@ -961,18 +869,29 @@ const StudentDashboard: React.FC = () => {
       }
     });
 
-    const subscriptionId = realtimeSyncService.subscribeToStudentUpdates(user.uid, (update) => {
-      if (update.data) {
-        toast.success('Performance data updated!', { duration: 2000 });
-        fetchDashboardData(false);
-      }
-    });
+    let subscriptionId: string | null = null;
+    try {
+      subscriptionId = realtimeSyncService.subscribeToStudentUpdates(user.uid, (update) => {
+        if (update.data) {
+          toast.success('Performance data updated!', { duration: 2000 });
+          fetchDashboardData(false);
+        }
+      });
+    } catch (err) {
+      console.warn('Realtime sync subscription failed (RTDB may not be available):', err);
+    }
 
     return () => {
       unsubscribe();
-      realtimeSyncService.unsubscribe(subscriptionId);
+      if (subscriptionId) {
+        try {
+          realtimeSyncService.unsubscribe(subscriptionId);
+        } catch {
+          // Ignore cleanup errors
+        }
+      }
     };
-  }, [user]);
+  }, [user?.uid, fetchDashboardData]);
 
   // Effect 8: Periodic refresh
   useEffect(() => {
@@ -983,7 +902,7 @@ const StudentDashboard: React.FC = () => {
     }, 5 * 60 * 1000);
 
     return () => clearInterval(interval);
-  }, [user]);
+  }, [user, fetchDashboardData]);
 
   // ==================== Loading State ====================
 
@@ -1119,6 +1038,27 @@ const StudentDashboard: React.FC = () => {
                       <span className="font-medium">Overview</span>
                     </button>
                   </li>
+
+                  {/* ==================== ADD: CHATBOT TAB ==================== */}
+                  <li>
+                    <button
+                      onClick={() => { 
+                        setActiveTab('chatbot'); 
+                        setShowFloatingChatbot(false); // Hide floating when using full page
+                        analyticsService.trackEvent('tab_switched', { tab: 'chatbot' }); 
+                      }}
+                      className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-all ${
+                        activeTab === 'chatbot' ? 'bg-gradient-to-r from-blue-50 to-purple-50 text-blue-600 shadow-sm' : 'hover:bg-gray-50 text-gray-700'
+                      }`}
+                    >
+                      <Bot className="h-5 w-5" />
+                      <span className="font-medium">AI Assistant</span>
+                      <span className="ml-auto bg-gradient-to-r from-blue-500 to-purple-500 text-white text-xs px-2 py-1 rounded-full font-semibold animate-pulse">
+                        AI
+                      </span>
+                    </button>
+                  </li>
+
                   <li>
                     <button
                       onClick={() => { setActiveTab('performance'); analyticsService.trackEvent('tab_switched', { tab: 'performance' }); }}
@@ -1350,6 +1290,68 @@ const StudentDashboard: React.FC = () => {
                 transition={{ duration: 0.3 }}
                 className="space-y-6"
               >
+
+                {/* ==================== ADD: AI ASSISTANT QUICK ACCESS CARD ==================== */}
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="bg-gradient-to-r from-blue-600 to-purple-600 rounded-xl p-6 text-white shadow-lg"
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-4">
+                      <div className="h-14 w-14 rounded-full bg-white/20 backdrop-blur flex items-center justify-center">
+                        <Bot className="h-8 w-8 text-white" />
+                      </div>
+                      <div>
+                        <h3 className="text-xl font-bold">AI Academic Assistant</h3>
+                        <p className="text-white/80 text-sm">
+                          Get instant help with syllabus, faculty info, performance analysis, and career guidance
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={() => setShowFloatingChatbot(true)}
+                        className="px-4 py-2 bg-white/20 backdrop-blur hover:bg-white/30 rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
+                      >
+                        <MessageSquare className="h-4 w-4" />
+                        Quick Chat
+                      </button>
+                      <button
+                        onClick={() => setActiveTab('chatbot')}
+                        className="px-4 py-2 bg-white text-blue-600 rounded-lg text-sm font-medium hover:bg-gray-100 transition-colors flex items-center gap-2"
+                      >
+                        Open Full Assistant
+                        <ChevronRight className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </div>
+                  
+                  {/* Quick Suggestions */}
+                  <div className="mt-4 pt-4 border-t border-white/20">
+                    <p className="text-xs text-white/70 mb-2">Try asking:</p>
+                    <div className="flex flex-wrap gap-2">
+                      {[
+                        "Explain deadlock in OS",
+                        "Who teaches DBMS?",
+                        "Show my performance",
+                        "Recommend electives"
+                      ].map((suggestion, idx) => (
+                        <button
+                          key={idx}
+                          onClick={() => {
+                            setActiveTab('chatbot');
+                            // You can pass initial message through context or state if needed
+                          }}
+                          className="px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-full text-xs transition-colors"
+                        >
+                          {suggestion}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </motion.div>
+
                 {/* Projects Preview Card */}
                 <motion.div
                   initial={{ opacity: 0, y: 20 }}
@@ -1650,10 +1652,15 @@ const StudentDashboard: React.FC = () => {
                             <Heart className="w-8 h-8 text-purple-300 mx-auto mb-2" />
                             <p className="text-sm text-gray-500">Set interests first</p>
                           </>
-                        ) : (
+                        ) : loadingReadiness ? (
                           <>
                             <Loader2 className="w-8 h-8 animate-spin text-purple-400 mx-auto mb-2" />
                             <p className="text-sm text-gray-500">Loading analysis...</p>
+                          </>
+                        ) : (
+                          <>
+                            <Target className="w-8 h-8 text-purple-300 mx-auto mb-2" />
+                            <p className="text-sm text-gray-500">Click to run analysis</p>
                           </>
                         )}
                       </div>
@@ -1751,6 +1758,27 @@ const StudentDashboard: React.FC = () => {
                     <ChevronRight className="h-4 w-4 ml-1" />
                   </button>
                 </motion.div>
+              </motion.div>
+            )}
+
+            
+            {/* ==================== CHATBOT TAB ==================== */}
+            {activeTab === 'chatbot' && (
+              <motion.div
+                key="chatbot"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+                transition={{ duration: 0.3 }}
+                className="h-[calc(100vh-180px)]"
+              >
+                <div className="bg-white rounded-xl shadow-lg overflow-hidden h-full">
+                  <AcademicChatbot 
+                    isFloating={false} 
+                    defaultOpen={true}
+                    className="h-full"
+                  />
+                </div>
               </motion.div>
             )}
 
@@ -1877,7 +1905,7 @@ const StudentDashboard: React.FC = () => {
                     <button
                       onClick={() => {
                         setProjectsView('list');
-                        fetchProjectCount();
+                        refetchProjectCount();
                       }}
                       className="flex items-center space-x-2 text-purple-600 hover:text-purple-700 font-medium"
                     >
@@ -1887,7 +1915,7 @@ const StudentDashboard: React.FC = () => {
                     <StudentProjectsUpload
                       onAnalysisComplete={(response: ComprehensiveAnalysis) => {
                         handleProjectAnalyzed(response);
-                        fetchProjectCount();
+                        refetchProjectCount();
                       }}
                     />
                   </div>
@@ -1978,7 +2006,6 @@ const StudentDashboard: React.FC = () => {
                 transition={{ duration: 0.3 }}
                 className="space-y-6"
               >
-                {/* Sub-navigation: Requests | Calendar */}
                 <div className="flex gap-1 border-b border-gray-200 bg-white rounded-t-xl px-2 pt-2">
                   <button
                     onClick={() => setMeetingsView('requests')}
@@ -2020,7 +2047,6 @@ const StudentDashboard: React.FC = () => {
                   </button>
                 </div>
 
-                {/* Content */}
                 <AnimatePresence mode="wait">
                   {meetingsView === 'requests' ? (
                     <motion.div
@@ -2096,7 +2122,10 @@ const StudentDashboard: React.FC = () => {
                         </button>
                       )}
                       <button
-                        onClick={fetchReadiness}
+                        onClick={() => {
+                          readinessFetchingRef.current = false;
+                          fetchReadiness();
+                        }}
                         className="px-6 py-3 bg-gradient-to-r from-purple-600 to-blue-600 text-white rounded-lg hover:shadow-lg transition-all flex items-center gap-2"
                       >
                         <Zap className="w-5 h-5" />
@@ -2111,6 +2140,15 @@ const StudentDashboard: React.FC = () => {
           </AnimatePresence>
         </main>
       </div>
+      {/* ==================== FLOATING CHATBOT ==================== */}
+      {/* This appears as a floating widget when not on the chatbot tab */}
+      {activeTab !== 'chatbot' && (
+        <AcademicChatbot 
+          isFloating={true} 
+          defaultOpen={showFloatingChatbot}
+          className=""
+        />
+      )}
     </div>
   );
 };

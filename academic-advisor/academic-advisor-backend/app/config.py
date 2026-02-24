@@ -75,7 +75,20 @@ class Settings(BaseSettings):
     
     # File Upload
     MAX_FILE_SIZE: int = 10 * 1024 * 1024  # 10MB
-
+    
+    GROQ_API_KEY: Optional[str] = os.getenv("GROQ_API_KEY")
+    LLM_MODEL: str = "llama3-70b-8192"  # or "mixtral-8x7b-32768"
+    
+    # Local embeddings (free, no API)
+    EMBEDDING_MODEL: str = "sentence-transformers/all-MiniLM-L6-v2"
+    
+    # FAISS vector store (no conflicts!)
+    DATA_DIR: str = "./data"
+    VECTOR_STORE_DIR: str = "./data/vector_stores"
+    
+    # LLM Settings
+    TEMPERATURE: float = 0.1
+    MAX_TOKENS: int = 2000
 
 @lru_cache()
 def get_settings() -> Settings:
