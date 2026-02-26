@@ -244,3 +244,4 @@ async def submit_student_feedback(
     except Exception as e:
         logger.error(f"Error submitting feedback: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to submit feedback")
+    

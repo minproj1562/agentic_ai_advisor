@@ -2,3 +2,4 @@ serviceAccountKey.json
 .env
 serviceAccountKey.json
 venv/
+scripts/training_data_sample.csv

@@ -1,3 +1,4 @@
+# academic-advisor/academic-advisor-backend/app/core/firebase_sync.py
 """
 Firebase real-time synchronization utilities
 """

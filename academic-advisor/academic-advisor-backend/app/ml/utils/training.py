@@ -10,7 +10,7 @@ import random
 import logging
 from typing import List, Dict, Any
 from datetime import datetime
-
+from app.models.recommendation import RecommendationType
 from app.ml.models.recommendation_engine import (
     recommendation_engine,
     ALL_SUBJECTS,
@@ -427,15 +427,27 @@ async def collect_feedback_training_data() -> List[Dict[str, Any]]:
 
 
 async def train_recommendation_model(
-    n_synthetic: int = 150,
+    n_synthetic: int = 1250,
     include_feedback: bool = True,
+    test_size: float = 0.2,
 ) -> Dict[str, Any]:
     """
     Main training pipeline.
     Combines realistic synthetic data with real user feedback.
+    
+    Args:
+        n_synthetic: Number of samples per class (total = n_synthetic × 4)
+        include_feedback: Whether to include MongoDB feedback data  
+        test_size: Proportion of data for testing (default 0.2 = 20%)
+        
+    Returns:
+        Dictionary containing training metrics
     """
     logger.info("=" * 60)
     logger.info("Starting model training pipeline...")
+    logger.info(f"  Samples per class: {n_synthetic}")
+    logger.info(f"  Total synthetic: {n_synthetic * 4}")
+    logger.info(f"  Test size: {test_size * 100:.0f}%")
     logger.info("=" * 60)
 
     # 1. Generate synthetic data
@@ -450,7 +462,6 @@ async def train_recommendation_model(
             logger.warning(f"Could not collect feedback data (DB may not be connected): {e}")
 
     # 3. Combine datasets (feedback data is weighted more heavily)
-    # Duplicate feedback data to give it 3x weight
     weighted_feedback = feedback_data * 3 if feedback_data else []
     training_data = synthetic_data + weighted_feedback
 
@@ -460,7 +471,8 @@ async def train_recommendation_model(
 
     # 4. Train the model
     try:
-        metrics = recommendation_engine.train(training_data)
+        metrics = recommendation_engine.train(training_data, test_size=test_size)
+        
         logger.info(f"Training completed successfully!")
         logger.info(f"  Accuracy: {metrics['accuracy']:.4f}")
         logger.info(f"  F1 (weighted): {metrics['f1_weighted']:.4f}")
@@ -470,7 +482,6 @@ async def train_recommendation_model(
         try:
             from app.models.recommendation import TrainingDataPoint
 
-            # Store a sample for reference (not all, to save space)
             store_count = min(50, len(training_data))
             for sample in random.sample(training_data, store_count):
                 data_point = TrainingDataPoint(

@@ -1,3 +1,4 @@
+// academic-advisor/academic-advisor-frontend/src/components/dashboard/cards/StudentDetailModal.tsx
 /**
  * Student Detail Modal Component
  * Shows comprehensive student analysis details

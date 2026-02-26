@@ -1,5 +1,4 @@
 // components/dashboard/cards/CVAnalyserCard.tsx
-
 import React, { useState, useCallback, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useDropzone } from 'react-dropzone';

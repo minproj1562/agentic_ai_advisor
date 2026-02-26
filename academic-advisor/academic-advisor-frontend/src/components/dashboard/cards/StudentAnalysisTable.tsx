@@ -1,3 +1,4 @@
+// academic-advisor/academic-advisor-frontend/src/components/dashboard/cards/StudentAnalysisTable.tsx
 /**
  * Student Analysis Table Component
  * Enterprise-level React component with advanced features

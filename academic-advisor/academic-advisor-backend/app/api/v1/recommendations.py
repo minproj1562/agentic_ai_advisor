@@ -1,3 +1,4 @@
+# academic-advisor/academic-advisor-backend/app/api/v1/recommendations.py
 """
 Recommendations API Router - FastAPI endpoints
 Fixed: FirebaseUser attribute access, unified recommendation flow

@@ -1096,3 +1096,25 @@ python scripts/sync_faculty_to_firebase.py --email "rajesh.kumar@fcrit.ac.in"
 
 # Step 4: Custom password
 python scripts/sync_faculty_to_firebase.py --default-password "MyCustomPass@123"
+
+======================================================================
+🔑 LOGIN CREDENTIALS (newly created accounts)
+======================================================================
+Default password: Faculty@FCRIT2024
+⚠️  Faculty should change password on first login!
+
+  Email:    rajesh.kumar@fcrit.ac.in
+  Password: Faculty@FCRIT2024
+  UID:      yZqludDZiobRnLUwN7Y8tMHK4yq1
+
+  Email:    amit.verma@fcrit.ac.in
+  Password: Faculty@FCRIT2024
+  UID:      LZmSBpC1oTQbMwxtFSzBEbARlnB2
+
+  Email:    sneha.patel@fcrit.ac.in
+  Password: Faculty@FCRIT2024
+  UID:      ta7458PS7ddcJUYJPIDUCs9VbE43
+
+  Email:    vikram.singh@fcrit.ac.in
+  Password: Faculty@FCRIT2024
+  UID:      QbQTk0UA9RNSTAbdDMvBVO0aEeO2

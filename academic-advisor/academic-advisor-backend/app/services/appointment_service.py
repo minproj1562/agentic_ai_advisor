@@ -1,3 +1,4 @@
+# academic-advisor/academic-advisor-backend/app/services/appointment_service.py
 """
 Dummy appointment service for backward compatibility
 This file prevents import errors while we clean up the codebase

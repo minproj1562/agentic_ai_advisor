@@ -1,5 +1,4 @@
 # app/database/connection.py
-# app/database/connection.py
 """
 Firebase database connection configuration
 """

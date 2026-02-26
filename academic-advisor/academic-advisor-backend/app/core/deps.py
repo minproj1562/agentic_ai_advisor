@@ -1,4 +1,5 @@
 # app/core/deps.py
+
 """
 Dependency injection module - Re-exports from security.py for backward compatibility
 """

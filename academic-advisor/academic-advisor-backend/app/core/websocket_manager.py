@@ -1,3 +1,4 @@
+# academic-advisor/academic-advisor-backend/app/core/websocket_manager.py
 """
 WebSocket connection management
 Real-time communication handler

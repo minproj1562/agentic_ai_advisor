@@ -1,3 +1,4 @@
+// academic-advisor-frontend/src/components/dashboard/cards/ExpertiseSummaryCard.tsx
 import React, { useState, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { 

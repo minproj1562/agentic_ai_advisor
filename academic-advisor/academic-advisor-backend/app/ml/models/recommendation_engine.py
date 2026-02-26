@@ -1097,9 +1097,12 @@ class CumulativeRecommendationEngine:
         results.sort(key=lambda x: x["match_score"], reverse=True)
         return results
 
-    # ── Training methods ────
+    # ══════════════════════════════════════════════════════════════
+    #  TRAINING METHODS (inside CumulativeRecommendationEngine class)
+    # ══════════════════════════════════════════════════════════════
 
-    def train(self, training_data: List[Dict[str, Any]], test_size: float = 0.2):
+    def train(self, training_data: List[Dict[str, Any]], test_size: float = 0.2) -> Dict[str, Any]:
+        """Train the recommendation models on provided data."""
         if len(training_data) < 20:
             raise ValueError(f"Need ≥20 samples, got {len(training_data)}")
 
@@ -1152,31 +1155,46 @@ class CumulativeRecommendationEngine:
             "timestamp": datetime.utcnow().isoformat(),
         }
 
-    def _save(self):
+    def _save(self) -> None:
+        """Save trained models to disk."""
         try:
             joblib.dump(self.rf_clf, os.path.join(self.MODEL_DIR, "rf_clf.joblib"))
             joblib.dump(self.knn_clf, os.path.join(self.MODEL_DIR, "knn_clf.joblib"))
             joblib.dump(self.scaler, os.path.join(self.MODEL_DIR, "scaler.joblib"))
             joblib.dump(self.label_enc, os.path.join(self.MODEL_DIR, "label_enc.joblib"))
+            
+            # Save metadata
+            meta = {
+                "is_trained": True,
+                "timestamp": datetime.utcnow().isoformat(),
+                "model_version": "2.0.0",
+                "feature_dimension": FEATURE_DIM,
+                "labels": list(self.label_enc.classes_) if hasattr(self.label_enc, 'classes_') else ["ML", "WT", "DWM", "CCS"],
+            }
             with open(os.path.join(self.MODEL_DIR, "meta.json"), "w") as f:
-                json.dump({"is_trained": True, "ts": datetime.utcnow().isoformat()}, f)
-            logger.info("Models saved")
+                json.dump(meta, f, indent=2)
+                
+            logger.info(f"Models saved to {self.MODEL_DIR}")
         except Exception as e:
             logger.error(f"Save failed: {e}")
 
-    def _try_load(self):
+    def _try_load(self) -> None:
+        """Attempt to load pre-trained models from disk."""
         try:
-            rf = os.path.join(self.MODEL_DIR, "rf_clf.joblib")
-            if os.path.exists(rf):
-                self.rf_clf = joblib.load(rf)
+            rf_path = os.path.join(self.MODEL_DIR, "rf_clf.joblib")
+            if os.path.exists(rf_path):
+                self.rf_clf = joblib.load(rf_path)
                 self.knn_clf = joblib.load(os.path.join(self.MODEL_DIR, "knn_clf.joblib"))
                 self.scaler = joblib.load(os.path.join(self.MODEL_DIR, "scaler.joblib"))
                 self.label_enc = joblib.load(os.path.join(self.MODEL_DIR, "label_enc.joblib"))
                 self.is_trained = True
-                logger.info("Pretrained models loaded")
+                logger.info("Pre-trained models loaded successfully")
         except Exception as e:
-            logger.info(f"No pretrained models: {e}")
+            logger.info(f"No pre-trained models found: {e}")
 
 
-# Singleton
+# ══════════════════════════════════════════════════════════════════════
+#  SINGLETON INSTANCE (OUTSIDE the class, at module level)
+# ══════════════════════════════════════════════════════════════════════
+
 recommendation_engine = CumulativeRecommendationEngine()
