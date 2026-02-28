@@ -1,264 +1,266 @@
-# academic-advisor-backend/app/services/chatbot/chatbot_service.py
+# academic-advisor/academic-advisor-backend/app/services/chatbot/chatbot_service.py
+"""
+Main Chatbot Orchestrator  (Task 12)
+Unified service on Beanie/MongoDB
+Routes intents to appropriate handlers
+"""
 
-from typing import Dict, List, Optional, Any
-from datetime import datetime
 import time
-import uuid
-import logging
 import json
-
-from sqlalchemy.orm import Session
+import logging
+from typing import Dict, Any, Optional, List
 
 from app.services.chatbot.intent_classifier import IntentClassifier, IntentType
 from app.services.chatbot.context_manager import ContextManager
 from app.services.chatbot.response_generator import ResponseGenerator
-from app.services.chatbot.rag_service import RAGService
-from app.models.chatbot import ConversationSession, ChatMessage, ConfidenceLevel
+from app.repositories.chat_repository import ChatRepository
+from app.repositories.analytics_repository import AnalyticsRepository
+from app.models.chatbot import ConfidenceLevel
 
 logger = logging.getLogger(__name__)
 
 
 class ChatbotService:
-    """
-    Main chatbot service that orchestrates all components.
-    Handles the complete chat flow from input to response.
-    """
-    
-    def __init__(self, db: Session):
-        self.db = db
-        self.intent_classifier = IntentClassifier()
-        self.context_manager = ContextManager(db)
-        self.rag_service = RAGService(db)
-        self.response_generator = ResponseGenerator(db, self.rag_service)
-        
+
+    def __init__(self):
+        self.classifier = IntentClassifier()
+        self.ctx_mgr = ContextManager()
+        self.responder = ResponseGenerator()
+        self.chat_repo = ChatRepository()
+        self.analytics = AnalyticsRepository()
+
+    # ── Main entry ───────────────────────────────────────
+
     async def process_message(
         self,
         user_id: str,
         user_type: str,
         message: str,
         session_token: Optional[str] = None,
-        student_data: Optional[Dict] = None
-    ) -> Dict[str, Any]:
-        """
-        Process a user message and generate appropriate response.
-        
-        Args:
-            user_id: The user's ID
-            user_type: 'student' or 'faculty'
-            message: The user's message
-            session_token: Optional session token for continuity
-            student_data: Optional student performance data
-            
-        Returns:
-            Structured response dict or out-of-scope message
-        """
-        
-        start_time = time.time()
-        
+        student_data: Optional[Dict] = None,
+    ) -> Dict[str, Any] | str:
+        t0 = time.time()
+
         try:
-            # Step 1: Get or create session
-            session = await self.context_manager.get_or_create_session(
-                user_id, 
-                user_type, 
-                session_token
+            # 1  session
+            session = await self.ctx_mgr.get_or_create_session(
+                user_id, user_type, session_token
             )
-            
-            # Step 2: Store user message
-            await self.context_manager.add_message(
-                session_id=session.id,
-                role="user",
-                content=message
-            )
-            
-            # Step 3: Resolve any references in the message
-            context_summary = await self.context_manager.get_context_summary(session.id)
-            resolved_message = await self.context_manager.resolve_references(
-                message, 
-                session.id
-            )
-            
-            # Step 4: Classify intent
-            intent, confidence = self.intent_classifier.classify(
-                resolved_message, 
-                context_summary
-            )
-            
-            logger.info(f"Classified intent: {intent}, confidence: {confidence}")
-            
-            # Step 5: Handle out-of-scope queries
+
+            # 2  store user msg
+            await self.ctx_mgr.add_message(session.id, "user", message)
+
+            # 3  resolve refs
+            ctx = await self.ctx_mgr.get_context_summary(session.id)
+            resolved = await self.ctx_mgr.resolve_references(message, session.id)
+
+            # 4  classify
+            intent, conf_score = self.classifier.classify(resolved, ctx)
+            logger.info(f"Intent={intent.value}  conf={conf_score:.2f}")
+
+            # 5  out-of-scope → plain text
             if intent == IntentType.OUT_OF_SCOPE:
-                # Store the response and return plain text
-                await self.context_manager.add_message(
-                    session_id=session.id,
-                    role="assistant",
-                    content="Beyond my scope",
-                    intent=intent,
-                    confidence=ConfidenceLevel.HIGH
+                await self.ctx_mgr.add_message(
+                    session.id, "assistant", "Beyond my scope",
+                    intent=intent, confidence=ConfidenceLevel.HIGH,
                 )
+                ms = int((time.time() - t0) * 1000)
+                await self._analytics(intent.value, ms, "High", True, user_id)
                 return "Beyond my scope"
-                
-            # Step 6: Enrich context with student data if available
+
+            # 6  student data (Task 14)
+            if not student_data:
+                student_data = await self._load_student(user_id)
             if student_data:
-                await self.context_manager.enrich_with_student_data(
-                    session.id, 
-                    student_data
+                await self.ctx_mgr.enrich_with_student_data(session.id, student_data)
+
+            # 7  route to handler
+            if intent in (IntentType.SYLLABUS_QUERY, IntentType.FACULTY_QUERY):
+                response = await self._delegate_persona_a(
+                    resolved, intent, student_data
                 )
-                
-            # Step 7: Generate response
-            response = await self.response_generator.generate_response(
-                query=resolved_message,
-                intent=intent,
-                context=context_summary,
-                student_data=student_data
-            )
-            
-            # Handle string responses (out of scope, errors)
+            else:
+                response = await self.responder.generate_response(
+                    resolved, intent, ctx, student_data
+                )
+
+            # 8  string short-circuit
             if isinstance(response, str):
-                await self.context_manager.add_message(
-                    session_id=session.id,
-                    role="assistant",
-                    content=response,
-                    intent=intent
+                await self.ctx_mgr.add_message(
+                    session.id, "assistant", response, intent=intent
                 )
+                ms = int((time.time() - t0) * 1000)
+                await self._analytics(intent.value, ms, "High", True, user_id)
                 return response
-                
-            # Step 8: Calculate processing time
-            processing_time = int((time.time() - start_time) * 1000)
-            
-            # Step 9: Store assistant response
-            response_content = json.dumps(response.get('content', {}))
-            
-            await self.context_manager.add_message(
-                session_id=session.id,
-                role="assistant",
-                content=response_content,
+
+            # 9  store structured
+            ms = int((time.time() - t0) * 1000)
+            conf_str = response.get("confidence", "Medium")
+            conf_enum = {"High": ConfidenceLevel.HIGH,
+                         "Medium": ConfidenceLevel.MEDIUM,
+                         "Low": ConfidenceLevel.LOW}.get(conf_str, ConfidenceLevel.MEDIUM)
+
+            await self.ctx_mgr.add_message(
+                session.id, "assistant",
+                json.dumps(response.get("content", {})),
                 intent=intent,
-                response_type=response.get('type'),
-                confidence=self._map_confidence(response.get('confidence', 'Medium')),
+                response_type=response.get("type"),
+                confidence=conf_enum,
                 structured_response=response,
-                retrieved_sources=response.get('sources', []),
-                processing_time_ms=processing_time
+                sources=response.get("sources", []),
+                processing_time_ms=ms,
             )
-            
-            # Step 10: Add session info to response
-            response['session_token'] = session.session_token
-            response['processing_time_ms'] = processing_time
-            
+
+            response["session_token"] = session.session_token
+            response["processing_time_ms"] = ms
+
+            await self._analytics(intent.value, ms, conf_str, True, user_id)
             return response
-            
+
         except Exception as e:
-            logger.error(f"Error processing message: {e}", exc_info=True)
+            logger.error(f"ChatbotService error: {e}", exc_info=True)
+            await self.analytics.record_error()
             return {
-                "type": "error",
-                "intent": "ERROR",
-                "content": {
-                    "message": "An error occurred while processing your request."
-                },
-                "confidence": "Low"
+                "type": "error", "intent": "ERROR",
+                "content": {"message": "An error occurred processing your request."},
+                "confidence": "Low",
             }
-            
-    async def get_conversation_history(
-        self,
-        user_id: str,
-        session_token: Optional[str] = None,
-        limit: int = 20
-    ) -> List[Dict[str, Any]]:
-        """Get conversation history for a user"""
-        
-        if session_token:
-            session = await self.context_manager.get_or_create_session(
-                user_id, 
-                'student',  # Default type
-                session_token
+
+    # ── Person A delegation ──────────────────────────────
+
+    async def _delegate_persona_a(
+        self, query: str, intent: IntentType, stu: Optional[Dict]
+    ) -> Dict[str, Any]:
+        """Try Person A's DynamicChatbotService, fallback gracefully"""
+        try:
+            from app.services.chatbot.dynamic_chatbot_service import (
+                DynamicChatbotService,
             )
+            svc = DynamicChatbotService()
+            if intent == IntentType.SYLLABUS_QUERY:
+                return await svc.handle_syllabus_query(query)
+            elif intent == IntentType.FACULTY_QUERY:
+                return await svc.handle_faculty_query(query)
+        except Exception as e:
+            logger.warning(f"Person A handler unavailable: {e}")
+
+        # Fallback
+        topic_map = {
+            IntentType.SYLLABUS_QUERY: (
+                "I can explain academic concepts. "
+                "Try asking: 'Explain deadlock', 'What is normalization?'"
+            ),
+            IntentType.FACULTY_QUERY: (
+                "I can help find faculty mentors. "
+                "Try: 'Who teaches DBMS?', 'Recommend a mentor for ML'"
+            ),
+        }
+        return {
+            "type": "text",
+            "intent": intent.value,
+            "content": {"message": topic_map.get(intent, "How can I help?")},
+            "confidence": "Medium",
+        }
+
+    # ── Student data loader (Task 14) ────────────────────
+
+    async def _load_student(self, uid: str) -> Optional[Dict]:
+        try:
+            from app.models.student_profile import StudentProfile
+
+            p = await StudentProfile.find_one(StudentProfile.firebase_uid == uid)
+            if not p:
+                return None
+
+            subjects, weak, strong, trend = [], [], [], []
+            for sem in (p.semester_records or []):
+                trend.append({
+                    "semester": sem.semester,
+                    "sgpa": sem.sgpa,
+                    "credits": sem.credits_earned,
+                })
+                for s in (sem.subjects or []):
+                    sc = getattr(s, "total", None) or getattr(s, "marks_obtained", 0)
+                    subjects.append({
+                        "name": s.subject_name, "code": s.subject_code,
+                        "score": sc, "grade": getattr(s, "grade", ""),
+                    })
+                    if sc < 50:
+                        weak.append(s.subject_name)
+                    elif sc >= 75:
+                        strong.append(s.subject_name)
+
+            return {
+                "name": p.name, "branch": p.branch,
+                "semester": p.current_semester, "cgpa": p.cgpa,
+                "latest_sgpa": trend[-1]["sgpa"] if trend else 0,
+                "sgpa_trend": trend, "subjects": subjects,
+                "weak_subjects": list(set(weak)),
+                "strong_subjects": list(set(strong)),
+                "interests": getattr(p, "interests", []),
+                "skills": [],
+            }
+        except Exception as e:
+            logger.warning(f"Student data load failed: {e}")
+            return None
+
+    # ── Conversation history / suggestions ───────────────
+
+    async def get_conversation_history(
+        self, user_id: str, token: Optional[str] = None, limit: int = 20
+    ) -> List[Dict]:
+        if token:
+            session = await self.chat_repo.get_session_by_token(token)
         else:
-            # Get most recent session
-            session = self.db.query(ConversationSession).filter(
-                ConversationSession.user_id == user_id,
-                ConversationSession.is_active == True
-            ).order_by(
-                ConversationSession.updated_at.desc()
-            ).first()
-            
+            session = await self.chat_repo.get_active_session(user_id)
         if not session:
             return []
-            
-        messages = await self.context_manager.get_conversation_history(
-            session.id, 
-            limit
-        )
-        
         return [
             {
-                'id': str(msg.id),
-                'role': msg.role,
-                'content': msg.content if msg.role == 'user' else msg.structured_response or msg.content,
-                'timestamp': msg.created_at.isoformat(),
-                'intent': msg.intent.value if msg.intent else None
+                "id": m.id, "role": m.role,
+                "content": m.structured_response or m.content,
+                "timestamp": m.created_at.isoformat(),
+                "intent": m.intent.value if m.intent else None,
             }
-            for msg in messages
+            for m in session.messages[-limit:]
         ]
-        
-    async def clear_session(self, user_id: str, session_token: str):
-        """Clear a conversation session"""
-        
-        session = self.db.query(ConversationSession).filter(
-            ConversationSession.user_id == user_id,
-            ConversationSession.session_token == session_token
-        ).first()
-        
-        if session:
-            await self.context_manager.clear_session(session.id)
-            
-    def _map_confidence(self, confidence: str) -> ConfidenceLevel:
-        """Map string confidence to enum"""
-        
-        mapping = {
-            'High': ConfidenceLevel.HIGH,
-            'Medium': ConfidenceLevel.MEDIUM,
-            'Low': ConfidenceLevel.LOW
-        }
-        return mapping.get(confidence, ConfidenceLevel.MEDIUM)
-        
+
+    async def clear_session(self, user_id: str, token: str):
+        s = await self.chat_repo.get_session_by_token(token)
+        if s and s.user_id == user_id:
+            await self.ctx_mgr.clear_session(s.id)
+
     async def get_suggestions(
-        self,
-        user_id: str,
-        session_token: Optional[str] = None
+        self, user_id: str, token: Optional[str] = None
     ) -> List[str]:
-        """Get suggested queries based on context"""
-        
-        if not session_token:
-            # Return default suggestions
-            return [
-                "What topics are covered in Operating Systems?",
-                "Recommend a faculty mentor for my project",
-                "Show my academic performance analysis",
-                "Which electives should I choose?",
-                "Create a study plan for my semester"
-            ]
-            
-        session = await self.context_manager.get_or_create_session(
-            user_id, 
-            'student', 
-            session_token
-        )
-        
-        context = await self.context_manager.get_context_summary(session.id)
-        
-        suggestions = []
-        
-        if context.get('current_subject'):
-            subject = context['current_subject']
-            suggestions.extend([
-                f"What topics are covered in {subject}?",
-                f"Who teaches {subject}?",
-                f"Important topics for {subject} exam"
-            ])
-        else:
-            suggestions.extend([
-                "Explain a concept from my syllabus",
-                "Show my performance analysis",
-                "Recommend electives for my career goals"
-            ])
-            
-        return suggestions[:5]
+        defaults = [
+            "How to become a data scientist?",
+            "Show my academic performance",
+            "Which electives for ML career?",
+            "Create a study plan",
+            "Career options in cybersecurity?",
+        ]
+        if not token:
+            return defaults
+        s = await self.chat_repo.get_session_by_token(token)
+        if not s:
+            return defaults
+        ctx = s.context
+        extra = []
+        if ctx.current_subject:
+            extra.append(f"Career paths related to {ctx.current_subject}?")
+        if ctx.last_intent == IntentType.CAREER_QUERY:
+            extra.append("Create a study plan to prepare for this career")
+        if ctx.last_intent == IntentType.PERFORMANCE_QUERY:
+            extra.append("Which electives can help my weak areas?")
+        return (extra + defaults)[:5]
+
+    # ── Analytics helper ─────────────────────────────────
+
+    async def _analytics(
+        self, intent: str, ms: int, conf: str, ok: bool, uid: str
+    ):
+        try:
+            await self.analytics.record_query(intent, ms, conf, ok, uid)
+        except Exception as e:
+            logger.warning(f"Analytics write failed: {e}")

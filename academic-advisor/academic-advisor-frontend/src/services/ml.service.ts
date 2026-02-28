@@ -735,9 +735,9 @@ class MLService {
 
   // ==================== MISSING METHODS FOR StudentProjectsList ====================
 
-async getComprehensiveAnalysis(userId: string): Promise<ComprehensiveStudentAnalysis> {
+async getComprehensiveAnalysis(userId?: string): Promise<ComprehensiveStudentAnalysis> {
   try {
-    const response = await this.api.get(`/ml-insights/comprehensive-analysis/${userId}`);
+    const response = await this.api.get('/ml-insights/comprehensive-analysis');  // ✅ uses auth token
     return response.data;
   } catch (error) {
     console.warn('Comprehensive analysis not available, using defaults');
@@ -745,9 +745,9 @@ async getComprehensiveAnalysis(userId: string): Promise<ComprehensiveStudentAnal
   }
 }
 
-async getQuickInsights(userId: string): Promise<QuickInsights> {
+async getQuickInsights(userId?: string): Promise<QuickInsights> {
   try {
-    const response = await this.api.get(`/ml-insights/quick-insights/${userId}`);
+    const response = await this.api.get('/ml-insights/quick-insights/');  // ✅ auth token handles user
     return response.data;
   } catch (error) {
     console.warn('Quick insights not available, using defaults');
@@ -764,15 +764,13 @@ async getQuickInsights(userId: string): Promise<QuickInsights> {
   }
 }
 
+
 async analyzeProjectPortfolio(
-  projects: any[],
-  targetDomain: string
+  projects?: any[],
+  targetDomain?: string
 ): Promise<ProjectPortfolioAnalysis> {
   try {
-    const response = await this.api.post('/ml-insights/portfolio-analysis', {
-      projects,
-      target_domain: targetDomain
-    });
+    const response = await this.api.post('/ml-insights/portfolio-analysis', {});  // ✅ uses auth
     return response.data;
   } catch (error) {
     console.warn('Portfolio analysis not available, using defaults');
@@ -788,13 +786,13 @@ async analyzeProjectPortfolio(
 }
 
 async getPeerComparison(
-  userId: string,
-  branch: string,
-  semester: number
+  userId?: string,
+  branch?: string,
+  semester?: number
 ): Promise<PeerComparisonMetrics> {
   try {
-    const response = await this.api.get(`/ml-insights/peer-comparison`, {
-      params: { branch, semester }
+    const response = await this.api.get('/ml-insights/peer-comparison', {
+      params: { branch: branch || 'IT', semester: semester || 4 }
     });
     return response.data;
   } catch (error) {
@@ -809,6 +807,7 @@ async getPeerComparison(
     };
   }
 }
+
 
 async getCareerPathAnalysis(
   skills: string[],
@@ -875,44 +874,35 @@ private getDefaultComprehensiveAnalysis(): ComprehensiveStudentAnalysis {
 }
   // ==================== PROJECT ANALYSIS ====================
 
-  async analyzeProjectComprehensive(
-    projectData: Record<string, any>,
-    studentBranch?: string,
-    studentSemester?: number,
-    files?: File[]
-  ): Promise<ComprehensiveProjectAnalysisResponse> {
-    try {
-      const formData = new FormData();
-      formData.append('project_data', JSON.stringify(projectData));
-      
-      if (studentBranch) {
-        formData.append('student_branch', studentBranch);
-      }
-      if (studentSemester) {
-        formData.append('student_semester', studentSemester.toString());
-      }
-      if (files && files.length > 0) {
-        files.forEach(file => {
-          formData.append('files', file);
-        });
-      }
-
-      const response = await this.api.post<ComprehensiveProjectAnalysisResponse>(
-        '/projects/analyze-comprehensive',
-        formData,
-        {
-          headers: {
-            'Content-Type': 'multipart/form-data',
-          },
-        }
-      );
-      
-      return response.data;
-    } catch (error) {
-      console.error('Error analyzing project:', error);
-      throw error;
+async analyzeProjectComprehensive(
+  projectData: Record<string, any>,
+  studentBranch?: string,
+  studentSemester?: number,
+  files?: File[]
+): Promise<ComprehensiveProjectAnalysisResponse> {
+  try {
+    const formData = new FormData();
+    formData.append('project_data', JSON.stringify(projectData));
+    
+    if (studentBranch) formData.append('student_branch', studentBranch);
+    if (studentSemester) formData.append('student_semester', studentSemester.toString());
+    if (files && files.length > 0) {
+      files.forEach(file => formData.append('files', file));
     }
+
+    const response = await this.api.post<ComprehensiveProjectAnalysisResponse>(
+      '/student-projects/analyze-comprehensive',   // ✅ FIXED path
+      formData,
+      { headers: { 'Content-Type': 'multipart/form-data' } }
+    );
+    
+    return response.data;
+  } catch (error) {
+    console.error('Error analyzing project:', error);
+    throw error;
   }
+}
+
 
   // Convert new response to legacy format for backward compatibility
   convertToLegacyFormat(response: ComprehensiveProjectAnalysisResponse): LegacyProjectAnalysisResult {

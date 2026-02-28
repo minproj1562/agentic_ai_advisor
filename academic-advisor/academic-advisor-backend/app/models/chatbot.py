@@ -1,17 +1,20 @@
-# academic-advisor-backend/app/models/chatbot.py
+# academic-advisor/academic-advisor-backend/app/models/chatbot.py
+"""
+Chatbot models — Beanie Documents for MongoDB
+Replaces the old SQLAlchemy models entirely
+"""
 
-from datetime import datetime
-from typing import Optional, List, Dict, Any
-from sqlalchemy import Column, String, Integer, DateTime, Text, JSON, ForeignKey, Enum, Boolean, Float
-from sqlalchemy.orm import relationship
-from sqlalchemy.dialects.postgresql import UUID, ARRAY
+from beanie import Document, Indexed
+from pydantic import BaseModel, Field
+from typing import List, Optional, Dict, Any
+from datetime import datetime, timedelta
+from enum import Enum
 import uuid
-import enum
-
-from app.database.base import Base
 
 
-class IntentType(str, enum.Enum):
+# ── Enums ────────────────────────────────────────────────
+
+class IntentType(str, Enum):
     SYLLABUS_QUERY = "SYLLABUS_QUERY"
     FACULTY_QUERY = "FACULTY_QUERY"
     PERFORMANCE_QUERY = "PERFORMANCE_QUERY"
@@ -22,165 +25,124 @@ class IntentType(str, enum.Enum):
     OUT_OF_SCOPE = "OUT_OF_SCOPE"
 
 
-class ResponseType(str, enum.Enum):
+class ResponseType(str, Enum):
     TEXT = "text"
     CONCEPT_EXPLANATION = "concept_explanation"
     SYLLABUS_BREAKDOWN = "syllabus_breakdown"
     FACULTY_LIST = "faculty_list"
     FACULTY_RECOMMENDATION = "faculty_recommendation"
     ELECTIVE_RECOMMENDATION = "elective_recommendation"
+    CAREER_GUIDANCE = "career_guidance"
+    CAREER_LIST = "career_list"
     PERFORMANCE_ANALYSIS = "performance_analysis"
     STUDY_PLAN = "study_plan"
     COMPARISON_TABLE = "comparison_table"
     ERROR = "error"
 
 
-class ConfidenceLevel(str, enum.Enum):
+class ConfidenceLevel(str, Enum):
     HIGH = "High"
     MEDIUM = "Medium"
     LOW = "Low"
 
 
-class ConversationSession(Base):
-    """Stores conversation sessions for context management"""
-    __tablename__ = "conversation_sessions"
+# ── Embedded Sub-documents ───────────────────────────────
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(String(255), nullable=False, index=True)
-    user_type = Column(String(50), nullable=False)  # 'student' or 'faculty'
-    session_token = Column(String(255), unique=True, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    expires_at = Column(DateTime, nullable=False)
-    is_active = Column(Boolean, default=True)
-    metadata = Column(JSON, default={})
-    
-    # Relationships
-    messages = relationship("ChatMessage", back_populates="session", cascade="all, delete-orphan")
-    context = relationship("ConversationContext", back_populates="session", uselist=False, cascade="all, delete-orphan")
+class ChatMessageDoc(BaseModel):
+    """A single message embedded inside a ChatSession"""
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    role: str                                   # 'user' | 'assistant'
+    content: str
+    intent: Optional[IntentType] = None
+    response_type: Optional[str] = None
+    confidence: Optional[ConfidenceLevel] = None
+    structured_response: Optional[Dict[str, Any]] = None
+    sources: List[Dict[str, Any]] = Field(default_factory=list)
+    processing_time_ms: Optional[int] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
-class ChatMessage(Base):
-    """Stores individual chat messages"""
-    __tablename__ = "chat_messages"
-
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    session_id = Column(UUID(as_uuid=True), ForeignKey("conversation_sessions.id"), nullable=False)
-    role = Column(String(20), nullable=False)  # 'user' or 'assistant'
-    content = Column(Text, nullable=False)
-    intent = Column(Enum(IntentType), nullable=True)
-    response_type = Column(Enum(ResponseType), nullable=True)
-    confidence = Column(Enum(ConfidenceLevel), nullable=True)
-    structured_response = Column(JSON, nullable=True)
-    retrieved_sources = Column(JSON, default=[])
-    created_at = Column(DateTime, default=datetime.utcnow)
-    processing_time_ms = Column(Integer, nullable=True)
-    tokens_used = Column(Integer, nullable=True)
-    
-    # Relationships
-    session = relationship("ConversationSession", back_populates="messages")
+class ConversationContextDoc(BaseModel):
+    """Conversation context embedded inside a ChatSession"""
+    current_subject: Optional[str] = None
+    current_topic: Optional[str] = None
+    current_unit: Optional[int] = None
+    referenced_faculty: List[str] = Field(default_factory=list)
+    discussed_topics: List[str] = Field(default_factory=list)
+    student_context: Dict[str, Any] = Field(default_factory=dict)
+    last_intent: Optional[IntentType] = None
+    context_stack: List[Dict[str, Any]] = Field(default_factory=list)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
 
 
-class ConversationContext(Base):
-    """Stores conversation context for continuity"""
-    __tablename__ = "conversation_contexts"
+# ── Top-level Documents ──────────────────────────────────
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    session_id = Column(UUID(as_uuid=True), ForeignKey("conversation_sessions.id"), unique=True, nullable=False)
-    current_subject = Column(String(255), nullable=True)
-    current_topic = Column(String(255), nullable=True)
-    current_unit = Column(Integer, nullable=True)
-    referenced_faculty = Column(ARRAY(String), default=[])
-    discussed_topics = Column(JSON, default=[])
-    student_context = Column(JSON, default={})  # Performance data, enrolled subjects, etc.
-    last_intent = Column(Enum(IntentType), nullable=True)
-    context_stack = Column(JSON, default=[])  # For resolving pronouns and references
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    
-    # Relationships
-    session = relationship("ConversationSession", back_populates="context")
+class ChatSession(Document):
+    """One conversation session"""
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    user_id: Indexed(str)
+    user_type: str = "student"
+    session_token: Indexed(str, unique=True)
 
+    messages: List[ChatMessageDoc] = Field(default_factory=list)
+    context: ConversationContextDoc = Field(
+        default_factory=ConversationContextDoc
+    )
 
-class SyllabusContent(Base):
-    """Stores syllabus data for RAG retrieval"""
-    __tablename__ = "syllabus_content"
+    is_active: bool = True
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    expires_at: datetime = Field(
+        default_factory=lambda: datetime.utcnow() + timedelta(hours=24)
+    )
+    metadata: Dict[str, Any] = Field(default_factory=dict)
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    subject_code = Column(String(20), nullable=False, index=True)
-    subject_name = Column(String(255), nullable=False)
-    department = Column(String(100), nullable=False)
-    semester = Column(Integer, nullable=False)
-    unit_number = Column(Integer, nullable=False)
-    unit_title = Column(String(255), nullable=False)
-    topics = Column(JSON, nullable=False)  # List of topics
-    detailed_content = Column(Text, nullable=True)
-    learning_objectives = Column(JSON, default=[])
-    exam_weightage = Column(Float, nullable=True)
-    reference_books = Column(JSON, default=[])
-    prerequisites = Column(JSON, default=[])
-    keywords = Column(ARRAY(String), default=[])
-    embedding_vector = Column(JSON, nullable=True)  # Store embedding for similarity search
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    class Settings:
+        name = "chat_sessions"
+        indexes = ["user_id", "session_token", "is_active", "expires_at"]
 
 
-class FacultyProfile(Base):
-    """Enhanced faculty profile for chatbot queries"""
-    __tablename__ = "faculty_profiles_enhanced"
+class ChatFeedback(Document):
+    """User feedback on a single chatbot response  (Task 22)"""
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    session_id: Indexed(str)
+    message_id: str
+    user_id: Indexed(str)
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    faculty_id = Column(String(100), unique=True, nullable=False)
-    name = Column(String(255), nullable=False)
-    department = Column(String(100), nullable=False)
-    designation = Column(String(100), nullable=True)
-    subjects_taught = Column(JSON, default=[])  # List of subject codes/names
-    experience_years = Column(Integer, nullable=True)
-    teaching_style = Column(String(255), nullable=True)
-    research_areas = Column(JSON, default=[])
-    mentoring_focus = Column(JSON, default=[])
-    specializations = Column(JSON, default=[])
-    available_for_mentoring = Column(Boolean, default=True)
-    rating = Column(Float, nullable=True)
-    office_hours = Column(JSON, default={})
-    contact_preferences = Column(JSON, default={})
-    embedding_vector = Column(JSON, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    rating: int = Field(ge=1, le=5)
+    feedback_text: Optional[str] = None
+    was_helpful: Optional[bool] = None
+    intent: Optional[IntentType] = None
+
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+    class Settings:
+        name = "chat_feedback"
+        indexes = ["session_id", "user_id", "rating", "intent"]
 
 
-class AcademicKnowledgeBase(Base):
-    """Stores curated academic knowledge for RAG"""
-    __tablename__ = "academic_knowledge_base"
+class ChatbotAnalyticsDoc(Document):
+    """Daily aggregated chatbot analytics  (Task 20)"""
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    date: Indexed(datetime)
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    category = Column(String(100), nullable=False, index=True)  # 'concept', 'career', 'elective', etc.
-    title = Column(String(255), nullable=False)
-    content = Column(Text, nullable=False)
-    keywords = Column(ARRAY(String), default=[])
-    related_subjects = Column(JSON, default=[])
-    department = Column(String(100), nullable=True)
-    difficulty_level = Column(String(50), nullable=True)
-    exam_relevance = Column(String(255), nullable=True)
-    source = Column(String(255), nullable=True)
-    embedding_vector = Column(JSON, nullable=True)
-    is_verified = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    total_queries: int = 0
+    successful_responses: int = 0
+    out_of_scope_queries: int = 0
 
+    intent_distribution: Dict[str, int] = Field(default_factory=dict)
+    avg_response_time_ms: float = 0
+    avg_confidence: float = 0
 
-class ChatbotAnalytics(Base):
-    """Analytics for chatbot performance monitoring"""
-    __tablename__ = "chatbot_analytics"
+    user_satisfaction_avg: float = 0
+    feedback_count: int = 0
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    date = Column(DateTime, nullable=False, index=True)
-    total_queries = Column(Integer, default=0)
-    successful_responses = Column(Integer, default=0)
-    out_of_scope_queries = Column(Integer, default=0)
-    intent_distribution = Column(JSON, default={})
-    avg_response_time_ms = Column(Float, nullable=True)
-    avg_confidence = Column(Float, nullable=True)
-    user_satisfaction_score = Column(Float, nullable=True)
-    common_topics = Column(JSON, default=[])
-    error_count = Column(Integer, default=0)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    common_topics: List[Dict[str, Any]] = Field(default_factory=list)
+    error_count: int = 0
+    unique_users: int = 0
+
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+    class Settings:
+        name = "chatbot_analytics"
+        indexes = ["date"]

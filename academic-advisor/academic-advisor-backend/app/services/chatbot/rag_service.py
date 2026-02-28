@@ -6,10 +6,27 @@ import logging
 import json
 import os
 
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+try:
+    from langchain_text_splitters import RecursiveCharacterTextSplitter
+except ImportError:
+    try:
+        from langchain.text_splitter import RecursiveCharacterTextSplitter
+    except ImportError:
+        # Fallback stub so server doesn't crash
+        import logging
+        logging.getLogger(__name__).warning("langchain text_splitter not available")
+        class RecursiveCharacterTextSplitter:
+            def __init__(self, **kwargs): 
+                self.chunk_size = kwargs.get('chunk_size', 1000)
+                self.chunk_overlap = kwargs.get('chunk_overlap', 200)
+            def split_text(self, text): 
+                return [text[i:i+self.chunk_size] for i in range(0, len(text), self.chunk_size - self.chunk_overlap)]
+            def split_documents(self, docs): 
+                return docs
+            
 from langchain_community.vectorstores import Chroma
 from langchain_community.embeddings import HuggingFaceEmbeddings
-from langchain.schema import Document
+from langchain_core.documents import Document
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, and_
 

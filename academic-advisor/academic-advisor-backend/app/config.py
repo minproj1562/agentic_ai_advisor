@@ -77,7 +77,7 @@ class Settings(BaseSettings):
     MAX_FILE_SIZE: int = 10 * 1024 * 1024  # 10MB
     
     GROQ_API_KEY: Optional[str] = os.getenv("GROQ_API_KEY")
-    LLM_MODEL: str = "llama3-70b-8192"  # or "mixtral-8x7b-32768"
+    LLM_MODEL: str = "llama-3.3-70b-versatile"
     
     # Local embeddings (free, no API)
     EMBEDDING_MODEL: str = "sentence-transformers/all-MiniLM-L6-v2"

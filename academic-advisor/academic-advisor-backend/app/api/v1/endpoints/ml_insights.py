@@ -493,6 +493,258 @@ async def check_honours_minor_eligibility(
         logger.error(f"Honours eligibility check error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+# ==================== MISSING ENDPOINTS (fix 404s) ====================
+
+@router.post("/portfolio-analysis")
+async def analyze_portfolio(
+    current_user: FirebaseUser = Depends(get_current_user),
+):
+    """Analyze student's project portfolio strength."""
+    try:
+        from app.models.student_projects import StudentProject
+
+        student = await StudentProfile.find_one(
+            StudentProfile.user_id == current_user.uid
+        )
+        projects = await StudentProject.find(
+            StudentProject.student_id == current_user.uid
+        ).to_list()
+
+        if not projects:
+            return {
+                "portfolioStrength": 30,
+                "industryRelevance": 25,
+                "innovationScore": 20,
+                "technicalDepth": 30,
+                "missingAreas": ["Build projects to get portfolio analysis"],
+                "recommendations": ["Start with a personal project in your interest area"],
+            }
+
+        # Aggregate skills
+        all_skills: set = set()
+        total_complexity = 0.0
+        has_github = 0
+        has_demo = 0
+        interest_domains: set = set()
+
+        for p in projects:
+            all_skills.update(p.extracted_skills or [])
+            all_skills.update(p.programming_languages or [])
+            all_skills.update(p.frameworks or [])
+            total_complexity += (p.complexity_score or 0.5)
+            if p.github_url:
+                has_github += 1
+            if p.demo_url:
+                has_demo += 1
+            for ii in (p.inferred_interests or []):
+                d = ii.domain if hasattr(ii, "domain") else ii.get("domain", "")
+                if d:
+                    interest_domains.add(d)
+
+        n = len(projects)
+        avg_complexity = total_complexity / n
+
+        portfolio_strength = min(int(
+            (min(n, 5) / 5) * 30 +
+            (min(len(all_skills), 15) / 15) * 25 +
+            avg_complexity * 25 +
+            (has_github / max(n, 1)) * 10 +
+            (has_demo / max(n, 1)) * 10
+        ), 100)
+
+        industry = min(int(len(interest_domains) * 20 + avg_complexity * 30 + 20), 100)
+        innovation = min(int(avg_complexity * 50 + (has_demo / max(n, 1)) * 30 + 20), 100)
+        depth = min(int((len(all_skills) / 20) * 60 + avg_complexity * 40), 100)
+
+        # Missing areas
+        core_areas = {"Web Development", "Data Science", "Cloud Computing",
+                      "Mobile Development", "AI/ML"}
+        covered = {d for d in interest_domains}
+        missing = list(core_areas - covered)[:3]
+        if not missing:
+            missing = ["Advanced System Design", "Open Source Contributions"]
+
+        recs = []
+        if n < 3:
+            recs.append("Upload more projects for better analysis")
+        if has_github < n * 0.5:
+            recs.append("Add GitHub links to showcase code quality")
+        if has_demo == 0:
+            recs.append("Deploy at least one project with a live demo")
+        if len(all_skills) < 5:
+            recs.append("Diversify your tech stack across projects")
+
+        return {
+            "portfolioStrength": portfolio_strength,
+            "industryRelevance": industry,
+            "innovationScore": innovation,
+            "technicalDepth": depth,
+            "missingAreas": missing,
+            "recommendations": recs or ["Great portfolio! Keep building."],
+            "stats": {
+                "total_projects": n,
+                "unique_skills": len(all_skills),
+                "domains_covered": list(interest_domains),
+                "avg_complexity": round(avg_complexity, 2),
+            },
+        }
+
+    except Exception as e:
+        logger.error(f"Portfolio analysis error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/quick-insights/")
+@router.get("/quick-insights/{student_id}")
+async def get_quick_insights(
+    student_id: Optional[str] = None,
+    current_user: FirebaseUser = Depends(get_current_user),
+):
+    """Quick AI insights for dashboard widgets."""
+    try:
+        uid = current_user.uid
+        student = await StudentProfile.find_one(
+            StudentProfile.user_id == uid
+        )
+        if not student:
+            return {
+                "placementReadiness": 50,
+                "immediateActions": ["Complete your profile first"],
+                "strengthAreas": [],
+                "improvementAreas": ["Profile incomplete"],
+            }
+
+        # Placement readiness estimate
+        readiness = 40
+        if student.cgpa and student.cgpa >= 7.0:
+            readiness += 20
+        if student.skills and len(student.skills) >= 3:
+            readiness += 15
+        if student.interests and len(student.interests) >= 2:
+            readiness += 10
+
+        from app.models.student_projects import StudentProject
+        proj_count = await StudentProject.find(
+            StudentProject.student_id == uid
+        ).count()
+        if proj_count >= 3:
+            readiness += 15
+
+        readiness = min(readiness, 95)
+
+        actions = []
+        if (student.cgpa or 0) < 7.0:
+            actions.append("Improve CGPA to 7.0+ for better placement opportunities")
+        if not student.skills or len(student.skills) < 3:
+            actions.append("Add technical skills to your profile")
+        if proj_count < 3:
+            actions.append("Build more projects to strengthen your portfolio")
+        if not student.interests or len(student.interests) < 2:
+            actions.append("Declare your academic interests")
+        if not actions:
+            actions = ["Maintain consistency", "Prepare for technical interviews"]
+
+        strengths = []
+        if (student.cgpa or 0) >= 8.0:
+            strengths.append("Strong academic performance")
+        if proj_count >= 3:
+            strengths.append("Good project portfolio")
+        if student.skills and len(student.skills) >= 5:
+            strengths.append("Diverse technical skills")
+        if not strengths:
+            strengths = ["Willingness to improve"]
+
+        improvements = []
+        if (student.cgpa or 0) < 7.0:
+            improvements.append("Academic performance")
+        if proj_count < 2:
+            improvements.append("Project portfolio")
+        if not student.skills or len(student.skills) < 3:
+            improvements.append("Technical skills breadth")
+        if not improvements:
+            improvements = ["Advanced system design", "Leadership experience"]
+
+        return {
+            "placementReadiness": readiness,
+            "immediateActions": actions[:4],
+            "strengthAreas": strengths[:4],
+            "improvementAreas": improvements[:4],
+        }
+
+    except Exception as e:
+        logger.error(f"Quick insights error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/peer-comparison")
+async def get_peer_comparison(
+    branch: str = Query("IT"),
+    semester: int = Query(4),
+    current_user: FirebaseUser = Depends(get_current_user),
+):
+    """Compare student with peers in same branch/semester."""
+    try:
+        student = await StudentProfile.find_one(
+            StudentProfile.user_id == current_user.uid
+        )
+        if not student:
+            raise HTTPException(status_code=404, detail="Profile not found")
+
+        # Query peers in same branch
+        peers = await StudentProfile.find(
+            StudentProfile.branch == branch,
+        ).to_list()
+
+        peer_cgpas = [p.cgpa for p in peers if p.cgpa and p.cgpa > 0]
+        total = len(peer_cgpas) if peer_cgpas else 60
+        avg_cgpa = sum(peer_cgpas) / len(peer_cgpas) if peer_cgpas else 7.2
+        my_cgpa = student.cgpa or 0
+
+        # Calculate percentile
+        below = sum(1 for c in peer_cgpas if c < my_cgpa)
+        percentile = int((below / max(total, 1)) * 100) if total else 50
+
+        strengths = []
+        weaknesses = []
+        if my_cgpa > avg_cgpa:
+            strengths.append(f"CGPA above branch average ({avg_cgpa:.1f})")
+        else:
+            weaknesses.append(f"CGPA below branch average ({avg_cgpa:.1f})")
+
+        if student.skills and len(student.skills) >= 5:
+            strengths.append("Diverse technical skill set")
+        else:
+            weaknesses.append("Expand technical skills")
+
+        from app.models.student_projects import StudentProject
+        proj_count = await StudentProject.find(
+            StudentProject.student_id == current_user.uid
+        ).count()
+        if proj_count >= 3:
+            strengths.append("Strong project portfolio")
+        else:
+            weaknesses.append("Build more projects")
+
+        if not strengths:
+            strengths = ["Room for growth"]
+        if not weaknesses:
+            weaknesses = ["Maintain current trajectory"]
+
+        return {
+            "percentile": min(percentile, 99),
+            "yourPosition": max(total - below, 1),
+            "totalStudents": total,
+            "averageCGPA": round(avg_cgpa, 2),
+            "yourCGPA": my_cgpa,
+            "strengths": strengths,
+            "weaknesses": weaknesses,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Peer comparison error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 # ==================== HEALTH CHECK ====================
 

@@ -225,23 +225,20 @@ class StudentProjectsCloudinaryService {
     }
   }
 
-  async analyzeProjectComprehensive(
+async analyzeProjectComprehensive(
     projectData: any,
     files?: File[]
   ): Promise<ComprehensiveAnalysis> {
     try {
       const formData = new FormData();
       
-      // Get user branch and semester from localStorage or defaults
       const studentBranch = localStorage.getItem('userBranch') || 'IT';
       const studentSemester = parseInt(localStorage.getItem('userSemester') || '5');
       
-      // Add project data as JSON string
       formData.append('project_data', JSON.stringify(projectData));
       formData.append('student_branch', studentBranch);
       formData.append('student_semester', studentSemester.toString());
       
-      // Add files if provided
       if (files && files.length > 0) {
         files.forEach(file => {
           formData.append('files', file);
@@ -257,42 +254,158 @@ class StudentProjectsCloudinaryService {
       });
       
       if (!response.ok) {
-        const error = await response.json();
+        const error = await response.json().catch(() => ({ detail: 'Analysis failed' }));
         throw new Error(error.detail || 'Analysis failed');
       }
       
       const result = await response.json();
       
-      // Validate and ensure all required fields exist
-      const analysis = result.analysis || result; // Handle both nested and direct response
+      // ═══════════════════════════════════════════════════════════
+      //  ROBUST RESPONSE PARSING
+      //  The backend can return:
+      //    A) Legacy format (top-level fields)
+      //    B) Nested under result.analysis
+      //    C) New format with cumulative_recommendations
+      // ═══════════════════════════════════════════════════════════
       
-      // Provide defaults for any missing fields
-      const validatedAnalysis: ComprehensiveAnalysis = {
-        inferred_interests: analysis.inferred_interests || [],
-        elective_recommendations: analysis.elective_recommendations || [],
-        honours_minor_recommendations: analysis.honours_minor_recommendations || [],
-        career_paths: analysis.career_paths || [],
-        skill_gap_analysis: analysis.skill_gap_analysis || {
-          current_skills: [],
-          skill_gaps: [],
-          priority_skills: [],
-          learning_resources: {},
-          estimated_learning_time: '3-6 months'
-        },
-        next_steps: analysis.next_steps || [],
-        metadata: analysis.metadata
+      const source = result.analysis || result;
+      
+      // Parse inferred interests (handle both formats)
+      const inferredInterests: InferredInterest[] = (source.inferred_interests || []).map((i: any) => ({
+        domain: i.domain || '',
+        confidence: i.confidence || 0,
+        keywords: i.keywords || i.matched_keywords || [],
+        relatedSkills: i.relatedSkills || i.related_skills || [],
+        careerPaths: i.careerPaths || i.career_paths || [],
+        industryRelevance: i.industryRelevance || i.industry_relevance || (i.confidence * 0.9),
+        reasoning: i.reasoning || `Detected from project analysis`,
+        evidence: i.evidence || i.keywords || [],
+      }));
+      
+      // Parse elective recommendations (handle both legacy and cumulative)
+      let electiveRecs: ElectiveRecommendation[] = [];
+      if (source.elective_recommendations && source.elective_recommendations.length > 0) {
+        // Legacy format from backend
+        electiveRecs = source.elective_recommendations.map((e: any) => ({
+          elective: e.elective || e.elective_name || '',
+          code: e.code || e.elective_code || '',
+          match_score: e.match_score || 0,
+          reasons: e.reasons || [e.match_explanation || 'Based on your profile'],
+          skills_to_gain: e.skills_to_gain || e.skill_alignment || [],
+          career_relevance: e.career_relevance || '',
+          difficulty_level: e.difficulty_level || 'Intermediate',
+        }));
+      } else if (source.cumulative_recommendations?.electives) {
+        // New cumulative format
+        electiveRecs = source.cumulative_recommendations.electives.map((e: any) => ({
+          elective: e.elective_name || '',
+          code: e.elective_code || '',
+          match_score: e.match_score || 0,
+          reasons: [e.match_explanation || 'Based on cumulative analysis'],
+          skills_to_gain: e.skill_alignment || [],
+          career_relevance: (e.career_relevance || []).join(', '),
+          difficulty_level: 'Intermediate',
+        }));
+      }
+      
+      // Parse honours recommendations
+      let honoursRecs: HonoursRecommendation[] = [];
+      if (source.honours_minor_recommendations && source.honours_minor_recommendations.length > 0) {
+        honoursRecs = source.honours_minor_recommendations;
+      } else if (source.cumulative_recommendations?.honours) {
+        honoursRecs = source.cumulative_recommendations.honours.map((h: any) => ({
+          program: h.program || '',
+          type: h.type || 'Honours',
+          match_score: h.match_score || 0,
+          reasons: [h.explanation || 'Based on your profile'],
+          courses: h.skills_gained || h.courses || [],
+          career_paths: h.career_paths || [],
+          skills_to_develop: h.skills_gained || [],
+          semester_commitment: '4 semesters (Sem V-VIII)',
+          credits: 18,
+          eligibility_met: h.eligibility !== false,
+        }));
+      }
+      
+      // Parse career paths
+      let careerPaths: CareerPath[] = [];
+      if (source.career_paths && source.career_paths.length > 0) {
+        careerPaths = source.career_paths.map((c: any) => ({
+          title: c.title || c.career || '',
+          match_score: c.match_score || 0,
+          source_domains: c.source_domains || [],
+          required_skills: c.required_skills || c.missing_skills || [],
+          honours_program: c.honours_program,
+          market_demand: c.market_demand || c.growth_potential || 'High',
+          salary_range: c.salary_range || '',
+          growth_potential: c.growth_potential || 'High',
+          preparation_path: c.preparation_path || [],
+          companies_hiring: c.companies_hiring || c.top_companies || [],
+        }));
+      } else if (source.cumulative_recommendations?.careers) {
+        careerPaths = source.cumulative_recommendations.careers.map((c: any) => ({
+          title: c.career || '',
+          match_score: c.match_score || 0,
+          source_domains: [],
+          required_skills: c.missing_skills || [],
+          market_demand: c.growth_potential === 'Very High' ? 'Very High' : 'High',
+          salary_range: c.salary_range || '',
+          growth_potential: c.growth_potential || 'High',
+          preparation_path: c.preparation_path || [],
+          companies_hiring: c.top_companies || [],
+        }));
+      }
+      
+      // Parse skill gap analysis
+      const skillGap: SkillGapAnalysis = source.skill_gap_analysis || {
+        current_skills: source.cumulative_recommendations?.electives?.[0]?.skill_alignment || [],
+        required_skills: [],
+        skill_gaps: [],
+        priority_skills: [],
+        learning_resources: {},
+        estimated_learning_time: '2-3 months',
       };
       
-      // Store the latest analysis in localStorage for quick access
+      // Parse next steps
+      const nextSteps: NextStep[] = (source.next_steps || []).map((s: any) => ({
+        category: s.category || 'General',
+        action: s.action || '',
+        deadline: s.deadline || 'This semester',
+        priority: s.priority || 'medium',
+        details: s.details || '',
+      }));
+      
+      const validatedAnalysis: ComprehensiveAnalysis = {
+        inferred_interests: inferredInterests,
+        elective_recommendations: electiveRecs,
+        honours_minor_recommendations: honoursRecs,
+        career_paths: careerPaths,
+        skill_gap_analysis: skillGap,
+        next_steps: nextSteps,
+        metadata: {
+          analysis_date: source.metadata?.analysis_date || result.generated_at || new Date().toISOString(),
+          student_branch: result.student_info?.branch || studentBranch,
+          student_semester: result.student_info?.semester || studentSemester,
+          confidence_score: source.metadata?.confidence_score || 0.8,
+        },
+      };
+      
+      // Store for quick access
       localStorage.setItem('latestAnalysis', JSON.stringify(validatedAnalysis));
       localStorage.setItem('analysisDate', new Date().toISOString());
+      
+      console.log('✅ Analysis parsed successfully:', {
+        interests: validatedAnalysis.inferred_interests.length,
+        electives: validatedAnalysis.elective_recommendations.length,
+        honours: validatedAnalysis.honours_minor_recommendations.length,
+        careers: validatedAnalysis.career_paths.length,
+        nextSteps: validatedAnalysis.next_steps.length,
+      });
       
       return validatedAnalysis;
       
     } catch (error: any) {
       console.error('Comprehensive analysis error:', error);
-      
-      // Fallback to frontend analysis if backend fails
       return this.fallbackFrontendAnalysis(projectData, files || []);
     }
   }

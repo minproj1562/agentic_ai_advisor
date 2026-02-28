@@ -2,16 +2,18 @@
 
 import { useState, useCallback, useEffect } from 'react';
 import { chatbotService } from '../services/chatbot.service';
-import { ChatMessage, ChatResponseContent } from '../types/chatbot.types';
+import type { ChatMessage, ChatResponseContent, ChatFeedback } from '../types/chatbot.types';
 
 interface UseChatbotReturn {
   messages: ChatMessage[];
   isLoading: boolean;
   suggestions: string[];
   sessionToken: string | null;
+  isOnline: boolean;
   sendMessage: (message: string) => Promise<void>;
   clearSession: () => Promise<void>;
-  loadHistory: () => Promise<void>;
+  submitFeedback: (feedback: ChatFeedback) => Promise<boolean>;
+  retryConnection: () => void;
 }
 
 export const useChatbot = (): UseChatbotReturn => {
@@ -19,85 +21,91 @@ export const useChatbot = (): UseChatbotReturn => {
   const [isLoading, setIsLoading] = useState(false);
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [sessionToken, setSessionToken] = useState<string | null>(null);
+  const [isOnline, setIsOnline] = useState(true);
 
-  // Initialize
   useEffect(() => {
     chatbotService.restoreSession();
     setSessionToken(chatbotService.getSessionToken());
-    
-    const loadInitialData = async () => {
+
+    const init = async () => {
       const sug = await chatbotService.getSuggestions();
       setSuggestions(sug);
-      
       const history = await chatbotService.getHistory();
-      if (history.length > 0) {
-        setMessages(history);
-      }
+      if (history.length > 0) setMessages(history);
     };
-    
-    loadInitialData();
+    init();
   }, []);
 
-  // Send message
-  const sendMessage = useCallback(async (message: string) => {
-    if (!message.trim() || isLoading) return;
+  const sendMessage = useCallback(
+    async (message: string) => {
+      if (!message.trim() || isLoading) return;
 
-    const userMessage: ChatMessage = {
-      id: Date.now().toString(),
-      role: 'user',
-      content: message.trim(),
-      timestamp: new Date().toISOString(),
-    };
-
-    setMessages(prev => [...prev, userMessage]);
-    setIsLoading(true);
-
-    try {
-      const response = await chatbotService.sendMessage(message.trim());
-      
-      const assistantMessage: ChatMessage = {
-        id: (Date.now() + 1).toString(),
-        role: 'assistant',
-        content: response,
+      const userMsg: ChatMessage = {
+        id: Date.now().toString(),
+        role: 'user',
+        content: message.trim(),
         timestamp: new Date().toISOString(),
-        intent: typeof response === 'object' ? response.intent : undefined,
-        confidence: typeof response === 'object' ? response.confidence as any : undefined,
       };
 
-      setMessages(prev => [...prev, assistantMessage]);
-      setSessionToken(chatbotService.getSessionToken());
+      setMessages(prev => [...prev, userMsg]);
+      chatbotService.addToHistory(userMsg);
+      setIsLoading(true);
 
-      // Update suggestions
-      const newSuggestions = await chatbotService.getSuggestions();
-      setSuggestions(newSuggestions);
+      try {
+        const response = await chatbotService.sendMessage(message.trim());
 
-    } catch (error) {
-      console.error('Error sending message:', error);
-      setMessages(prev => [...prev, {
-        id: (Date.now() + 1).toString(),
-        role: 'assistant',
-        content: 'An error occurred. Please try again.',
-        timestamp: new Date().toISOString(),
-      }]);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [isLoading]);
+        const assistantMsg: ChatMessage = {
+          id: (Date.now() + 1).toString(),
+          role: 'assistant',
+          content: response,
+          timestamp: new Date().toISOString(),
+          intent: typeof response === 'object' ? response.intent : undefined,
+          confidence:
+            typeof response === 'object'
+              ? (response.confidence as 'High' | 'Medium' | 'Low')
+              : undefined,
+        };
 
-  // Clear session
+        setMessages(prev => [...prev, assistantMsg]);
+        chatbotService.addToHistory(assistantMsg);
+        setSessionToken(chatbotService.getSessionToken());
+        setIsOnline(chatbotService.isOnlineMode());
+
+        const newSug = await chatbotService.getSuggestions();
+        setSuggestions(newSug);
+      } catch (err) {
+        console.error('Chat error:', err);
+        const errMsg: ChatMessage = {
+          id: (Date.now() + 1).toString(),
+          role: 'assistant',
+          content: 'An error occurred. Please try again.',
+          timestamp: new Date().toISOString(),
+          isError: true,
+        };
+        setMessages(prev => [...prev, errMsg]);
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [isLoading],
+  );
+
   const clearSession = useCallback(async () => {
     await chatbotService.clearSession();
     setMessages([]);
     setSessionToken(null);
-    
+    setIsOnline(true);
     const sug = await chatbotService.getSuggestions();
     setSuggestions(sug);
   }, []);
 
-  // Load history
-  const loadHistory = useCallback(async () => {
-    const history = await chatbotService.getHistory();
-    setMessages(history);
+  const submitFeedback = useCallback(async (fb: ChatFeedback) => {
+    return chatbotService.submitFeedback(fb);
+  }, []);
+
+  const retryConnection = useCallback(() => {
+    chatbotService.retryBackendConnection();
+    setIsOnline(true);
   }, []);
 
   return {
@@ -105,8 +113,10 @@ export const useChatbot = (): UseChatbotReturn => {
     isLoading,
     suggestions,
     sessionToken,
+    isOnline,
     sendMessage,
     clearSession,
-    loadHistory,
+    submitFeedback,
+    retryConnection,
   };
 };

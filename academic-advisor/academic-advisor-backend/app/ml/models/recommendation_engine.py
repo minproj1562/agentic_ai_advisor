@@ -4,10 +4,10 @@ Enhanced Cumulative Recommendation Engine
 ==========================================
 Marks (40%) + Interests (30%) + Projects (30%)
 
-NEW FEATURES:
+Features:
   - Structured score breakdown for frontend visualization
   - Per-category confidence levels
-  - "What's missing" indicators
+  - Concept matching for project descriptions
   - Ranking explanation with comparisons
 """
 
@@ -79,8 +79,10 @@ _ALIASES: Dict[str, str] = {
     "IoT": "IoT",
 }
 
+
 def _canonical(name: str) -> str:
     return _ALIASES.get(name, name)
+
 
 CANONICAL_SUBJECTS = [
     "Engineering Mathematics-III", "Engineering Mathematics-IV",
@@ -109,36 +111,28 @@ ALL_SUBJECTS = CANONICAL_SUBJECTS
 
 ELECTIVE_META = {
     "ML": {
-        "code": "ITPEC5012",
-        "name": "Machine Learning",
-        "credits": 3,
+        "code": "ITPEC5012", "name": "Machine Learning", "credits": 3,
         "pair": "Pair 1 (ML vs WT)",
         "career_paths": ["ML Engineer", "Data Scientist", "AI Researcher", "NLP Engineer"],
         "skills": ["TensorFlow", "PyTorch", "Scikit-learn", "Neural Networks", "NLP"],
         "description": "Machine Learning covers supervised and unsupervised learning, neural networks, deep learning, NLP, and model deployment.",
     },
     "WT": {
-        "code": "ITPEC5013",
-        "name": "Wireless Technology",
-        "credits": 3,
+        "code": "ITPEC5013", "name": "Wireless Technology", "credits": 3,
         "pair": "Pair 1 (ML vs WT)",
         "career_paths": ["IoT Engineer", "Network Engineer", "Embedded Developer", "RF Engineer"],
         "skills": ["IoT Protocols", "Embedded C", "Wireless Networks", "Sensor Integration"],
         "description": "Wireless Technology covers cellular networks, IoT protocols, sensor networks, MQTT, Bluetooth, ZigBee, and 5G.",
     },
     "DWM": {
-        "code": "ITPEC5014",
-        "name": "Data Warehouse and Mining",
-        "credits": 3,
+        "code": "ITPEC5014", "name": "Data Warehouse and Mining", "credits": 3,
         "pair": "Pair 2 (DWM vs CCS)",
         "career_paths": ["Data Analyst", "BI Developer", "Data Engineer", "Analytics Manager"],
         "skills": ["SQL", "ETL", "OLAP", "Clustering", "Association Rules"],
         "description": "Data Warehousing and Mining covers OLAP, ETL, data cubes, classification, clustering, association rule mining, and BI tools.",
     },
     "CCS": {
-        "code": "ITPEC5015",
-        "name": "Cloud Computing Services",
-        "credits": 3,
+        "code": "ITPEC5015", "name": "Cloud Computing Services", "credits": 3,
         "pair": "Pair 2 (DWM vs CCS)",
         "career_paths": ["Cloud Architect", "DevOps Engineer", "SRE", "Platform Engineer"],
         "skills": ["AWS", "Azure", "Docker", "Kubernetes", "Terraform"],
@@ -179,23 +173,61 @@ PROJECT_SKILL_MAP = {
         "python", "tensorflow", "pytorch", "sklearn", "scikit-learn",
         "machine learning", "deep learning", "nlp", "neural network",
         "data science", "pandas", "numpy", "keras", "computer vision",
-        "regression", "classification", "clustering",
+        "regression", "classification", "clustering", "random forest",
+        "opencv", "hugging face", "transformers", "bert", "gpt",
+        "langchain", "llm", "generative ai", "reinforcement learning",
+        "model training", "feature engineering", "xgboost", "gradient boosting",
+        "sentiment analysis", "text mining", "word2vec", "cnn", "rnn", "lstm",
+        "image recognition", "object detection", "yolo", "recommendation system",
+        "chatbot", "prediction", "forecast", "anomaly detection",
+        "jupyter", "notebook", "kaggle", "matplotlib", "seaborn",
+        "data preprocessing", "data cleaning", "artificial intelligence",
+        "ai", "ml", "neural", "perceptron", "backpropagation",
     ],
     "WT": [
         "arduino", "raspberry pi", "iot", "embedded", "sensor",
         "wireless", "bluetooth", "zigbee", "mqtt", "microcontroller",
         "esp32", "esp8266", "lora", "rfid",
+        "internet of things", "smart home", "wearable", "edge computing",
+        "5g", "cellular", "wifi", "nfc", "gps", "gsm",
+        "signal processing", "firmware", "real-time", "rtos",
+        "nodemcu", "stm32", "arm", "gpio", "i2c", "spi", "uart",
+        "home automation", "remote monitoring", "telemetry",
+        "embedded c", "assembly", "verilog", "fpga",
+        "protocol", "modbus", "can bus", "802.11",
     ],
     "DWM": [
         "sql", "mongodb", "data warehouse", "etl", "hadoop", "spark",
         "data mining", "analytics", "tableau", "power bi", "olap",
         "data pipeline", "redshift", "bigquery",
+        "postgresql", "mysql", "database", "nosql", "cassandra",
+        "data lake", "data mart", "star schema", "snowflake schema",
+        "association rules", "apriori", "clustering", "decision tree",
+        "data visualization", "dashboard", "report", "kpi",
+        "business intelligence", "bi", "oltp",
+        "data integration", "data quality", "data governance",
+        "apache airflow", "dbt", "data engineering",
+        "excel", "csv", "json", "xml", "data extraction",
+        "web scraping", "crawling", "beautifulsoup", "scrapy",
     ],
     "CCS": [
         "aws", "azure", "gcp", "docker", "kubernetes", "cloud",
         "devops", "terraform", "serverless", "microservices",
         "ci/cd", "jenkins", "react", "node", "web", "fullstack",
         "rest api", "graphql", "nginx",
+        "lambda", "ec2", "s3", "cloudformation", "azure devops",
+        "google cloud", "heroku", "vercel", "netlify", "railway",
+        "container", "orchestration", "helm", "istio",
+        "github actions", "gitlab ci", "circleci", "ansible",
+        "load balancer", "cdn", "api gateway", "service mesh",
+        "full stack", "full-stack", "frontend", "backend", "mern",
+        "mean", "express", "fastapi", "django", "flask", "spring",
+        "next.js", "nuxt", "angular", "vue", "svelte",
+        "mongodb", "postgresql", "redis", "elasticsearch",
+        "html", "css", "javascript", "typescript",
+        "responsive", "spa", "ssr", "pwa",
+        "deployment", "hosting", "scaling", "monitoring",
+        "prometheus", "grafana", "logging", "elk",
     ],
 }
 
@@ -210,52 +242,42 @@ INTEREST_KEYWORD_MAP = {
 
 HONOURS_PROGRAMS = [
     {
-        "program": "AI / ML Honours",
-        "type": "honours",
-        "required_cgpa": 7.5,
+        "program": "AI / ML Honours", "type": "honours", "required_cgpa": 7.5,
         "relevant_subjects": ["Python", "Artificial Intelligence", "Data Structures and Algorithms"],
         "relevant_interests": ["Artificial Intelligence & Machine Learning", "Data Science & Analytics"],
-        "project_keywords": ["python", "tensorflow", "pytorch", "machine learning"],
+        "project_keywords": ["python", "tensorflow", "pytorch", "machine learning", "deep learning", "ai", "neural", "prediction", "model"],
         "career_paths": ["ML Engineer", "Data Scientist", "AI Researcher"],
         "skills_gained": ["Deep Learning", "NLP", "Computer Vision", "MLOps"],
     },
     {
-        "program": "Data Science Honours",
-        "type": "honours",
-        "required_cgpa": 7.5,
+        "program": "Data Science Honours", "type": "honours", "required_cgpa": 7.5,
         "relevant_subjects": ["Database Management Systems", "Python", "Data Structures and Algorithms"],
         "relevant_interests": ["Data Science & Analytics", "Artificial Intelligence & Machine Learning"],
-        "project_keywords": ["sql", "data", "analytics", "pandas", "visualization"],
+        "project_keywords": ["sql", "data", "analytics", "pandas", "visualization", "database", "dashboard", "report"],
         "career_paths": ["Data Scientist", "Analytics Manager", "Research Scientist"],
         "skills_gained": ["Statistical Analysis", "Big Data", "Data Visualisation"],
     },
     {
-        "program": "Cybersecurity Minor",
-        "type": "minor",
-        "required_cgpa": 7.0,
+        "program": "Cybersecurity Minor", "type": "minor", "required_cgpa": 7.0,
         "relevant_subjects": ["Computer Networks", "Operating Systems", "Cryptography & Network Security"],
         "relevant_interests": ["Network & Wireless Systems", "Cloud & Distributed Systems"],
-        "project_keywords": ["security", "network", "firewall", "encryption", "penetration"],
+        "project_keywords": ["security", "network", "firewall", "encryption", "penetration", "cyber", "authentication"],
         "career_paths": ["Security Analyst", "Penetration Tester", "Security Architect"],
         "skills_gained": ["Network Security", "Cryptography", "Ethical Hacking"],
     },
     {
-        "program": "Cloud Computing Minor",
-        "type": "minor",
-        "required_cgpa": 7.0,
+        "program": "Cloud Computing Minor", "type": "minor", "required_cgpa": 7.0,
         "relevant_subjects": ["Computer Networks", "Operating Systems", "Full Stack Development"],
         "relevant_interests": ["Cloud & Distributed Systems", "Web Development"],
-        "project_keywords": ["aws", "azure", "docker", "kubernetes", "cloud", "devops"],
+        "project_keywords": ["aws", "azure", "docker", "kubernetes", "cloud", "devops", "deploy", "container", "server"],
         "career_paths": ["Cloud Architect", "DevOps Engineer", "SRE"],
         "skills_gained": ["Cloud Architecture", "Containerisation", "CI/CD"],
     },
     {
-        "program": "IoT & Embedded Minor",
-        "type": "minor",
-        "required_cgpa": 6.5,
+        "program": "IoT & Embedded Minor", "type": "minor", "required_cgpa": 6.5,
         "relevant_subjects": ["Microcontroller & Embedded Systems", "Computer Networks", "IoT"],
         "relevant_interests": ["Mobile & IoT Development", "Network & Wireless Systems"],
-        "project_keywords": ["iot", "arduino", "raspberry", "embedded", "sensor"],
+        "project_keywords": ["iot", "arduino", "raspberry", "embedded", "sensor", "mqtt", "gpio", "smart home"],
         "career_paths": ["IoT Engineer", "Embedded Developer", "Hardware Engineer"],
         "skills_gained": ["Embedded Programming", "Sensor Integration", "IoT Protocols"],
     },
@@ -263,50 +285,42 @@ HONOURS_PROGRAMS = [
 
 CAREER_CATALOG = [
     {
-        "career": "Software Development Engineer",
-        "required_cgpa": 7.0,
-        "salary_range": "₹6-15 LPA",
-        "growth_potential": "High",
+        "career": "Software Development Engineer", "required_cgpa": 7.0,
+        "salary_range": "₹6-15 LPA", "growth_potential": "High",
         "top_companies": ["Google", "Microsoft", "Amazon", "Flipkart"],
         "relevant_electives": ["ML", "CCS"],
         "relevant_interests": ["Web Development", "Cloud & Distributed Systems"],
-        "project_keywords": ["web", "api", "fullstack", "react", "node"],
+        "project_keywords": ["web", "api", "fullstack", "react", "node", "frontend", "backend", "deploy", "app"],
         "required_certifications": ["AWS Cloud Practitioner"],
         "preparation_path": ["Master DSA", "Build full-stack projects", "Practice LeetCode"],
     },
     {
-        "career": "Data Scientist",
-        "required_cgpa": 7.5,
-        "salary_range": "₹8-20 LPA",
-        "growth_potential": "Very High",
+        "career": "Data Scientist", "required_cgpa": 7.5,
+        "salary_range": "₹8-20 LPA", "growth_potential": "Very High",
         "top_companies": ["Google", "Amazon", "Netflix", "Uber"],
         "relevant_electives": ["ML", "DWM"],
         "relevant_interests": ["Artificial Intelligence & Machine Learning", "Data Science & Analytics"],
-        "project_keywords": ["machine learning", "data", "python", "tensorflow"],
+        "project_keywords": ["machine learning", "data", "python", "tensorflow", "prediction", "model", "analytics"],
         "required_certifications": ["Google Data Analytics", "IBM Data Science"],
         "preparation_path": ["Complete ML courses", "Build ML projects", "Kaggle competitions"],
     },
     {
-        "career": "Cloud / DevOps Engineer",
-        "required_cgpa": 6.5,
-        "salary_range": "₹7-18 LPA",
-        "growth_potential": "High",
+        "career": "Cloud / DevOps Engineer", "required_cgpa": 6.5,
+        "salary_range": "₹7-18 LPA", "growth_potential": "High",
         "top_companies": ["AWS", "Microsoft Azure", "Google Cloud"],
         "relevant_electives": ["CCS"],
         "relevant_interests": ["Cloud & Distributed Systems", "Network & Wireless Systems"],
-        "project_keywords": ["docker", "kubernetes", "aws", "cloud", "devops"],
+        "project_keywords": ["docker", "kubernetes", "aws", "cloud", "devops", "deploy", "ci/cd", "container"],
         "required_certifications": ["AWS Solutions Architect"],
         "preparation_path": ["Get cloud certification", "Learn Docker/K8s", "Build CI/CD pipelines"],
     },
     {
-        "career": "IoT / Embedded Engineer",
-        "required_cgpa": 6.5,
-        "salary_range": "₹5-14 LPA",
-        "growth_potential": "High",
+        "career": "IoT / Embedded Engineer", "required_cgpa": 6.5,
+        "salary_range": "₹5-14 LPA", "growth_potential": "High",
         "top_companies": ["Bosch", "Siemens", "Texas Instruments", "Qualcomm"],
         "relevant_electives": ["WT"],
         "relevant_interests": ["Mobile & IoT Development", "Network & Wireless Systems"],
-        "project_keywords": ["iot", "arduino", "embedded", "sensor", "raspberry pi"],
+        "project_keywords": ["iot", "arduino", "embedded", "sensor", "raspberry pi", "mqtt", "hardware"],
         "required_certifications": ["ARM Certified Engineer"],
         "preparation_path": ["Master embedded C/C++", "Build IoT prototypes"],
     },
@@ -348,41 +362,63 @@ def _canonicalise_marks(marks: Dict[str, float]) -> Dict[str, float]:
 
 
 def _project_hits(projects: List[Dict[str, Any]], keywords: List[str]) -> int:
+    """Count keyword hits across ALL project text fields."""
     hits = 0
     for p in projects:
-        blob = " ".join([
+        blob_parts = [
             p.get("title", ""),
             p.get("description", ""),
-            " ".join(p.get("programming_languages", [])),
+            p.get("detailed_description", "") or p.get("detailedDescription", ""),
+            " ".join(p.get("programming_languages", []) or p.get("programmingLanguages", [])),
             " ".join(p.get("frameworks", [])),
             " ".join(p.get("tools", [])),
             " ".join(p.get("technologies", [])),
-            " ".join(p.get("extracted_skills", [])),
-        ]).lower()
+            " ".join(p.get("extracted_skills", []) or p.get("extractedSkills", [])),
+            " ".join(p.get("key_achievements", []) or p.get("keyAchievements", [])),
+            " ".join(p.get("challenges_faced", []) or p.get("challengesFaced", [])),
+            " ".join(p.get("learnings", [])),
+            p.get("role_in_project", "") or p.get("roleInProject", ""),
+        ]
+        blob = " ".join(str(part) for part in blob_parts if part).lower()
         hits += sum(1 for kw in keywords if kw in blob)
     return hits
 
 
 def _matching_projects_detail(projects: List[Dict[str, Any]], keywords: List[str]) -> List[Dict[str, Any]]:
-    """Return detailed info about matching projects"""
+    """Return detailed info about matching projects."""
     matched = []
     for p in projects:
-        blob = " ".join([
+        blob_parts = [
             p.get("title", ""),
             p.get("description", ""),
-            " ".join(p.get("programming_languages", [])),
+            p.get("detailed_description", "") or p.get("detailedDescription", ""),
+            " ".join(p.get("programming_languages", []) or p.get("programmingLanguages", [])),
             " ".join(p.get("frameworks", [])),
-            " ".join(p.get("extracted_skills", [])),
-        ]).lower()
-        
+            " ".join(p.get("tools", [])),
+            " ".join(p.get("technologies", [])),
+            " ".join(p.get("extracted_skills", []) or p.get("extractedSkills", [])),
+            " ".join(p.get("key_achievements", []) or p.get("keyAchievements", [])),
+            " ".join(p.get("learnings", [])),
+        ]
+        blob = " ".join(str(part) for part in blob_parts if part).lower()
         matched_keywords = [kw for kw in keywords if kw in blob]
         if matched_keywords:
+            all_proj_skills = list(set(
+                (p.get("programming_languages", []) or p.get("programmingLanguages", [])) +
+                p.get("frameworks", []) +
+                p.get("tools", []) +
+                (p.get("extracted_skills", []) or p.get("extractedSkills", []))
+            ))
             matched.append({
                 "title": p.get("title", "Untitled"),
-                "matched_skills": matched_keywords[:5],
+                "matched_skills": matched_keywords[:8],
+                "project_skills": all_proj_skills[:10],
                 "complexity": p.get("complexity_score", 0.5),
-                "relevance_score": min(len(matched_keywords) * 10, 100)
+                "relevance_score": min(len(matched_keywords) * 10, 100),
+                "has_github": bool(p.get("github_url") or p.get("githubUrl")),
+                "has_demo": bool(p.get("demo_url") or p.get("demoUrl")),
             })
+    matched.sort(key=lambda x: x["relevance_score"], reverse=True)
     return matched
 
 
@@ -398,47 +434,27 @@ FEATURE_DIM = N_SUBJ + N_AGG + N_INT + N_PROJ
 
 
 # ═══════════════════════════════════════════════════════════════════
-#  NEW: STRUCTURED SCORE BREAKDOWN CLASSES
+#  SCORE BREAKDOWN CLASSES
 # ═══════════════════════════════════════════════════════════════════
-
-class SubjectContribution:
-    def __init__(self, name: str, score: float, weight: float, status: str):
-        self.name = name
-        self.score = score
-        self.weight = weight
-        self.contribution = round((score / 100) * weight * 10, 2)  # Normalized contribution
-        self.status = status  # "strong", "adequate", "weak", "missing"
-
 
 class ScoreBreakdown:
     def __init__(self):
         self.academic = {
-            "score": 0.0,
-            "max_possible": 40.0,
-            "percentage": 0,
-            "contributing_subjects": [],
-            "missing_subjects": [],
-            "strong_subjects": [],
-            "weak_subjects": [],
+            "score": 0.0, "max_possible": 40.0, "percentage": 0,
+            "contributing_subjects": [], "missing_subjects": [],
+            "strong_subjects": [], "weak_subjects": [],
         }
         self.interest = {
-            "score": 0.0,
-            "max_possible": 30.0,
-            "percentage": 0,
-            "matched_interests": [],
-            "unmatched_interests": [],
+            "score": 0.0, "max_possible": 30.0, "percentage": 0,
+            "matched_interests": [], "unmatched_interests": [],
             "semantic_similarity": 0.0,
         }
         self.project = {
-            "score": 0.0,
-            "max_possible": 30.0,
-            "percentage": 0,
-            "relevant_projects": [],
-            "keyword_hits": 0,
-            "missing_project_skills": [],
-            "average_complexity": 0.0,
+            "score": 0.0, "max_possible": 30.0, "percentage": 0,
+            "relevant_projects": [], "keyword_hits": 0,
+            "missing_project_skills": [], "average_complexity": 0.0,
         }
-        
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "academic_component": self.academic,
@@ -454,11 +470,10 @@ class RankingExplanation:
         self.why_this_rank = ""
         self.vs_other_electives = []
         self.improvement_tips = []
-        
+
     def to_dict(self) -> Dict[str, Any]:
         return {
-            "rank": self.rank,
-            "total_options": self.total_options,
+            "rank": self.rank, "total_options": self.total_options,
             "why_this_rank": self.why_this_rank,
             "vs_other_electives": self.vs_other_electives,
             "improvement_tips": self.improvement_tips,
@@ -471,48 +486,37 @@ class ConfidenceMetrics:
         self.data_completeness = 0.0
         self.model_confidence = 0.0
         self.factors = {
-            "has_marks": False,
-            "has_interests": False,
-            "has_projects": False,
-            "marks_count": 0,
-            "project_count": 0,
-            "interest_count": 0,
+            "has_marks": False, "has_interests": False, "has_projects": False,
+            "marks_count": 0, "project_count": 0, "interest_count": 0,
         }
-        
+
     def calculate(self, marks: Dict, interests: Any, projects: List):
         self.factors["marks_count"] = len(marks)
         self.factors["has_marks"] = len(marks) > 0
-        
         if isinstance(interests, list):
             self.factors["interest_count"] = len(interests)
         elif isinstance(interests, dict):
             self.factors["interest_count"] = len([v for v in interests.values() if v > 0])
         self.factors["has_interests"] = self.factors["interest_count"] > 0
-        
         self.factors["project_count"] = len(projects)
         self.factors["has_projects"] = len(projects) > 0
-        
-        # Calculate completeness
         completeness = 0
         if self.factors["marks_count"] >= 5:
             completeness += 40
         elif self.factors["marks_count"] > 0:
             completeness += self.factors["marks_count"] * 8
-            
         if self.factors["interest_count"] >= 2:
             completeness += 30
         elif self.factors["interest_count"] > 0:
             completeness += 15
-            
         if self.factors["project_count"] >= 2:
             completeness += 30
         elif self.factors["project_count"] > 0:
             completeness += 15
-            
         self.data_completeness = min(completeness / 100, 1.0)
         self.model_confidence = 0.7 if self.data_completeness > 0.5 else 0.5
         self.overall = (self.data_completeness * 0.6) + (self.model_confidence * 0.4)
-        
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "overall": round(self.overall, 2),
@@ -520,6 +524,48 @@ class ConfidenceMetrics:
             "model_confidence": round(self.model_confidence, 2),
             "factors": self.factors,
         }
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  CONCEPT MAP (for description-level matching)
+# ═══════════════════════════════════════════════════════════════════
+
+CONCEPT_MAP = {
+    "ML": [
+        ("predict", 0.5), ("train", 0.4), ("model", 0.4),
+        ("accuracy", 0.5), ("dataset", 0.5), ("feature", 0.3),
+        ("neural", 0.6), ("intelligent", 0.4), ("automat", 0.3),
+        ("recogni", 0.5), ("detect", 0.4), ("classif", 0.5),
+        ("generat", 0.3), ("recommend", 0.4), ("cluster", 0.4),
+        ("sentiment", 0.6), ("chatbot", 0.5), ("smart", 0.2),
+        ("analys", 0.3), ("label", 0.3), ("supervis", 0.5),
+        ("optimi", 0.3), ("loss", 0.3), ("epoch", 0.6),
+    ],
+    "WT": [
+        ("sensor", 0.6), ("device", 0.3), ("hardware", 0.5),
+        ("circuit", 0.5), ("signal", 0.5), ("transmit", 0.5),
+        ("monitor", 0.3), ("remote", 0.3), ("smart home", 0.6),
+        ("track", 0.2), ("real-time", 0.3), ("wearable", 0.5),
+        ("temperatur", 0.4), ("humid", 0.4), ("motor", 0.4),
+        ("relay", 0.5), ("actuator", 0.5), ("gpio", 0.6),
+    ],
+    "DWM": [
+        ("database", 0.5), ("query", 0.4), ("stor", 0.3),
+        ("report", 0.4), ("insight", 0.4), ("trend", 0.3),
+        ("visualiz", 0.5), ("chart", 0.3), ("graph", 0.3),
+        ("metric", 0.3), ("pattern", 0.3), ("aggregat", 0.3),
+        ("warehouse", 0.6), ("pipeline", 0.4), ("extract", 0.3),
+        ("transform", 0.3), ("schema", 0.4), ("dimension", 0.4),
+    ],
+    "CCS": [
+        ("deploy", 0.5), ("host", 0.4), ("server", 0.4),
+        ("website", 0.4), ("app", 0.3), ("platform", 0.3),
+        ("login", 0.3), ("authenticat", 0.4), ("crud", 0.4),
+        ("responsive", 0.3), ("dashboard", 0.4), ("portal", 0.3),
+        ("containeriz", 0.5), ("scalab", 0.4), ("endpoint", 0.4),
+        ("route", 0.3), ("middlewar", 0.4), ("component", 0.3),
+    ],
+}
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -550,25 +596,23 @@ class CumulativeRecommendationEngine:
                 logger.warning(f"SentenceTransformer load failed: {e}")
         return self._sbert
 
+    # ── Feature extraction ──────────────────────────────────────
+
     def extract_features(
         self, marks: Dict[str, float], interests: Any, projects: List[Dict[str, Any]]
     ) -> np.ndarray:
         canon_marks = _canonicalise_marks(marks)
         feat: List[float] = []
-
         for subj in CANONICAL_SUBJECTS:
             feat.append(canon_marks.get(subj, 0.0) / 100.0)
-
         vals = [v for v in canon_marks.values() if v > 0]
         if vals:
             feat += [np.mean(vals) / 100, np.std(vals) / 100, np.max(vals) / 100, np.min(vals) / 100]
         else:
             feat += [0.0, 0.0, 0.0, 0.0]
-
         ni = _normalise_interests(interests)
         for area in INTEREST_AREAS:
             feat.append(ni.get(area, 0.0))
-
         n = len(projects)
         feat.append(min(n / 10.0, 1.0))
         for elec in ["ML", "WT", "DWM", "CCS"]:
@@ -583,34 +627,27 @@ class CumulativeRecommendationEngine:
         feat.append(gh / max(n, 1))
         demo = sum(1 for p in projects if p.get("demo_url"))
         feat.append(demo / max(n, 1))
-
         return np.array(feat, dtype=np.float32)
 
-    # ── Enhanced Sub-score calculators with detailed breakdown ──────
+    # ── Academic score ──────────────────────────────────────────
 
     def _calculate_academic_score(
         self, canon_marks: Dict[str, float], elective: str
     ) -> Tuple[float, ScoreBreakdown]:
-        """Calculate academic score with detailed breakdown"""
         weights = SUBJECT_WEIGHTS.get(elective, {})
         breakdown = ScoreBreakdown()
-        
         total_weighted_score = 0.0
         total_weight = 0.0
-        
         for subj, weight in weights.items():
             mark = canon_marks.get(subj, -1)
-            
             if mark < 0:
                 breakdown.academic["missing_subjects"].append({
-                    "subject": subj,
-                    "weight": weight,
+                    "subject": subj, "weight": weight,
                     "impact": f"Could add up to {round(weight * 10, 1)} points if taken"
                 })
             else:
                 total_weighted_score += mark * weight
                 total_weight += weight
-                
                 if mark >= 75:
                     status = "strong"
                     breakdown.academic["strong_subjects"].append(subj)
@@ -619,37 +656,28 @@ class CumulativeRecommendationEngine:
                 else:
                     status = "weak"
                     breakdown.academic["weak_subjects"].append(subj)
-                
                 breakdown.academic["contributing_subjects"].append({
-                    "subject": subj,
-                    "score": mark,
-                    "weight": weight,
-                    "contribution": round((mark / 100) * weight * (40 / sum(weights.values())), 2),
+                    "subject": subj, "score": mark, "weight": weight,
+                    "contribution": round((mark / 100) * weight * (40 / max(sum(weights.values()), 1)), 2),
                     "status": status
                 })
-        
         if total_weight > 0:
-            weighted_avg = total_weighted_score / total_weight
-            # Scale to 40 points max
-            score = (weighted_avg / 100) * 40
+            score = (total_weighted_score / total_weight / 100) * 40
         else:
             score = 0.0
-            
         breakdown.academic["score"] = round(score, 2)
         breakdown.academic["percentage"] = round((score / 40) * 100, 1) if score > 0 else 0
-        
         return score, breakdown
+
+    # ── Interest score ──────────────────────────────────────────
 
     def _calculate_interest_score(
         self, norm_interests: Dict[str, float], elective: str, raw_interests: Any
     ) -> Tuple[float, Dict[str, Any]]:
-        """Calculate interest score with detailed breakdown"""
         mapping = INTEREST_ELECTIVE_MAP.get(elective, [])
-        
         score = 0.0
         matched = []
         unmatched = []
-        
         for area, weight in mapping:
             val = norm_interests.get(area, 0.0)
             if val > 0:
@@ -664,53 +692,107 @@ class CumulativeRecommendationEngine:
                     "interest": area,
                     "potential_boost": round(weight * 15, 1)
                 })
-        
         score = min(score, 30.0)
-        
         return score, {
-            "score": round(score, 2),
-            "max_possible": 30.0,
+            "score": round(score, 2), "max_possible": 30.0,
             "percentage": round((score / 30) * 100, 1),
-            "matched_interests": matched,
-            "unmatched_interests": unmatched,
+            "matched_interests": matched, "unmatched_interests": unmatched,
         }
+
+    # ── Project score (FIXED) ───────────────────────────────────
 
     def _calculate_project_score(
         self, projects: List[Dict[str, Any]], elective: str
     ) -> Tuple[float, Dict[str, Any]]:
-        """Calculate project score with detailed breakdown"""
+        """
+        Project score with concept matching.
+        Keyword hits → up to 20, Concepts → up to 5,
+        Count bonus → up to 3, Quality → up to 2. Total max: 30.
+        """
         keywords = PROJECT_SKILL_MAP.get(elective, [])
-        meta = ELECTIVE_META.get(elective, {})
-        
+
+        # 1. Direct keyword hits
         hits = _project_hits(projects, keywords)
         matched_projects = _matching_projects_detail(projects, keywords)
-        
-        # Calculate score (max 30 points)
-        score = min(hits * 5, 30.0)
-        
-        # Find missing skills that would help
-        all_project_skills = set()
+        keyword_score = min(hits * 3.5, 20.0)
+
+        # 2. Concept matching
+        concept_score = self._concept_match_score(projects, elective) if projects else 0.0
+
+        # 3. Count bonus
+        count_bonus = min(len(projects) * 0.8, 3.0)
+
+        # 4. Quality bonus
+        quality_bonus = 0.0
         for p in projects:
-            all_project_skills.update(s.lower() for s in p.get("extracted_skills", []))
-            all_project_skills.update(s.lower() for s in p.get("programming_languages", []))
-            all_project_skills.update(s.lower() for s in p.get("frameworks", []))
-        
-        missing_skills = [kw for kw in keywords[:10] if kw not in all_project_skills][:5]
-        
-        # Calculate average complexity
+            if p.get("github_url") or p.get("githubUrl"):
+                quality_bonus += 0.3
+            if p.get("demo_url") or p.get("demoUrl"):
+                quality_bonus += 0.3
+            quality_bonus += p.get("complexity_score", 0.5) * 0.2
+        quality_bonus = min(quality_bonus, 2.0)
+
+        score = min(round(keyword_score + concept_score + count_bonus + quality_bonus, 2), 30.0)
+
+        # Missing skills
+        all_project_skills: set = set()
+        for p in projects:
+            for key in ("extracted_skills", "extractedSkills",
+                        "programming_languages", "programmingLanguages",
+                        "frameworks", "tools"):
+                vals = p.get(key, [])
+                if vals:
+                    all_project_skills.update(s.lower() for s in vals)
+        missing_skills = [kw for kw in keywords[:15] if kw not in all_project_skills][:5]
+
         complexities = [p.get("complexity_score", 0.5) for p in projects]
-        avg_complexity = np.mean(complexities) if complexities else 0.0
-        
+        avg_complexity = float(np.mean(complexities)) if complexities else 0.0
+
         return score, {
-            "score": round(score, 2),
-            "max_possible": 30.0,
+            "score": round(score, 2), "max_possible": 30.0,
             "percentage": round((score / 30) * 100, 1),
             "relevant_projects": matched_projects[:5],
             "keyword_hits": hits,
+            "concept_match_score": round(concept_score, 2),
             "missing_project_skills": missing_skills,
             "average_complexity": round(avg_complexity, 2),
             "total_projects_analyzed": len(projects),
+            "scoring_detail": {
+                "keyword_score": round(keyword_score, 2),
+                "concept_score": round(concept_score, 2),
+                "count_bonus": round(count_bonus, 2),
+                "quality_bonus": round(quality_bonus, 2),
+            },
         }
+
+    # ── Concept matching ────────────────────────────────────────
+
+    def _concept_match_score(
+        self, projects: List[Dict[str, Any]], elective: str
+    ) -> float:
+        """
+        Semantic concept matching from project descriptions.
+        Catches cases like "predict house prices" → ML even without
+        the literal keyword "machine learning".
+        """
+        concepts = CONCEPT_MAP.get(elective, [])
+        if not concepts:
+            return 0.0
+        total = 0.0
+        for p in projects:
+            desc = " ".join([
+                p.get("title", ""),
+                p.get("description", ""),
+                p.get("detailed_description", "") or p.get("detailedDescription", ""),
+                " ".join(p.get("key_achievements", []) or p.get("keyAchievements", [])),
+                " ".join(p.get("learnings", [])),
+            ]).lower()
+            for concept, weight in concepts:
+                if concept in desc:
+                    total += weight
+        return min(total, 5.0)
+
+    # ── Semantic boost ──────────────────────────────────────────
 
     def _calculate_semantic_boost(self, interests: Any, projects: List, elective: str) -> float:
         if not self.sbert:
@@ -726,44 +808,30 @@ class CumulativeRecommendationEngine:
         except Exception:
             return 0.0
 
-    def _generate_improvement_tips(
-        self, 
-        breakdown: Dict[str, Any], 
-        elective: str
-    ) -> List[str]:
-        """Generate actionable improvement tips"""
+    # ── Improvement tips ────────────────────────────────────────
+
+    def _generate_improvement_tips(self, breakdown: Dict[str, Any], elective: str) -> List[str]:
         tips = []
         meta = ELECTIVE_META.get(elective, {})
-        
-        # Academic tips
-        if breakdown.get("academic_component", {}).get("missing_subjects"):
-            missing = breakdown["academic_component"]["missing_subjects"]
-            if missing:
-                tips.append(f"Take {missing[0]['subject']} to potentially add {missing[0]['impact']}")
-        
-        if breakdown.get("academic_component", {}).get("weak_subjects"):
-            weak = breakdown["academic_component"]["weak_subjects"]
-            if weak:
-                tips.append(f"Improve your score in {weak[0]} (currently weak) to boost academic alignment")
-        
-        # Interest tips
-        if breakdown.get("interest_component", {}).get("unmatched_interests"):
-            unmatched = breakdown["interest_component"]["unmatched_interests"]
-            if unmatched:
-                tips.append(f"Declaring interest in '{unmatched[0]['interest']}' could add {unmatched[0]['potential_boost']} points")
-        
-        # Project tips
-        if breakdown.get("project_component", {}).get("missing_project_skills"):
-            missing_skills = breakdown["project_component"]["missing_project_skills"]
-            if missing_skills:
-                tips.append(f"Build a project using {', '.join(missing_skills[:3])} to improve project alignment")
-        
-        if breakdown.get("project_component", {}).get("total_projects_analyzed", 0) < 2:
-            tips.append("Upload more projects to get a more accurate recommendation")
-        
+        acad = breakdown.get("academic_component", {})
+        if acad.get("missing_subjects"):
+            m = acad["missing_subjects"][0]
+            tips.append(f"Take {m['subject']} to potentially add {m['impact']}")
+        if acad.get("weak_subjects"):
+            tips.append(f"Improve your score in {acad['weak_subjects'][0]} (currently weak)")
+        intr = breakdown.get("interest_component", {})
+        if intr.get("unmatched_interests"):
+            u = intr["unmatched_interests"][0]
+            tips.append(f"Declaring interest in '{u['interest']}' could add {u['potential_boost']} points")
+        proj = breakdown.get("project_component", {})
+        if proj.get("missing_project_skills"):
+            skills = proj["missing_project_skills"][:3]
+            tips.append(f"Build a project using {', '.join(skills)} to improve alignment")
+        if proj.get("total_projects_analyzed", 0) < 2:
+            tips.append("Upload more projects for better accuracy")
         return tips[:4]
 
-    # ── Main recommend method with enhanced response ──────
+    # ── Main elective recommendation ────────────────────────────
 
     def recommend_electives(
         self,
@@ -773,12 +841,10 @@ class CumulativeRecommendationEngine:
         cgpa: float = 0.0,
         use_ml: bool = True,
     ) -> List[Dict[str, Any]]:
-        """Generate elective recommendations with full breakdown"""
         canon_marks = _canonicalise_marks(marks)
         norm_interests = _normalise_interests(interests)
         interest_list = interests if isinstance(interests, list) else list(interests.keys()) if isinstance(interests, dict) else []
 
-        # Calculate confidence metrics
         confidence = ConfidenceMetrics()
         confidence.calculate(marks, interests, projects)
 
@@ -793,122 +859,86 @@ class CumulativeRecommendationEngine:
             except Exception as e:
                 logger.warning(f"ML prediction failed: {e}")
 
-        # Score each elective with detailed breakdown
         scored = []
         for elec in ["ML", "WT", "DWM", "CCS"]:
-            # Calculate component scores with breakdown
             academic_score, breakdown = self._calculate_academic_score(canon_marks, elec)
             interest_score, interest_details = self._calculate_interest_score(norm_interests, elec, interests)
             project_score, project_details = self._calculate_project_score(projects, elec)
-            
-            # Update breakdown with interest and project details
+
             breakdown.interest = interest_details
             breakdown.project = project_details
-            
-            # Calculate semantic boost
+
             sem_boost = self._calculate_semantic_boost(interest_list, projects, elec)
             breakdown.interest["semantic_similarity"] = round(sem_boost / 10, 2)
-            
-            # Calculate final score
+
             final = academic_score + interest_score + project_score
-            
-            # Add ML boost if available
             ml_boost = 0.0
             if elec in ml_probs:
                 ml_boost = ml_probs[elec] * 20
                 final += ml_boost
-            
-            # Add semantic boost
             final += sem_boost
-            
             final = round(min(max(final, 0), 100), 1)
 
             scored.append({
-                "_key": elec,
-                "_final": final,
+                "_key": elec, "_final": final,
                 "_breakdown": breakdown.to_dict(),
                 "_academic_score": academic_score,
                 "_interest_score": interest_score,
                 "_project_score": project_score,
-                "_ml_boost": ml_boost,
-                "_sem_boost": sem_boost,
+                "_ml_boost": ml_boost, "_sem_boost": sem_boost,
             })
 
-        # Sort by final score
         scored.sort(key=lambda x: x["_final"], reverse=True)
-        
-        # Generate ranking explanations
+
         results = []
         for rank, item in enumerate(scored, 1):
             elec = item["_key"]
             meta = ELECTIVE_META[elec]
-            
-            # Build ranking explanation
-            ranking_explanation = RankingExplanation()
-            ranking_explanation.rank = rank
-            ranking_explanation.total_options = len(scored)
-            
+
+            ranking = RankingExplanation()
+            ranking.rank = rank
+            ranking.total_options = len(scored)
             if rank == 1:
-                ranking_explanation.why_this_rank = "Strongest combined alignment across academics, interests, and projects"
+                ranking.why_this_rank = "Strongest combined alignment across academics, interests, and projects"
                 if len(scored) > 1:
                     diff = item["_final"] - scored[1]["_final"]
-                    ranking_explanation.vs_other_electives.append({
+                    ranking.vs_other_electives.append({
                         "compared_to": ELECTIVE_META[scored[1]["_key"]]["name"],
                         "score_difference": round(diff, 1),
                         "message": f"{round(diff, 1)} points higher than second choice"
                     })
             elif rank == 2:
-                ranking_explanation.why_this_rank = "Strong alternative - second best alignment with your profile"
+                ranking.why_this_rank = "Strong alternative - second best alignment"
                 diff = scored[0]["_final"] - item["_final"]
-                ranking_explanation.vs_other_electives.append({
+                ranking.vs_other_electives.append({
                     "compared_to": ELECTIVE_META[scored[0]["_key"]]["name"],
                     "score_difference": round(-diff, 1),
                     "message": f"{round(diff, 1)} points below top choice"
                 })
             else:
-                ranking_explanation.why_this_rank = "Lower alignment - consider if schedule conflicts with top choices"
-            
-            # Generate improvement tips
-            ranking_explanation.improvement_tips = self._generate_improvement_tips(
-                item["_breakdown"], elec
-            )
-            
-            # Build skill gaps
+                ranking.why_this_rank = "Lower alignment - consider if schedule conflicts with top choices"
+
+            ranking.improvement_tips = self._generate_improvement_tips(item["_breakdown"], elec)
+
             skill_gaps = []
             for subj in item["_breakdown"]["academic_component"].get("weak_subjects", []):
-                # Find the subject score
                 for contrib in item["_breakdown"]["academic_component"].get("contributing_subjects", []):
                     if contrib["subject"] == subj:
                         skill_gaps.append({
-                            "subject": subj,
-                            "current_score": contrib["score"],
-                            "target_score": 60,
-                            "gap": round(60 - contrib["score"], 1),
+                            "subject": subj, "current_score": contrib["score"],
+                            "target_score": 60, "gap": round(60 - contrib["score"], 1),
                             "importance": "High" if contrib["weight"] >= 3.0 else "Medium"
                         })
                         break
-            
-            # Build legacy text explanation (for backward compatibility)
-            text_explanation = self._build_text_explanation(
-                elec, item, rank, len(scored)
-            )
+
+            text_explanation = self._build_text_explanation(elec, item, rank, len(scored))
 
             results.append({
-                "elective_code": meta["code"],
-                "elective_name": meta["name"],
-                "credits": meta["credits"],
-                "match_score": item["_final"],
-                
-                # NEW: Structured breakdown
+                "elective_code": meta["code"], "elective_name": meta["name"],
+                "credits": meta["credits"], "match_score": item["_final"],
                 "score_breakdown": item["_breakdown"],
-                
-                # NEW: Ranking explanation
-                "ranking_explanation": ranking_explanation.to_dict(),
-                
-                # NEW: Confidence metrics
+                "ranking_explanation": ranking.to_dict(),
                 "confidence": confidence.to_dict(),
-                
-                # Legacy fields (keep for backward compatibility)
                 "match_explanation": text_explanation,
                 "prerequisites_met": True,
                 "skill_alignment": meta["skills"][:5],
@@ -921,69 +951,53 @@ class CumulativeRecommendationEngine:
                 "pair": meta["pair"],
                 "skill_gaps": skill_gaps[:4],
             })
-
         return results
 
-    def _build_text_explanation(
-        self, elec: str, item: Dict, rank: int, total: int
-    ) -> str:
-        """Build legacy text explanation for backward compatibility"""
+    def _build_text_explanation(self, elec: str, item: Dict, rank: int, total: int) -> str:
         meta = ELECTIVE_META[elec]
-        breakdown = item["_breakdown"]
-        parts = []
-        
-        parts.append(f"Ranked #{rank} of {total} electives with a cumulative score of {item['_final']:.1f}%.")
-        
-        # Academic
-        acad = breakdown["academic_component"]
+        bd = item["_breakdown"]
+        parts = [f"Ranked #{rank} of {total} with a score of {item['_final']:.1f}%."]
+        acad = bd["academic_component"]
         if acad["contributing_subjects"]:
-            parts.append(f"\n📊 Academic Performance ({acad['score']:.1f}/40 points, {acad['percentage']}%):")
+            parts.append(f"\n📊 Academic ({acad['score']:.1f}/40, {acad['percentage']}%):")
             if acad["strong_subjects"]:
                 parts.append(f"  Strengths: {', '.join(acad['strong_subjects'][:3])}")
             if acad["weak_subjects"]:
                 parts.append(f"  Needs work: {', '.join(acad['weak_subjects'][:2])}")
         else:
-            parts.append("\n📊 Academic: No relevant marks data available.")
-        
-        # Interest
-        intr = breakdown["interest_component"]
+            parts.append("\n📊 Academic: No relevant marks data.")
+        intr = bd["interest_component"]
         if intr["matched_interests"]:
-            matched_names = [m["interest"] for m in intr["matched_interests"]]
-            parts.append(f"\n💡 Interest Alignment ({intr['score']:.1f}/30 points): Matches {', '.join(matched_names)}")
+            names = [m["interest"] for m in intr["matched_interests"]]
+            parts.append(f"\n💡 Interests ({intr['score']:.1f}/30): Matches {', '.join(names)}")
         else:
-            parts.append(f"\n💡 Interest Alignment: No matching interests declared.")
-        
-        # Projects
-        proj = breakdown["project_component"]
+            parts.append("\n💡 Interests: No matching interests declared.")
+        proj = bd["project_component"]
         if proj["relevant_projects"]:
             titles = [p["title"] for p in proj["relevant_projects"][:2]]
-            parts.append(f"\n🔧 Project Portfolio ({proj['score']:.1f}/30 points, {proj['keyword_hits']} keyword matches):")
-            parts.append(f"  Relevant projects: {', '.join(titles)}")
+            parts.append(f"\n🔧 Projects ({proj['score']:.1f}/30, {proj['keyword_hits']} keyword matches):")
+            parts.append(f"  Relevant: {', '.join(titles)}")
         else:
-            parts.append(f"\n🔧 Projects: No matching projects found. Build projects with {', '.join(meta['skills'][:3])}.")
-        
+            parts.append(f"\n🔧 Projects: No matches. Build projects with {', '.join(meta['skills'][:3])}.")
         return "\n".join(parts)
 
+    # ── Honours recommendations ─────────────────────────────────
+
     def recommend_honours(self, marks, interests, projects, cgpa) -> List[Dict[str, Any]]:
-        """Honours/Minor recommendations with score breakdown"""
         canon_marks = _canonicalise_marks(marks)
         norm_interests = _normalise_interests(interests)
         results = []
-
         for prog in HONOURS_PROGRAMS:
             eligible = cgpa >= prog["required_cgpa"]
-            
-            # Subject match (40%)
             subj_score = 0.0
             matched_subjects = []
             for subj in prog["relevant_subjects"]:
                 m = canon_marks.get(subj, 0)
                 if m >= 60:
-                    subj_score += 13.3  # ~40/3
+                    subj_score += 13.3
                     matched_subjects.append({"subject": subj, "score": m})
             subj_score = min(subj_score, 40)
 
-            # Interest match (30%)
             int_score = 0.0
             matched_interests = []
             for interest in prog["relevant_interests"]:
@@ -993,39 +1007,31 @@ class CumulativeRecommendationEngine:
                     matched_interests.append(interest)
             int_score = min(int_score, 30)
 
-            # Project match (30%)
             hits = _project_hits(projects, prog["project_keywords"])
             proj_score = min(hits * 6, 30)
             matched_projects = _matching_projects_detail(projects, prog["project_keywords"])
 
             total_score = subj_score + int_score + proj_score
-
-            # Build explanation
             explanation_parts = []
             if eligible:
-                explanation_parts.append(f"✓ You meet the {prog['required_cgpa']} CGPA requirement (your CGPA: {cgpa:.2f}).")
+                explanation_parts.append(f"✓ You meet the {prog['required_cgpa']} CGPA requirement (yours: {cgpa:.2f}).")
             else:
                 gap = prog["required_cgpa"] - cgpa
-                explanation_parts.append(f"✗ Need {gap:.2f} more CGPA (current: {cgpa:.2f}, required: {prog['required_cgpa']}).")
-            
+                explanation_parts.append(f"✗ Need {gap:.2f} more CGPA (current: {cgpa:.2f}).")
             if matched_subjects:
-                subj_str = ", ".join([f"{s['subject']} ({s['score']}%)" for s in matched_subjects[:2]])
-                explanation_parts.append(f"Strong in: {subj_str}")
-            
+                s = ", ".join([f"{x['subject']} ({x['score']}%)" for x in matched_subjects[:2]])
+                explanation_parts.append(f"Strong in: {s}")
             if matched_interests:
                 explanation_parts.append(f"Interest alignment: {', '.join(matched_interests)}")
-            
             if matched_projects:
                 explanation_parts.append(f"Relevant projects: {len(matched_projects)}")
 
             results.append({
-                "program": prog["program"],
-                "type": prog["type"],
+                "program": prog["program"], "type": prog["type"],
                 "match_score": round(min(total_score, 100), 1),
-                "eligibility": eligible,
-                "required_cgpa": prog["required_cgpa"],
+                "eligibility": eligible, "required_cgpa": prog["required_cgpa"],
                 "career_paths": prog["career_paths"],
-                "explanation": " | ".join(explanation_parts) if explanation_parts else "Limited alignment with profile.",
+                "explanation": " | ".join(explanation_parts) or "Limited alignment.",
                 "skills_gained": prog["skills_gained"],
                 "score_breakdown": {
                     "academic_score": round(subj_score, 1),
@@ -1036,19 +1042,16 @@ class CumulativeRecommendationEngine:
                     "relevant_projects": matched_projects[:3],
                 }
             })
-
         results.sort(key=lambda x: (x["eligibility"], x["match_score"]), reverse=True)
         return results
 
+    # ── Career recommendations ──────────────────────────────────
+
     def recommend_careers(self, marks, interests, projects, cgpa) -> List[Dict[str, Any]]:
-        """Career recommendations with detailed breakdown"""
         norm_interests = _normalise_interests(interests)
         results = []
-
         for career in CAREER_CATALOG:
             cgpa_ok = cgpa >= career["required_cgpa"]
-            
-            # Interest score
             int_score = 0.0
             matched_interests = []
             for interest in career["relevant_interests"]:
@@ -1057,21 +1060,16 @@ class CumulativeRecommendationEngine:
                     int_score += 20
                     matched_interests.append(interest)
             int_score = min(int_score, 40)
-
-            # Project score
             hits = _project_hits(projects, career["project_keywords"])
             proj_score = min(hits * 7, 35)
             matched_projects = _matching_projects_detail(projects, career["project_keywords"])
-
-            # CGPA score
             cgpa_score = 25 if cgpa_ok else (cgpa / career["required_cgpa"]) * 15
-
             total_score = int_score + proj_score + cgpa_score
 
-            # Find missing skills
-            project_skills = set()
+            project_skills: set = set()
             for p in projects:
                 project_skills.update(s.lower() for s in p.get("extracted_skills", []))
+                project_skills.update(s.lower() for s in p.get("programming_languages", []) or p.get("programmingLanguages", []))
             missing = [kw for kw in career["project_keywords"][:5] if not any(kw in sk for sk in project_skills)]
 
             results.append({
@@ -1093,52 +1091,38 @@ class CumulativeRecommendationEngine:
                     "relevant_projects": matched_projects[:3],
                 }
             })
-
         results.sort(key=lambda x: x["match_score"], reverse=True)
         return results
 
-    # ══════════════════════════════════════════════════════════════
-    #  TRAINING METHODS (inside CumulativeRecommendationEngine class)
-    # ══════════════════════════════════════════════════════════════
+    # ── Training ────────────────────────────────────────────────
 
     def train(self, training_data: List[Dict[str, Any]], test_size: float = 0.2) -> Dict[str, Any]:
-        """Train the recommendation models on provided data."""
         if len(training_data) < 20:
             raise ValueError(f"Need ≥20 samples, got {len(training_data)}")
-
         X, y = [], []
         for s in training_data:
             X.append(self.extract_features(s.get("marks", {}), s.get("interests", []), s.get("projects", [])))
             y.append(s["label"])
-
         X, y = np.array(X), np.array(y)
         y_enc = self.label_enc.fit_transform(y)
         X_tr, X_te, y_tr, y_te = train_test_split(X, y_enc, test_size=test_size, random_state=42, stratify=y_enc)
-
         X_tr_s = self.scaler.fit_transform(X_tr)
         X_te_s = self.scaler.transform(X_te)
-
         self.rf_clf = RandomForestClassifier(n_estimators=200, max_depth=12, random_state=42, n_jobs=-1)
         self.rf_clf.fit(X_tr_s, y_tr)
-
         self.knn_clf = KNeighborsClassifier(n_neighbors=5)
         self.knn_clf.fit(X_tr_s, y_tr)
-
         pred = self.rf_clf.predict(X_te_s)
         acc = accuracy_score(y_te, pred)
         f1w = f1_score(y_te, pred, average="weighted")
         cv = cross_val_score(self.rf_clf, X_tr_s, y_tr, cv=5)
-
         self.is_trained = True
         self._save()
-
         report = classification_report(y_te, pred, output_dict=True)
         return {
-            "accuracy": round(acc, 4),
-            "f1_weighted": round(f1w, 4),
+            "accuracy": round(acc, 4), "f1_weighted": round(f1w, 4),
             "f1_macro": round(f1_score(y_te, pred, average="macro"), 4),
-            "cross_val_mean": round(cv.mean(), 4),
-            "cross_val_std": round(cv.std(), 4),
+            "cross_val_mean": round(cv.mean(), 4), "cross_val_std": round(cv.std(), 4),
             "per_class": {
                 self.label_enc.classes_[i]: {
                     "precision": round(report[str(i)]["precision"], 4),
@@ -1149,37 +1133,29 @@ class CumulativeRecommendationEngine:
                 if str(i) in report
             },
             "confusion_matrix": confusion_matrix(y_te, pred).tolist(),
-            "n_training_samples": len(X_tr),
-            "n_test_samples": len(X_te),
-            "model_type": "RandomForest(200) + KNN(5) Ensemble",
+            "n_training_samples": len(X_tr), "n_test_samples": len(X_te),
+            "model_type": "RandomForest(200) + KNN(5)",
             "timestamp": datetime.utcnow().isoformat(),
         }
 
     def _save(self) -> None:
-        """Save trained models to disk."""
         try:
             joblib.dump(self.rf_clf, os.path.join(self.MODEL_DIR, "rf_clf.joblib"))
             joblib.dump(self.knn_clf, os.path.join(self.MODEL_DIR, "knn_clf.joblib"))
             joblib.dump(self.scaler, os.path.join(self.MODEL_DIR, "scaler.joblib"))
             joblib.dump(self.label_enc, os.path.join(self.MODEL_DIR, "label_enc.joblib"))
-            
-            # Save metadata
             meta = {
-                "is_trained": True,
-                "timestamp": datetime.utcnow().isoformat(),
-                "model_version": "2.0.0",
-                "feature_dimension": FEATURE_DIM,
+                "is_trained": True, "timestamp": datetime.utcnow().isoformat(),
+                "model_version": "2.0.0", "feature_dimension": FEATURE_DIM,
                 "labels": list(self.label_enc.classes_) if hasattr(self.label_enc, 'classes_') else ["ML", "WT", "DWM", "CCS"],
             }
             with open(os.path.join(self.MODEL_DIR, "meta.json"), "w") as f:
                 json.dump(meta, f, indent=2)
-                
             logger.info(f"Models saved to {self.MODEL_DIR}")
         except Exception as e:
             logger.error(f"Save failed: {e}")
 
     def _try_load(self) -> None:
-        """Attempt to load pre-trained models from disk."""
         try:
             rf_path = os.path.join(self.MODEL_DIR, "rf_clf.joblib")
             if os.path.exists(rf_path):
@@ -1193,8 +1169,8 @@ class CumulativeRecommendationEngine:
             logger.info(f"No pre-trained models found: {e}")
 
 
-# ══════════════════════════════════════════════════════════════════════
-#  SINGLETON INSTANCE (OUTSIDE the class, at module level)
-# ══════════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════
+#  SINGLETON
+# ══════════════════════════════════════════════════════════════════
 
 recommendation_engine = CumulativeRecommendationEngine()

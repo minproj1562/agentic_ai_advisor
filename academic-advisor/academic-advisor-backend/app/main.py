@@ -31,6 +31,8 @@ from app.models.faculty import Faculty
 from app.models.meeting_request import MeetingRequest
 from app.models.analytics import Analytics
 from app.models.readiness import (SubjectRequirementMap, ReadinessResult)
+from app.models.chatbot import ChatSession, ChatFeedback, ChatbotAnalyticsDoc
+from app.models.career import CareerPath
 from app.models.recommendation import (
     RecommendationRecord,
     RecommendationFeedback,
@@ -63,6 +65,11 @@ document_models = [
     TrainingDataPoint,
     SubjectRequirementMap,
     ReadinessResult,
+    ChatSession,
+    ChatFeedback,
+    ChatbotAnalyticsDoc,
+    CareerPath,
+
 ]
 
 
@@ -112,6 +119,20 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"⚠️ Readiness seed check: {e}")
 
+        # Seed career data if empty
+    try:
+        from app.models.career import CareerPath as CP
+        count = await CP.find().count()
+        if count == 0:
+            from scripts.seed_career_data import seed_careers
+            await seed_careers()
+            logger.info("✅ Career data seeded")
+        else:
+            logger.info(f"✅ Career data ready ({count} paths)")
+    except Exception as e:
+        logger.warning(f"⚠️ Career seed: {e}")
+
+
     # Load ML models (optional)
     # Auto-train if no saved model exists
     try:
@@ -160,6 +181,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+from app.api.middleware.rate_limit import RateLimitMiddleware
+app.add_middleware(RateLimitMiddleware)
 
 if settings.ENVIRONMENT == "production":
     app.add_middleware(
