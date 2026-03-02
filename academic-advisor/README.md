@@ -337,7 +337,7 @@ academic-advisor
             academic.py
             achievements.py
             analytics.py
-            appointments.py
+            chatbot.py
             electives.py
             faculty_profile.py
             meeting_requests.py
@@ -345,6 +345,7 @@ academic-advisor
             ml_insights.py
             notifications.py
             publications.py
+            readiness.py
             research_area.py
             resources.py
             students.py
@@ -370,7 +371,6 @@ academic-advisor
         config.py
         constants.py
         curriculum.py
-        database.py
         deps.py
         error_tracking.py
         exceptions.py
@@ -382,6 +382,7 @@ academic-advisor
         monitoring.py
         performance.py
         security.py
+        subject_mappings.py
         websocket_manager.py
         __init__.py
       database
@@ -391,7 +392,12 @@ academic-advisor
       ml
         models
           saved
+            knn_clf.joblib
+            label_enc.joblib
+            meta.json
             README.md
+            rf_clf.joblib
+            scaler.joblib
           performance_predictor.py
           recommendation_engine.py
           weakness_detector.py
@@ -405,15 +411,14 @@ academic-advisor
           model_utils.py
           training.py
           __init__.py
-        elective_recommender.py
         ml_service.py
         weakness_predictor.py
         __init__.py
       models
-        academic_record.py
         achievement.py
         analytics.py
-        appointment.py
+        career.py
+        chatbot.py
         cv.py
         elective.py
         faculty.py
@@ -422,6 +427,7 @@ academic-advisor
         messages.py
         performance.py
         publications.py
+        readiness.py
         recommendation.py
         research_area.py
         resource.py
@@ -430,8 +436,13 @@ academic-advisor
         student_performance.py
         student_profile.py
         student_projects.py
+        syllabus.py
         weakness.py
         __init__.py
+      repositories
+        analytics_repository.py
+        career_repository.py
+        chat_repository.py
       routers
         academic.py
       schemas
@@ -444,8 +455,17 @@ academic-advisor
         __init__.py
       scripts
         create_sample_data.py
+        reseed_readiness.py
         set_faculty_role.py
       services
+        chatbot
+          chatbot_service.py
+          context_manager.py
+          dynamic_chatbot_service.py
+          intent_classifier.py
+          rag_service.py
+          response_generator.py
+          __init__.py
         academic_service.py
         achievement_service.py
         analytics_service.py
@@ -453,16 +473,17 @@ academic-advisor
         cloudinary_service.py
         cv_analysis_service.py
         cv_parser_v2.py
-        elective_recommendation_service.py
         enhanced_ml_inference.py
         faculty_service.py
+        file_parser.py
         messaging_service.py
         ml_performance_analysis.py
         ml_service.py
         nlp_service.py
         notification_service.py
         publication_service.py
-        recommendation_engine.py
+        readiness_calculator.py
+        readiness_service.py
         recommendation_service.py
         research_service.py
         resource_matcher.py
@@ -473,8 +494,10 @@ academic-advisor
         student_service.py
         weakness_analysis_service.py
         websocket_manager.py
+        _seed_readiness_data.py
         __init__.py
       tasks
+        meeting_reminders.py
         semester_updater.py
       utils
         data_validator.py
@@ -495,11 +518,20 @@ academic-advisor
       main.py
       __init__.py
     scripts
+      migrations
+        create_chatbot_tables.py
       backup.py
       init_db.py
       migrate_data.py
+      seed_career_data.py
+      seed_chatbot_data.py
       seed_faculty_data.py
+      sync_faculty_to_firebase.py
+      sync_results_20260219_115913.json
+      sync_results_20260219_115946.json
+      training_data_sample.csv
       train_models.py
+      view_training_data.py
     tests
       conftest.py
       test_analytics.py
@@ -570,6 +602,7 @@ academic-advisor
             StudentAnalysisSection.tsx
             StudentProjectsList.tsx
             StudentProjectsUpload.tsx
+          AcademicChatbot.tsx
           AcademicDataEntry.tsx
           AcademicInsights.tsx
           AIInsightsDashboard.tsx
@@ -581,7 +614,10 @@ academic-advisor
           InterestManagement.tsx
           MLDashboardWidget.tsx
           MLInsights.tsx
+          MLRecommendations.tsx
           PerformanceChart.tsx
+          ReadinessAnalysis.tsx
+          ReadinessIndicator.tsx
         ErrorBoundary
           index.tsx
         meetings
@@ -615,6 +651,7 @@ academic-advisor
       hooks
         useAnalytics.ts
         useAuth.ts
+        useChatbot.ts
         useCVParser.ts
         useDashboardData.ts
         useDebounce.ts
@@ -704,6 +741,7 @@ academic-advisor
         Departments.tsx
         DigitalLibrary.tsx
         FacultyPortal.tsx
+        FacultyProfileEdit.tsx
         FacultyProfileSetup.tsx
         Features.tsx
         Help.tsx
@@ -730,6 +768,7 @@ academic-advisor
         analytics.service.ts
         api.service.ts
         auth.service.ts
+        chatbot.service.ts
         cloudinary.service.ts
         engineering.service.ts
         extraction.service.ts
@@ -747,12 +786,12 @@ academic-advisor
       types
         analytics.types.ts
         auth.types.ts
+        chatbot.types.ts
         cv.types.ts
         dashboard.types.ts
       utils
         cn.ts
         formatters.ts
-        mockData.ts
         theme.utils.ts
         validation.ts
       App.css
@@ -1118,3 +1157,6 @@ Default password: Faculty@FCRIT2024
   Email:    vikram.singh@fcrit.ac.in
   Password: Faculty@FCRIT2024
   UID:      QbQTk0UA9RNSTAbdDMvBVO0aEeO2
+
+## To set admin role
+python -m scripts.set_admin_role --email youremail@example.com

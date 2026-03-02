@@ -1,3 +1,4 @@
+// academic-advisor/academic-advisor-frontend/src/App.tsx
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -11,6 +12,8 @@ import FacultyDashboard from './pages/Dashboard/FacultyDashboard';
 import StudentDashboard from './pages/Dashboard/StudentDashboard';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import AdminDashboard from './pages/Dashboard/AdminDashboard';
+
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -49,6 +52,15 @@ function App() {
                     </ProtectedRoute>
                   }
                 />
+                <Route
+  path="/admin/*"
+  element={
+    <ProtectedRoute allowedRoles={['admin']}>
+      <AdminDashboard />
+    </ProtectedRoute>
+  }
+/>
+
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
               <Toaster position="top-right" />

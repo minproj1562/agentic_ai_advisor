@@ -960,12 +960,31 @@ private recommendHonoursPrograms(
     }
   }
 
-  async deleteProject(projectId: string) {
+    async deleteProject(projectId: string) {
     try {
       const user = auth.currentUser;
       if (!user) throw new Error('User not authenticated');
 
+      // 1. Delete from Firestore
       await deleteDoc(doc(db, this.COLLECTION, projectId));
+
+      // 2. Also delete from MongoDB (so recommendations don't use stale data)
+      try {
+        await this.axiosInstance.delete(`/student-projects/project/${projectId}`);
+        console.log('✅ Project deleted from MongoDB too');
+      } catch (backendErr) {
+        // Non-critical: MongoDB may not have this project, or endpoint may not exist yet
+        console.warn('MongoDB delete failed (non-critical):', backendErr);
+      }
+
+      // 3. Invalidate recommendation cache
+      try {
+        await this.axiosInstance.post('/recommendations/invalidate-cache');
+        console.log('♻️ Recommendation cache invalidated after delete');
+      } catch (cacheErr) {
+        console.warn('Cache invalidation failed (non-critical):', cacheErr);
+      }
+
       return { success: true };
     } catch (error) {
       console.error('Error deleting project:', error);

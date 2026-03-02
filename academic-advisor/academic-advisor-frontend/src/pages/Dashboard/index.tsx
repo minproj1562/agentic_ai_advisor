@@ -3,6 +3,7 @@ import React, { useEffect, useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import StudentDashboard from './StudentDashboard';
 import FacultyDashboard from './FacultyDashboard';
+import AdminDashboard from './AdminDashboard';
 import { Loader2 } from 'lucide-react';
 import { motion } from 'framer-motion';
 
@@ -53,7 +54,11 @@ const Dashboard: React.FC = () => {
   } 
   else if (user.role === 'faculty') {
     return <FacultyDashboard />;
-  } else {
+  } 
+  else if (user.role === 'admin') {
+  return <AdminDashboard />;
+}
+else {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <p>Invalid user role</p>

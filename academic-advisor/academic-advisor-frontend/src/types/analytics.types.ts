@@ -1,4 +1,4 @@
-// modules/agent1/performance-analytics/types/analytics.types.ts
+// academic-advisor/academic-advisor-frontend/src/types/analytics.types.ts
 // Core Data Types
 export interface DataPoint {
   date: string;

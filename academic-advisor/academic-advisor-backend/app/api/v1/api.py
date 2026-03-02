@@ -1,10 +1,7 @@
 # academic-advisor-backend/app/api/v1/api.py
 """
 API v1 Router - Aggregates all endpoint routers
-
-FIXED: The old code imported `from app.api.v1.students` which only had
-basic profile/CV endpoints (no /{student_id}/performance, /weaknesses, etc.)
-Now imports from `app.api.v1.endpoints.students` which has ALL endpoints.
+FIXED: Catches ALL exceptions (not just ImportError) and logs them properly
 """
 
 from fastapi import APIRouter
@@ -12,7 +9,6 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# Create main API router
 api_router = APIRouter()
 
 # ==================== CORE ROUTERS ====================
@@ -20,10 +16,6 @@ api_router = APIRouter()
 from app.api.v1.auth import router as auth_router
 api_router.include_router(auth_router, prefix="/auth", tags=["Authentication"])
 
-# ✅ FIXED: Import from endpoints.students which has ALL student endpoints
-# including /{student_id}/performance, /{student_id}/weaknesses,
-# /{student_id}/electives/recommendations, /{student_id}/resources, etc.
-# The old app/api/v1/students.py only had /profile, /upload-cv, /performance (different auth)
 from app.api.v1.endpoints.students import router as students_router
 api_router.include_router(students_router, prefix="/students", tags=["Students"])
 
@@ -77,28 +69,24 @@ api_router.include_router(readiness_endpoints.router, prefix="/readiness", tags=
 from app.api.v1.endpoints.chatbot import router as chatbot_router
 api_router.include_router(chatbot_router, prefix="/chatbot", tags=["Chatbot"])
 
-# ==================== OPTIONAL ROUTERS ====================
+from app.api.v1.admin import router as admin_router
+api_router.include_router(admin_router, prefix="/admin", tags=["Admin"])
 
-try:
-    from app.api.v1.endpoints.faculty_profile import router as faculty_profile_router
-    api_router.include_router(faculty_profile_router, prefix="/faculty-profile", tags=["Faculty Profile"])
-except ImportError:
-    logger.info("Faculty profile router not available")
+# ==================== OPTIONAL ROUTERS (catch ALL exceptions) ====================
 
-try:
-    from app.api.v1.endpoints.ml_insights import router as ml_insights_router
-    api_router.include_router(ml_insights_router, prefix="/ml-insights", tags=["ML Insights"])
-except ImportError:
-    logger.info("ML insights router not available")
+def _safe_include(module_path: str, attr: str, prefix: str, tags: list):
+    """Safely import and include a router, logging any error."""
+    try:
+        import importlib
+        mod = importlib.import_module(module_path)
+        router = getattr(mod, attr)
+        api_router.include_router(router, prefix=prefix, tags=tags)
+        logger.info(f"✅ Router mounted: {prefix}")
+    except Exception as e:
+        logger.error(f"❌ Failed to mount {prefix}: {type(e).__name__}: {e}", exc_info=True)
 
-try:
-    from app.api.v1.endpoints.publications import router as publications_router
-    api_router.include_router(publications_router, prefix="/publications", tags=["Publications"])
-except ImportError:
-    logger.info("Publications router not available")
 
-try:
-    from app.api.v1.endpoints.research_area import router as research_area_router
-    api_router.include_router(research_area_router, prefix="/research-areas", tags=["Research Areas"])
-except ImportError:
-    logger.info("Research areas router not available")
+_safe_include("app.api.v1.endpoints.ml_insights", "router", "/ml-insights", ["ML Insights"])
+_safe_include("app.api.v1.endpoints.faculty_profile", "router", "/faculty-profile", ["Faculty Profile"])
+_safe_include("app.api.v1.endpoints.publications", "router", "/publications", ["Publications"])
+_safe_include("app.api.v1.endpoints.research_area", "router", "/research-areas", ["Research Areas"])

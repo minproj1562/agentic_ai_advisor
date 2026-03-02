@@ -14,11 +14,26 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import StandardScaler
 
 from app.models.student_profile import StudentProfile
-from app.models.student_performance import StudentPerformance
-from app.core.curriculum import get_semester_subjects, ELECTIVE_OPTIONS
-from app.services.ml_performance_analysis import ml_analyzer
+
+# ── Resilient imports (prevent router mount failures) ──────────
+try:
+    from app.models.student_performance import StudentPerformance
+except Exception:
+    StudentPerformance = None
+
+try:
+    from app.core.curriculum import get_semester_subjects
+except Exception:
+    get_semester_subjects = None
+
+try:
+    from app.services.ml_performance_analysis import ml_analyzer
+except Exception as e:
+    ml_analyzer = None
+    logging.getLogger(__name__).warning(f"ml_analyzer not available: {e}")
 
 logger = logging.getLogger(__name__)
+
 
 
 class EnhancedMLService:

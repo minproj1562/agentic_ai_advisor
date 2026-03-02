@@ -1,4 +1,4 @@
-// src/contexts/AuthContext.tsx (Fixed faculty login detection)
+// src/contexts/AuthContext.tsx
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { 
@@ -30,7 +30,7 @@ interface LoginCredentials {
   email: string;
   password: string;
   rememberMe?: boolean;
-  userType?: 'student' | 'faculty'; // ADD THIS
+  userType?: 'student' | 'faculty' | 'admin';  // ← FIXED: added 'admin'
 }
 
 interface AuthContextType {
@@ -54,6 +54,24 @@ export const useAuth = () => {
   return context;
 };
 
+// Helper: get dashboard path for each role
+const getDashboardPath = (role: string): string => {
+  switch (role) {
+    case 'faculty': return '/faculty/dashboard';
+    case 'admin': return '/admin/dashboard';
+    default: return '/student/dashboard';
+  }
+};
+
+// Helper: get role label
+const getRoleLabel = (role: string): string => {
+  switch (role) {
+    case 'faculty': return 'Faculty';
+    case 'admin': return 'Admin';
+    default: return 'Student';
+  }
+};
+
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
@@ -73,6 +91,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               email: firebaseUser.email || '',
             });
           } else {
+            console.warn('User document not found in Firestore for:', firebaseUser.uid);
             setUser(null);
           }
         } catch (error) {
@@ -94,8 +113,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       console.log('Login attempt:', { email, userType });
       
-      // First, try to sign in
+      // Sign in with Firebase Auth
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      
+      // Get user data from Firestore
       const userDoc = await getDoc(doc(db, 'users', userCredential.user.uid));
       
       if (!userDoc.exists()) {
@@ -106,61 +127,70 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
       
       const userData = userDoc.data() as User;
-      console.log('User data from DB:', userData);
+      console.log('User data from Firestore:', { role: userData.role, name: userData.name });
       
-      // FIXED: Check user type from credentials instead of path
+      // ===== ROLE MISMATCH CHECK =====
       if (userType && userData.role !== userType) {
         await signOut(auth);
         
-        if (userData.role === 'faculty' && userType === 'student') {
-          toast.error('You are a faculty member. Please use the faculty login.');
-        } else if (userData.role === 'student' && userType === 'faculty') {
-          toast.error('You are a student. Please use the student login.');
-        } else {
-          toast.error(`Account type mismatch. Your account is ${userData.role}.`);
-        }
+        const actualRole = getRoleLabel(userData.role);
+        const attemptedRole = getRoleLabel(userType);
+        
+        toast.error(
+          `You are registered as ${actualRole}. Please switch to the ${actualRole} login tab.`
+        );
         
         throw new Error('Wrong login portal');
       }
       
+      // ===== SET USER STATE =====
       setUser(userData);
       
-      // Navigate based on role
-          if (userData.role === 'faculty') {
-      // Check if profile setup is complete
-      try {
-        const setupStatus = await apiClient.get('/faculty-profile/check-setup-status');
-        
-        if (setupStatus.data.needs_setup) {
-          navigate('/faculty/profile-setup', { replace: true });
-          toast.success('Please complete your profile setup.');
-          return;
+      // ===== NAVIGATE BASED ON ROLE =====
+      if (userData.role === 'faculty') {
+        // Check faculty profile setup
+        try {
+          const setupStatus = await apiClient.get('/faculty-profile/check-setup-status');
+          if (setupStatus.data.needs_setup) {
+            navigate('/faculty/profile-setup', { replace: true });
+            toast.success('Please complete your profile setup.');
+            return;
+          }
+        } catch (error) {
+          console.log('Setup status check failed, continuing to dashboard');
         }
-      } catch (error) {
-        // If check fails, redirect to setup anyway for safety
-        console.log('Setup status check failed, redirecting to setup');
+        
+        navigate('/faculty/dashboard', { replace: true });
+        toast.success(`Welcome back, Professor ${userData.name}!`);
+        
+      } else if (userData.role === 'admin') {
+        navigate('/admin/dashboard', { replace: true });
+        toast.success(`Welcome, Admin ${userData.name}!`);
+        
+      } else if (userData.role === 'student') {
+        navigate('/student/dashboard', { replace: true });
+        toast.success(`Welcome back, ${userData.name}!`);
+        
+      } else {
+        // Unknown role fallback
+        navigate('/student/dashboard', { replace: true });
+        toast.success(`Welcome, ${userData.name}!`);
       }
-      
-      navigate('/faculty/dashboard', { replace: true });
-      toast.success(`Welcome back, Professor ${userData.name}!`);
-    } else if (userData.role === 'student') {
-      navigate('/student/dashboard', { replace: true });
-      toast.success(`Welcome back, ${userData.name}!`);
-    }
     
-  } catch (error: any) {
+    } catch (error: any) {
       console.error('Login error:', error);
       
-      // Handle specific auth errors
       if (error.code === 'auth/user-not-found') {
         toast.error('No account found with this email. Please register first.');
         setTimeout(() => navigate('/register'), 2000);
       } else if (error.code === 'auth/wrong-password') {
         toast.error('Incorrect password. Please try again.');
+      } else if (error.code === 'auth/invalid-credential') {
+        toast.error('Invalid credentials. Please check your email and password.');
       } else if (error.code === 'auth/invalid-email') {
         toast.error('Invalid email format.');
       } else if (error.message === 'Wrong login portal') {
-        // Already handled above
+        // Already handled above with toast
       } else if (error.message === 'Account not properly registered') {
         // Already handled above
       } else {
@@ -174,7 +204,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       
-      // Ensure role is set
       const completeUserData = {
         ...userData,
         uid: userCredential.user.uid,
@@ -185,13 +214,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       await setDoc(doc(db, 'users', userCredential.user.uid), completeUserData);
 
-      // Sign out after registration
       await signOut(auth);
       
-      const roleMessage = userData.role === 'faculty' ? 'Faculty registration successful!' : 'Student registration successful!';
+      const roleMessage = userData.role === 'faculty' 
+        ? 'Faculty registration successful!' 
+        : 'Registration successful!';
       toast.success(`${roleMessage} Please login to continue.`);
       
-      // Redirect to login page
       setTimeout(() => {
         navigate('/login');
       }, 2000);
@@ -215,12 +244,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const userDoc = await getDoc(doc(db, 'users', userCredential.user.uid));
       
       if (!userDoc.exists()) {
-        // New Google user - need to complete registration
         const userData: Partial<User> = {
           uid: userCredential.user.uid,
           email: userCredential.user.email || '',
           name: userCredential.user.displayName || '',
-          role: 'student', // Default for Google sign-in
+          role: 'student',
         };
         
         await setDoc(doc(db, 'users', userCredential.user.uid), {
@@ -229,20 +257,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           profileComplete: false
         });
         
-        toast('Please complete your profile to continue.', {
-          icon: 'ℹ️',
-        });
+        toast('Please complete your profile to continue.', { icon: 'ℹ️' });
         navigate('/complete-profile');
       } else {
         const userData = userDoc.data() as User;
         setUser(userData);
         
-        if (userData.role === 'faculty') {
-          navigate('/faculty/dashboard');
-        } else if (userData.role === 'student') {
-          navigate('/student/dashboard');
-        }
-        
+        navigate(getDashboardPath(userData.role));
         toast.success('Google sign-in successful!');
       }
     } catch (error: any) {
@@ -300,12 +321,9 @@ export const AuthRedirect: React.FC = () => {
 
   useEffect(() => {
     if (!loading && user) {
+      // If user is on login/register page but already authenticated, redirect to dashboard
       if (location.pathname === '/login' || location.pathname === '/register') {
-        if (user.role === 'faculty') {
-          navigate('/faculty/dashboard', { replace: true });
-        } else if (user.role === 'student') {
-          navigate('/student/dashboard', { replace: true });
-        }
+        navigate(getDashboardPath(user.role), { replace: true });
       }
     }
   }, [user, loading, navigate, location]);

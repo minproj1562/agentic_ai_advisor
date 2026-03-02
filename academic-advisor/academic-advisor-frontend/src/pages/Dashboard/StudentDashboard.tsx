@@ -806,19 +806,45 @@ const StudentDashboard: React.FC = () => {
     }
   }, [user?.uid, interestsKey, electivesKey, honoursKey, fetchReadiness]);
 
-  // Effect 4: Project uploaded event
+   // Effect 4: Project uploaded event - force-refresh recommendations
   useEffect(() => {
-    const handleProjectUploaded = () => {
-      console.log('Project uploaded event received');
-      refetchProjectCount();
-      fetchRecommendationStats();
+    const handleProjectUploaded = async () => {
+      console.log('📦 Project uploaded event received - refreshing all related data');
+
+      // 1. Refresh project count from Firestore
+      await refetchProjectCount();
+
+      // 2. Force-refresh recommendations from MongoDB
+      //    Backend invalidated cache in step 7b of analyze-comprehensive
+      try {
+        const freshRecs = await mlService.getRecommendations(true, true, true, true);
+        setRecommendationStats({
+          careerPaths: freshRecs.careers?.length || 0,
+          honoursProgramsMatch: freshRecs.honours?.filter(
+            (h: any) => h.eligibility !== false
+          )?.length || 0,
+          electivesRecommended: freshRecs.electives?.length || 0,
+        });
+        console.log('✅ Recommendations refreshed after project upload');
+      } catch (e) {
+        console.warn('Recommendation refresh after upload (non-critical):', e);
+        // Fallback to lighter stats fetch
+        await fetchRecommendationStats();
+      }
+
+      // 3. Refresh readiness if interests exist
+      //    (analyze-comprehensive may have added new inferred interests)
+      if (studentInterests.length > 0) {
+        readinessFetchingRef.current = false;
+        fetchReadiness();
+      }
     };
 
     window.addEventListener('projectUploaded', handleProjectUploaded);
     return () => {
       window.removeEventListener('projectUploaded', handleProjectUploaded);
     };
-  }, [refetchProjectCount, fetchRecommendationStats]);
+  }, [refetchProjectCount, fetchRecommendationStats, fetchReadiness, studentInterests.length]);
 
   // Effect 5: Initial data load — ONCE
   useEffect(() => {

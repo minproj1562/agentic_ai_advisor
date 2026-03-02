@@ -6,14 +6,21 @@ import { useForm, SubmitHandler } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { motion, AnimatePresence } from 'framer-motion';
-import { 
-  Mail, Lock, Eye, EyeOff, Loader2, AlertCircle, UserCheck, Users,
-  Chrome // Adding Chrome icon for Google sign in
+import {
+  Mail,
+  Lock,
+  Eye,
+  EyeOff,
+  Loader2,
+  AlertCircle,
+  UserCheck,
+  Users,
+  Shield,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { doc, getDoc } from 'firebase/firestore';
 import { db, auth } from '../services/firebase.config';
-import { GoogleAuthProvider, signInWithPopup, UserCredential } from 'firebase/auth';
+import { GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
 import toast from 'react-hot-toast';
 
 const loginSchema = z.object({
@@ -36,7 +43,7 @@ const Login: React.FC = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
-  const [userType, setUserType] = useState<'student' | 'faculty'>('student');
+  const [userType, setUserType] = useState<'student' | 'faculty' | 'admin'>('student');
 
   const {
     register,
@@ -55,68 +62,81 @@ const Login: React.FC = () => {
 
   const emailValue = watch('email');
 
-  // Google Sign In Handler
+  // ---------- helpers ----------
+
+  /** Given a role string, return the correct dashboard path */
+  const dashboardPathForRole = (role: string): string => {
+    switch (role) {
+      case 'faculty':
+        return '/faculty/dashboard';
+      case 'admin':
+        return '/admin/dashboard';
+      default:
+        return '/student/dashboard';
+    }
+  };
+
+  /** Human-readable label for each role */
+  const roleLabel = (role: string): string => {
+    switch (role) {
+      case 'faculty':
+        return 'Faculty';
+      case 'admin':
+        return 'Admin';
+      default:
+        return 'Student';
+    }
+  };
+
+  /** Friendly mismatch message */
+  const mismatchMessage = (actualRole: string, attemptedType: string): string => {
+    return `You are registered as ${roleLabel(actualRole)}. Please switch to the ${roleLabel(actualRole)} login tab.`;
+  };
+
+  // ---------- Google Sign-In ----------
+
   const handleGoogleSignIn = async () => {
     setIsGoogleLoading(true);
     try {
       const provider = new GoogleAuthProvider();
-      // Add custom parameters for better UX
-      provider.setCustomParameters({
-        prompt: 'select_account'
-      });
-      
+      provider.setCustomParameters({ prompt: 'select_account' });
+
       const result = await signInWithPopup(auth, provider);
       const user = result.user;
-      
-      // Check if user exists in Firestore
+
       const userDoc = await getDoc(doc(db, 'users', user.uid));
-      
+
       if (userDoc.exists()) {
-        // User exists, check their role
         const userData = userDoc.data();
-        const userRole = userData.role;
-        
-        // Check if they're using the correct login type
-        if (userRole === 'faculty' && userType === 'student') {
-          toast.error('You are registered as faculty. Please switch to Faculty login.');
-          await auth.signOut(); // Sign out from Firebase Auth
+        const userRole: string = userData.role || 'student';
+
+        // Role-mismatch guard
+        if (userRole !== userType) {
+          toast.error(mismatchMessage(userRole, userType));
+          await auth.signOut();
           setIsGoogleLoading(false);
           return;
         }
-        
-        if (userRole === 'student' && userType === 'faculty') {
-          toast.error('You are registered as a student. Please switch to Student login.');
-          await auth.signOut(); // Sign out from Firebase Auth
-          setIsGoogleLoading(false);
-          return;
-        }
-        
-        // Role matches, proceed with login
+
         toast.success('Login successful!');
-        
-        // Navigate based on role
-        if (userRole === 'faculty') {
-          navigate('/faculty/dashboard');
-        } else {
-          navigate('/student/dashboard');
-        }
+        navigate(dashboardPathForRole(userRole));
       } else {
-        // User doesn't exist, redirect to registration with Google data
+        // New Google user — redirect to registration
         toast.error('No account found. Please register first.');
         await auth.signOut();
-        navigate('/register', { 
-          state: { 
+        navigate('/register', {
+          state: {
             googleData: {
               email: user.email,
               displayName: user.displayName,
-              photoURL: user.photoURL
-            }
-          }
+              photoURL: user.photoURL,
+            },
+          },
         });
       }
     } catch (error: any) {
       console.error('Google sign-in error:', error);
-      
+
       if (error.code === 'auth/popup-closed-by-user') {
         toast.error('Sign-in cancelled');
       } else if (error.code === 'auth/popup-blocked') {
@@ -129,67 +149,64 @@ const Login: React.FC = () => {
     }
   };
 
+  // ---------- Email / Password Sign-In ----------
+
   const onSubmit: SubmitHandler<LoginFormData> = async (data) => {
     setIsSubmitting(true);
     try {
-      // Try to login first
       await login({
         email: data.email,
         password: data.password,
         rememberMe: data.rememberMe ?? false,
+        userType,                       // pass selected tab to AuthContext
       });
-      
-      // Get the current user directly from auth after login
+
+      // Double-check role from Firestore (belt-and-suspenders)
       const user = auth.currentUser;
-      
-      // If login successful, check user role from Firestore
       if (user) {
         const userDoc = await getDoc(doc(db, 'users', user.uid));
-        
+
         if (userDoc.exists()) {
           const userData = userDoc.data();
-          const userRole = userData.role;
-          
-          // Check if they're using the correct login type
-          if (userRole === 'faculty' && userType === 'student') {
-            setError('root', {
-              message: 'You are registered as faculty. Please switch to Faculty login.',
-            });
+          const userRole: string = userData.role || 'student';
+
+          if (userRole !== userType) {
+            setError('root', { message: mismatchMessage(userRole, userType) });
             await auth.signOut();
             setIsSubmitting(false);
             return;
           }
-          
-          if (userRole === 'student' && userType === 'faculty') {
-            setError('root', {
-              message: 'You are registered as a student. Please switch to Student login.',
-            });
-            await auth.signOut();
-            setIsSubmitting(false);
-            return;
-          }
-          
-          // Role matches, login successful
+
           toast.success('Login successful!');
+          // AuthContext already navigates, but just in case:
+          navigate(dashboardPathForRole(userRole), { replace: true });
         }
       }
-      
     } catch (error: any) {
       console.error('Login error:', error);
-      
+
       if (error.code === 'auth/user-not-found') {
-        setError('root', { 
-          message: 'No account found with this email. Please register first.' 
+        setError('root', {
+          message: 'No account found with this email. Please register first.',
         });
         setTimeout(() => navigate('/register'), 3000);
-      } else if (error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
+      } else if (
+        error.code === 'auth/wrong-password' ||
+        error.code === 'auth/invalid-credential'
+      ) {
         setError('password', { message: 'Incorrect password' });
       } else if (error.code === 'auth/invalid-email') {
         setError('email', { message: 'Invalid email format' });
       } else if (error.code === 'auth/too-many-requests') {
         setError('root', {
-          message: 'Too many failed attempts. Please try again later or reset your password.',
+          message:
+            'Too many failed attempts. Please try again later or reset your password.',
         });
+      } else if (
+        error.message === 'Wrong login portal' ||
+        error.message === 'Account not properly registered'
+      ) {
+        // Already handled inside AuthContext
       } else {
         setError('root', {
           message: error.message || 'Login failed. Please try again.',
@@ -199,6 +216,8 @@ const Login: React.FC = () => {
       setIsSubmitting(false);
     }
   };
+
+  // ---------- Forgot Password ----------
 
   const handleForgotPassword = async () => {
     if (!emailValue) {
@@ -218,6 +237,31 @@ const Login: React.FC = () => {
     }
   };
 
+  // ---------- Dynamic styles based on userType ----------
+
+  const accentClasses: Record<typeof userType, { btn: string; ring: string }> = {
+    student: {
+      btn: 'bg-blue-600 hover:bg-blue-700 focus:ring-blue-500',
+      ring: 'focus:ring-blue-500 focus:border-blue-500',
+    },
+    faculty: {
+      btn: 'bg-purple-600 hover:bg-purple-700 focus:ring-purple-500',
+      ring: 'focus:ring-purple-500 focus:border-purple-500',
+    },
+    admin: {
+      btn: 'bg-red-600 hover:bg-red-700 focus:ring-red-500',
+      ring: 'focus:ring-red-500 focus:border-red-500',
+    },
+  };
+
+  const placeholders: Record<typeof userType, string> = {
+    student: 'student@university.edu',
+    faculty: 'professor@university.edu',
+    admin: 'admin@university.edu',
+  };
+
+  // ---------- Render ----------
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 via-white to-purple-50 px-4 sm:px-6 lg:px-8">
       <motion.div
@@ -226,6 +270,7 @@ const Login: React.FC = () => {
         transition={{ duration: 0.5 }}
         className="max-w-md w-full space-y-8"
       >
+        {/* ---- Title ---- */}
         <div className="text-center">
           <motion.h2
             initial={{ opacity: 0 }}
@@ -245,38 +290,44 @@ const Login: React.FC = () => {
           </motion.p>
         </div>
 
+        {/* ---- Role Tabs ---- */}
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 0.4 }}
-          className="flex space-x-4"
+          className="flex space-x-3"
         >
-          <button
-            type="button"
-            onClick={() => setUserType('student')}
-            className={`flex-1 py-3 px-4 rounded-lg font-medium transition-all duration-200 flex items-center justify-center space-x-2 ${
-              userType === 'student'
-                ? 'bg-blue-600 text-white shadow-lg transform scale-105'
-                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-            }`}
-          >
-            <Users className="h-5 w-5" />
-            <span>Student</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setUserType('faculty')}
-            className={`flex-1 py-3 px-4 rounded-lg font-medium transition-all duration-200 flex items-center justify-center space-x-2 ${
-              userType === 'faculty'
-                ? 'bg-purple-600 text-white shadow-lg transform scale-105'
-                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-            }`}
-          >
-            <UserCheck className="h-5 w-5" />
-            <span>Faculty</span>
-          </button>
+          {(['student', 'faculty', 'admin'] as const).map((type) => {
+            const icons = {
+              student: <Users className="h-5 w-5" />,
+              faculty: <UserCheck className="h-5 w-5" />,
+              admin: <Shield className="h-5 w-5" />,
+            };
+            const activeColors = {
+              student: 'bg-blue-600 text-white shadow-lg transform scale-105',
+              faculty: 'bg-purple-600 text-white shadow-lg transform scale-105',
+              admin: 'bg-red-600 text-white shadow-lg transform scale-105',
+            };
+
+            return (
+              <button
+                key={type}
+                type="button"
+                onClick={() => setUserType(type)}
+                className={`flex-1 py-3 px-4 rounded-lg font-medium transition-all duration-200 flex items-center justify-center space-x-2 ${
+                  userType === type
+                    ? activeColors[type]
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+              >
+                {icons[type]}
+                <span className="capitalize">{type}</span>
+              </button>
+            );
+          })}
         </motion.div>
 
+        {/* ---- Form ---- */}
         <motion.form
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
@@ -284,6 +335,7 @@ const Login: React.FC = () => {
           className="mt-8 space-y-6 bg-white p-8 rounded-xl shadow-xl"
           onSubmit={handleSubmit(onSubmit)}
         >
+          {/* Root error */}
           <AnimatePresence>
             {errors.root && (
               <motion.div
@@ -291,8 +343,8 @@ const Login: React.FC = () => {
                 animate={{ opacity: 1, height: 'auto' }}
                 exit={{ opacity: 0, height: 0 }}
                 className={`${
-                  errors.root.message?.includes('Redirecting') 
-                    ? 'bg-blue-50 border-blue-200 text-blue-700' 
+                  errors.root.message?.includes('Redirecting')
+                    ? 'bg-blue-50 border-blue-200 text-blue-700'
                     : errors.root.message?.includes('switch')
                     ? 'bg-yellow-50 border-yellow-200 text-yellow-700'
                     : 'bg-red-50 border-red-200 text-red-700'
@@ -305,13 +357,21 @@ const Login: React.FC = () => {
           </AnimatePresence>
 
           <div className="space-y-4">
+            {/* Email */}
             <div>
-              <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
+              <label
+                htmlFor="email"
+                className="block text-sm font-medium text-gray-700 mb-1"
+              >
                 Email Address
               </label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <Mail className={`h-5 w-5 ${errors.email ? 'text-red-500' : 'text-gray-400'}`} />
+                  <Mail
+                    className={`h-5 w-5 ${
+                      errors.email ? 'text-red-500' : 'text-gray-400'
+                    }`}
+                  />
                 </div>
                 <input
                   {...register('email')}
@@ -320,9 +380,9 @@ const Login: React.FC = () => {
                   className={`block w-full pl-10 pr-3 py-3 border rounded-lg focus:outline-none focus:ring-2 transition-colors ${
                     errors.email
                       ? 'border-red-300 focus:ring-red-500 focus:border-red-500'
-                      : 'border-gray-300 focus:ring-blue-500 focus:border-blue-500'
+                      : `border-gray-300 ${accentClasses[userType].ring}`
                   }`}
-                  placeholder={userType === 'student' ? 'student@university.edu' : 'professor@university.edu'}
+                  placeholder={placeholders[userType]}
                 />
               </div>
               {errors.email && (
@@ -336,13 +396,21 @@ const Login: React.FC = () => {
               )}
             </div>
 
+            {/* Password */}
             <div>
-              <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">
+              <label
+                htmlFor="password"
+                className="block text-sm font-medium text-gray-700 mb-1"
+              >
                 Password
               </label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <Lock className={`h-5 w-5 ${errors.password ? 'text-red-500' : 'text-gray-400'}`} />
+                  <Lock
+                    className={`h-5 w-5 ${
+                      errors.password ? 'text-red-500' : 'text-gray-400'
+                    }`}
+                  />
                 </div>
                 <input
                   {...register('password')}
@@ -351,7 +419,7 @@ const Login: React.FC = () => {
                   className={`block w-full pl-10 pr-10 py-3 border rounded-lg focus:outline-none focus:ring-2 transition-colors ${
                     errors.password
                       ? 'border-red-300 focus:ring-red-500 focus:border-red-500'
-                      : 'border-gray-300 focus:ring-blue-500 focus:border-blue-500'
+                      : `border-gray-300 ${accentClasses[userType].ring}`
                   }`}
                   placeholder="••••••••"
                 />
@@ -379,6 +447,7 @@ const Login: React.FC = () => {
             </div>
           </div>
 
+          {/* Remember / Forgot */}
           <div className="flex items-center justify-between">
             <div className="flex items-center">
               <input
@@ -387,7 +456,10 @@ const Login: React.FC = () => {
                 type="checkbox"
                 className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
               />
-              <label htmlFor="remember-me" className="ml-2 block text-sm text-gray-700">
+              <label
+                htmlFor="remember-me"
+                className="ml-2 block text-sm text-gray-700"
+              >
                 Remember me
               </label>
             </div>
@@ -401,15 +473,14 @@ const Login: React.FC = () => {
             </button>
           </div>
 
+          {/* Submit */}
           <button
             type="submit"
             disabled={isSubmitting}
-            className={`w-full flex justify-center items-center py-3 px-4 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white transition-all duration-200 ${
+            className={`w-full flex justify-center items-center py-3 px-4 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 ${
               isSubmitting
                 ? 'bg-gray-400 cursor-not-allowed'
-                : userType === 'student'
-                ? 'bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500'
-                : 'bg-purple-600 hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500'
+                : accentClasses[userType].btn
             }`}
           >
             {isSubmitting ? (
@@ -418,21 +489,23 @@ const Login: React.FC = () => {
                 Signing in...
               </>
             ) : (
-              `Sign in as ${userType === 'student' ? 'Student' : 'Faculty'}`
+              `Sign in as ${roleLabel(userType)}`
             )}
           </button>
 
           {/* Divider */}
           <div className="relative">
             <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-gray-300"></div>
+              <div className="w-full border-t border-gray-300" />
             </div>
             <div className="relative flex justify-center text-sm">
-              <span className="px-2 bg-white text-gray-500">Or continue with</span>
+              <span className="px-2 bg-white text-gray-500">
+                Or continue with
+              </span>
             </div>
           </div>
 
-          {/* Google Sign In Button */}
+          {/* Google Sign In */}
           <button
             type="button"
             onClick={handleGoogleSignIn}
@@ -471,10 +544,14 @@ const Login: React.FC = () => {
             )}
           </button>
 
+          {/* Register link */}
           <div className="text-center">
             <span className="text-sm text-gray-600">
-              Don't have an account?{' '}
-              <Link to="/register" className="font-medium text-blue-600 hover:text-blue-500">
+              Don&apos;t have an account?{' '}
+              <Link
+                to="/register"
+                className="font-medium text-blue-600 hover:text-blue-500"
+              >
                 Sign up
               </Link>
             </span>
@@ -483,6 +560,6 @@ const Login: React.FC = () => {
       </motion.div>
     </div>
   );
-}; 
+};
 
 export default Login;

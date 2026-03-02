@@ -168,32 +168,130 @@ async def analyze_project_comprehensive(
             cgpa=student_data["cgpa"],
         )
 
-        # ── 7. Persist analysis on latest StudentProject ──────────
+        # ── 7. Persist project + analysis to MongoDB ──────────
         try:
-            latest_project = await StudentProject.find_one(
+            from app.models.student_projects import (
+                StudentProject, ProjectType, InferredInterest as InferredInterestModel
+            )
+            from datetime import datetime as dt
+
+            # Build inferred interest models
+            interest_models = []
+            for i in inferred_interests:
+                interest_models.append(InferredInterestModel(
+                    domain=i["domain"],
+                    confidence=i["confidence"],
+                    keywords=i.get("matched_keywords", []),
+                    related_skills=i.get("relatedSkills", []),
+                    career_paths=i.get("careerPaths", []),
+                    industry_relevance=i.get("industryRelevance", 0),
+                    reasoning=f"Detected from project analysis ({len(i.get('matched_keywords', []))} keyword matches)",
+                    evidence=i.get("matched_keywords", [])[:5],
+                ))
+
+            # Try to find existing project with same title by this student
+            existing = await StudentProject.find_one(
                 StudentProject.student_id == current_user.uid,
-            ).sort(-StudentProject.created_at)
-            if latest_project:
-                latest_project.extracted_skills = extracted_skills
-                latest_project.complexity_score = complexity_score
-                latest_project.inferred_interests = [
-                    {
-                        "domain": i["domain"],
-                        "confidence": i["confidence"],
-                        "keywords": i.get("matched_keywords", []),
-                        "related_skills": i.get("relatedSkills", []),
-                        "career_paths": i.get("careerPaths", []),
-                        "industry_relevance": i.get("industryRelevance", 0),
-                        "reasoning": f"Detected from project analysis ({len(i.get('matched_keywords',[]))} keyword matches)",
-                        "evidence": i.get("matched_keywords", [])[:5],
-                    }
-                    for i in inferred_interests
-                ]
-                latest_project.updated_at = datetime.utcnow()
-                await latest_project.save()
-                logger.info("✅ Analysis persisted to StudentProject")
+                StudentProject.title == data.get("title", ""),
+            )
+
+            if existing:
+                # Update existing project's analysis
+                existing.extracted_skills = extracted_skills
+                existing.complexity_score = complexity_score
+                existing.inferred_interests = interest_models
+                existing.programming_languages = data.get("programmingLanguages", data.get("programming_languages", []))
+                existing.frameworks = data.get("frameworks", [])
+                existing.tools = data.get("tools", [])
+                existing.technologies = data.get("technologies", [])
+                existing.description = data.get("description", existing.description)
+                existing.detailed_description = data.get("detailedDescription", data.get("detailed_description", ""))
+                existing.github_url = data.get("githubUrl", data.get("github_url"))
+                existing.demo_url = data.get("demoUrl", data.get("demo_url"))
+                existing.is_team_project = data.get("isTeamProject", data.get("is_team_project", False))
+                existing.team_size = data.get("teamSize", data.get("team_size", 1))
+                existing.key_achievements = data.get("keyAchievements", data.get("key_achievements", []))
+                existing.challenges_faced = data.get("challengesFaced", data.get("challenges_faced", []))
+                existing.learnings = data.get("learnings", [])
+                existing.updated_at = dt.utcnow()
+                await existing.save()
+                logger.info(f"✅ Updated existing project in MongoDB: {existing.title}")
+            else:
+                # CREATE new project in MongoDB so recommendation engine can find it
+                project_type_str = data.get("projectType", data.get("project_type", "personal"))
+                try:
+                    project_type = ProjectType(project_type_str)
+                except ValueError:
+                    project_type = ProjectType.PERSONAL
+
+                start_date_str = data.get("startDate", data.get("start_date"))
+                end_date_str = data.get("endDate", data.get("end_date"))
+
+                try:
+                    start_date = dt.fromisoformat(start_date_str.replace("Z", "+00:00")) if start_date_str else dt.utcnow()
+                except Exception:
+                    start_date = dt.utcnow()
+
+                end_date = None
+                if end_date_str:
+                    try:
+                        end_date = dt.fromisoformat(end_date_str.replace("Z", "+00:00"))
+                    except Exception:
+                        pass
+
+                new_project = StudentProject(
+                    student_id=current_user.uid,
+                    title=data.get("title", "Untitled Project"),
+                    description=data.get("description", ""),
+                    detailed_description=data.get("detailedDescription", data.get("detailed_description", "")),
+                    project_type=project_type,
+                    start_date=start_date,
+                    end_date=end_date,
+                    programming_languages=data.get("programmingLanguages", data.get("programming_languages", [])),
+                    frameworks=data.get("frameworks", []),
+                    tools=data.get("tools", []),
+                    technologies=data.get("technologies", []),
+                    github_url=data.get("githubUrl", data.get("github_url")),
+                    demo_url=data.get("demoUrl", data.get("demo_url")),
+                    is_team_project=data.get("isTeamProject", data.get("is_team_project", False)),
+                    team_size=data.get("teamSize", data.get("team_size", 1)),
+                    key_achievements=data.get("keyAchievements", data.get("key_achievements", [])),
+                    challenges_faced=data.get("challengesFaced", data.get("challenges_faced", [])),
+                    learnings=data.get("learnings", []),
+                    extracted_skills=extracted_skills,
+                    complexity_score=complexity_score,
+                    inferred_interests=interest_models,
+                )
+                await new_project.insert()
+                logger.info(f"✅ Created new project in MongoDB: {new_project.title}")
+
         except Exception as e:
-            logger.warning(f"Could not persist analysis: {e}")
+            logger.warning(f"Could not persist project to MongoDB: {e}")
+
+        # ── 7b. Invalidate recommendation cache ──────────────
+        try:
+            await recommendation_service.invalidate_cache(current_user.uid)
+            logger.info("♻️ Recommendation cache invalidated after project analysis")
+        except Exception as e:
+            logger.warning(f"Cache invalidation failed (non-critical): {e}")
+
+        # ── 7c. Create training data point from this analysis ─
+        try:
+            top_elective = elective_recs[0].get("elective_name", "ML") if elective_recs else "ML"
+            name_to_code = {
+                "Machine Learning": "ML",
+                "Wireless Technology": "WT",
+                "Data Warehouse and Mining": "DWM",
+                "Cloud Computing Services": "CCS",
+            }
+            label = name_to_code.get(top_elective, "ML")
+            await recommendation_service.create_training_data_from_project(
+                student_id=current_user.uid,
+                student_data=student_data,
+                top_elective=label,
+            )
+        except Exception as e:
+            logger.warning(f"Training data creation failed (non-critical): {e}")
 
         # ── 8. Build legacy-compatible response ───────────────────
         response = _build_legacy_response(
@@ -568,6 +666,50 @@ async def quick_analyze_project(
         "suggestions": (["Add more details for better analysis"]
                         if len(detected) < 2 else []),
     }}
+
+@router.delete("/project/{project_id}")
+async def delete_project_from_mongodb(
+    project_id: str,
+    current_user: FirebaseUser = Depends(get_current_user),
+):
+    """Delete a project from MongoDB (called when Firestore project is deleted)."""
+    try:
+        # Try finding by id field
+        project = await StudentProject.find_one(
+            StudentProject.student_id == current_user.uid,
+            StudentProject.id == project_id,
+        )
+
+        if not project:
+            # Try by document _id
+            from beanie import PydanticObjectId
+            try:
+                project = await StudentProject.get(project_id)
+                if project and project.student_id != current_user.uid:
+                    raise HTTPException(status_code=403, detail="Not your project")
+            except Exception:
+                pass
+
+        if not project:
+            # Not found in MongoDB — that's OK, it may have only been in Firestore
+            return {"success": True, "message": "Project not found in MongoDB (may only exist in Firestore)"}
+
+        await project.delete()
+        logger.info(f"🗑️ Deleted project from MongoDB: {project_id}")
+
+        # Invalidate recommendation cache
+        try:
+            await recommendation_service.invalidate_cache(current_user.uid)
+        except Exception:
+            pass
+
+        return {"success": True, "message": "Project deleted from MongoDB"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting project: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 def _calc_completeness(s: StudentProfile) -> int:

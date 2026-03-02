@@ -1,7 +1,8 @@
-# app/services/recommendation_service.py
+# academic-advisor-backend/app/services/recommendation_service.py
 """
 Recommendation Service - Unified orchestrator
 Fetches student data → calls ML engine → stores results → handles feedback
+FIXED: Cache invalidation after project upload + training data generation
 """
 
 import logging
@@ -13,7 +14,7 @@ from app.ml.models.recommendation_engine import recommendation_engine
 from app.models.student_profile import StudentProfile
 from app.models.student_projects import StudentProject, StudentInterestProfile
 from app.models.recommendation import (
-    RecommendationRecord, RecommendationFeedback,
+    RecommendationRecord, RecommendationFeedback, TrainingDataPoint,
     ElectiveDetail, HonoursDetail, CareerDetail, RecommendationType
 )
 from app.schemas.recommendation_schemas import (
@@ -33,6 +34,10 @@ class RecommendationService:
     def __init__(self):
         self.engine = recommendation_engine
 
+    # ================================================================
+    #  DATA FETCHING
+    # ================================================================
+
     async def get_student_data(self, student_id: str) -> Dict[str, Any]:
         """Fetch all student data needed for recommendations."""
         data = {
@@ -45,7 +50,6 @@ class RecommendationService:
         }
 
         try:
-            # 1. Get academic profile
             profile = await StudentProfile.find_one(
                 StudentProfile.user_id == student_id
             )
@@ -54,13 +58,11 @@ class RecommendationService:
                 data['semester'] = profile.current_semester or 4
                 data['interests'] = list(profile.interests or [])
 
-                # Extract marks from semester records
                 for sem_record in (profile.semester_records or []):
                     for subj in (sem_record.subjects or []):
                         current = data['marks'].get(subj.subject_name, 0)
                         data['marks'][subj.subject_name] = max(current, subj.total_marks)
 
-            # 2. Get interest profile (separate collection)
             try:
                 interest_profile = await StudentInterestProfile.find_one(
                     StudentInterestProfile.student_id == student_id
@@ -77,7 +79,6 @@ class RecommendationService:
             except Exception as e:
                 logger.warning(f"Could not fetch interest profile: {e}")
 
-            # 3. Get projects
             projects = await StudentProject.find(
                 StudentProject.student_id == student_id
             ).to_list()
@@ -88,6 +89,7 @@ class RecommendationService:
                 proj_dict = {
                     'title': p.title,
                     'description': p.description or '',
+                    'detailed_description': p.detailed_description or '',
                     'programming_languages': p.programming_languages or [],
                     'frameworks': p.frameworks or [],
                     'tools': p.tools or [],
@@ -97,6 +99,9 @@ class RecommendationService:
                     'complexity_score': p.complexity_score or 0.5,
                     'github_url': p.github_url,
                     'demo_url': p.demo_url,
+                    'key_achievements': p.key_achievements or [],
+                    'challenges_faced': p.challenges_faced or [],
+                    'learnings': p.learnings or [],
                 }
                 data['projects'].append(proj_dict)
                 all_project_skills.extend(p.extracted_skills or [])
@@ -115,6 +120,68 @@ class RecommendationService:
 
         return data
 
+    # ================================================================
+    #  CACHE MANAGEMENT  (NEW)
+    # ================================================================
+
+    async def invalidate_cache(self, student_id: str) -> int:
+        """
+        Mark all active recommendation records as inactive.
+        Called after project upload or interest update so the next
+        request regenerates fresh recommendations.
+        Returns the number of records invalidated.
+        """
+        try:
+            result = await RecommendationRecord.find(
+                RecommendationRecord.student_id == student_id,
+                RecommendationRecord.is_active == True,
+            ).update_many({"$set": {"is_active": False}})
+            count = result.modified_count if hasattr(result, 'modified_count') else 0
+            if count:
+                logger.info(f"♻️ Invalidated {count} cached recommendations for {student_id}")
+            return count
+        except Exception as e:
+            logger.warning(f"Cache invalidation failed (non-critical): {e}")
+            return 0
+
+    # ================================================================
+    #  TRAINING DATA FROM PROJECTS  (NEW)
+    # ================================================================
+
+    async def create_training_data_from_project(
+        self,
+        student_id: str,
+        student_data: Dict[str, Any],
+        top_elective: str,
+    ) -> None:
+        """
+        After a project is analyzed and recommendations are generated,
+        create a synthetic training data point from the real student data.
+        The 'label' is the top recommended elective.
+        """
+        try:
+            features = self.engine.extract_features(
+                marks=student_data['marks'],
+                interests=student_data['interests'],
+                projects=student_data['projects'],
+            )
+            td = TrainingDataPoint(
+                student_features=features.tolist(),
+                marks=student_data['marks'],
+                interests={i: 1.0 for i in student_data['interests']},
+                project_skills=student_data.get('project_skills', []),
+                label=top_elective,
+                source="project_analysis",
+            )
+            await td.insert()
+            logger.info(f"📊 Training data point created: label={top_elective}")
+        except Exception as e:
+            logger.warning(f"Training data creation failed (non-critical): {e}")
+
+    # ================================================================
+    #  GENERATE RECOMMENDATIONS
+    # ================================================================
+
     async def generate_recommendations(
         self,
         student_id: str,
@@ -126,7 +193,7 @@ class RecommendationService:
         """Generate cumulative recommendations from all sources."""
         start_time = time.time()
 
-        # Check for cached recommendations (unless force refresh)
+        # Check cache
         if not force_refresh:
             try:
                 cached = await RecommendationRecord.find_one(
@@ -149,7 +216,6 @@ class RecommendationService:
         careers_resp: List[CareerRecommendationResponse] = []
         models_used = ['Rule-Based']
 
-        # Generate elective recommendations
         if include_electives:
             raw_electives = self.engine.recommend_electives(
                 marks=student_data['marks'],
@@ -182,7 +248,6 @@ class RecommendationService:
             if self.engine.is_trained:
                 models_used = ['RandomForest', 'KNN', 'Rule-Based']
 
-        # Generate honours recommendations
         if include_honours:
             raw_honours = self.engine.recommend_honours(
                 marks=student_data['marks'],
@@ -190,30 +255,26 @@ class RecommendationService:
                 projects=student_data['projects'],
                 cgpa=student_data['cgpa'],
             )
-
-            # Apply branch-specific classification
-            from app.core.subject_mappings import get_programme_type_for_branch
-
-            # Get student branch
-            student_branch = 'IT'  # Default
             try:
-                profile = await StudentProfile.find_one(
-                    StudentProfile.user_id == student_id
-                )
-                if profile and profile.branch:
-                    student_branch = profile.branch.upper()
-            except:
+                from app.core.subject_mappings import get_programme_type_for_branch
+                student_branch = 'IT'
+                try:
+                    profile = await StudentProfile.find_one(
+                        StudentProfile.user_id == student_id
+                    )
+                    if profile and profile.branch:
+                        student_branch = profile.branch.upper()
+                except Exception:
+                    pass
+                for h in raw_honours:
+                    programme_name = h.get('program', '')
+                    h['type'] = get_programme_type_for_branch(programme_name, student_branch)
+            except ImportError:
                 pass
 
             for h in raw_honours:
-                # Override type based on branch-specific rules
-                programme_name = h.get('program', '')
-                correct_type = get_programme_type_for_branch(programme_name, student_branch)
-                h['type'] = correct_type
-
                 honours_resp.append(HonoursRecommendationResponse(**h))
 
-        # Generate career recommendations
         if include_career:
             raw_careers = self.engine.recommend_careers(
                 marks=student_data['marks'],
@@ -306,6 +367,10 @@ class RecommendationService:
             computation_time_ms=cached.computation_time_ms,
         )
 
+    # ================================================================
+    #  FEEDBACK
+    # ================================================================
+
     async def record_feedback(
         self,
         student_id: str,
@@ -314,9 +379,8 @@ class RecommendationService:
         rating: int,
         feedback_text: str = "",
     ) -> None:
-        """Record user feedback WITH full student context for real retraining."""
+        """Record feedback WITH full student context for retraining."""
         try:
-            # Fetch current student data for context
             student_data = await self.get_student_data(student_id)
 
             feedback = RecommendationFeedback(
@@ -334,16 +398,24 @@ class RecommendationService:
                 student_project_count=len(student_data['projects']),
             )
             await feedback.insert()
+
+            # Invalidate cache so next request reflects updated model view
+            await self.invalidate_cache(student_id)
+
             logger.info(f"Recorded feedback for {student_id}: {recommendation_type} - rating {rating}")
         except Exception as e:
             logger.error(f"Failed to record feedback: {e}")
             raise
 
     async def get_model_info(self) -> Dict[str, Any]:
-        """Get information about the recommendation model."""
         feedback_count = 0
+        training_count = 0
         try:
             feedback_count = await RecommendationFeedback.count()
+        except Exception:
+            pass
+        try:
+            training_count = await TrainingDataPoint.count()
         except Exception:
             pass
 
@@ -354,6 +426,7 @@ class RecommendationService:
             'feature_dimension': 35,
             'electives_supported': ['ML', 'WT', 'DWM', 'CCS'],
             'total_feedback_collected': feedback_count,
+            'total_training_points': training_count,
         }
 
 

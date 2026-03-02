@@ -1,4 +1,4 @@
-# academic-advisor/academic-advisor-backend/app/services/enhanced_ml_inference.py
+# academic-advisor-backend/app/services/enhanced_ml_inference.py
 """
 Enhanced ML Inference Engine
 =============================
@@ -8,6 +8,7 @@ that extracts skills, infers interests, and calculates complexity.
 Delegates actual recommendations to recommendation_engine.
 """
 
+import os
 import logging
 from typing import List, Dict, Any, Optional
 from datetime import datetime
@@ -217,32 +218,24 @@ CAREER_MAPPING: Dict[str, Dict[str, Any]] = {
 
 
 class FCRITAcademicInferenceEngine:
-    """
-    Project-level analysis engine.
-
-    Responsibilities (analysis only — no DB, no auth):
-      • Parse uploaded file contents via FileParser
-      • Extract skills from project metadata + parsed text
-      • Infer interest domains with confidence scores
-      • Calculate project complexity
-      • Map career paths, skill gaps, next-steps
-
-    The *endpoint* layer calls recommendation_engine / recommendation_service
-    for the actual cumulative scoring.
-    """
-
     honours_programs = HONOURS_PROGRAMS
     sem5_electives = SEM5_ELECTIVES
 
     def __init__(self):
-        # lazy import to avoid circular deps at module level
         self._file_parser = None
+        self._file_parser_loaded = False
 
     @property
     def file_parser(self):
-        if self._file_parser is None:
-            from app.services.file_parser import file_parser
-            self._file_parser = file_parser
+        if not self._file_parser_loaded:
+            self._file_parser_loaded = True
+            try:
+                from app.services.file_parser import file_parser
+                self._file_parser = file_parser
+                logger.info("✅ FileParser loaded successfully")
+            except Exception as e:
+                logger.warning(f"⚠️ FileParser not available: {e}")
+                self._file_parser = None
         return self._file_parser
 
     # ================================================================
@@ -266,10 +259,28 @@ class FCRITAcademicInferenceEngine:
         file_text = ""
         file_skills: List[str] = []
 
-        if uploaded_files:
-            file_analysis = self.file_parser.parse_multiple(uploaded_files)
-            file_text = file_analysis.get("aggregated_text", "")
-            file_skills = file_analysis.get("aggregated_skills", [])
+        if uploaded_files and self.file_parser:
+            try:
+                file_analysis = self.file_parser.parse_multiple(uploaded_files)
+                file_text = file_analysis.get("aggregated_text", "")
+                file_skills = file_analysis.get("aggregated_skills", [])
+            except Exception as e:
+                logger.warning(f"File parsing failed (non-critical): {e}")
+        elif uploaded_files:
+            # Fallback: just read text files directly
+            file_analysis["total_files"] = len(uploaded_files)
+            for uf in uploaded_files:
+                try:
+                    path = uf.get("path", "")
+                    if path and os.path.exists(path):
+                        ext = os.path.splitext(path)[1].lower()
+                        if ext in {".txt", ".md", ".py", ".js", ".java", ".cpp", ".ts"}:
+                            with open(path, "r", encoding="utf-8", errors="replace") as f:
+                                content = f.read(200_000)
+                            file_text += content + "\n"
+                            file_analysis["successfully_parsed"] = file_analysis.get("successfully_parsed", 0) + 1
+                except Exception as e:
+                    logger.warning(f"Fallback file read failed: {e}")
 
         # 2. Extract skills from project metadata
         metadata_skills = self._extract_skills_from_metadata(project_data)
@@ -303,9 +314,9 @@ class FCRITAcademicInferenceEngine:
                 "skills_from_files": file_skills,
                 "file_details": [
                     {
-                        "filename": r["filename"],
-                        "parse_success": r["parse_success"],
-                        "parse_method": r["parse_method"],
+                        "filename": r.get("filename", "unknown"),
+                        "parse_success": r.get("parse_success", False),
+                        "parse_method": r.get("parse_method", "none"),
                         "skills_found": r.get("skills_found", []),
                     }
                     for r in file_analysis.get("file_results", [])
@@ -390,7 +401,7 @@ class FCRITAcademicInferenceEngine:
                 "careerPaths": info["career_paths"],
                 "industryRelevance": info["industry_relevance"],
                 "source": "project_analysis",
-                "keywords": matches[:5],   # legacy compat
+                "keywords": matches[:5],
             })
 
         results.sort(key=lambda x: x["confidence"], reverse=True)
