@@ -1,22 +1,25 @@
 // src/services/student_projects_cloudinary.service.ts
-import { 
-  collection, 
-  doc, 
-  setDoc, 
-  getDoc, 
-  getDocs, 
-  query, 
-  where, 
-  orderBy, 
+import {
+  collection,
+  doc,
+  setDoc,
+  getDoc,
+  getDocs,
+  query,
+  where,
+  orderBy,
   serverTimestamp,
   updateDoc,
-  deleteDoc 
+  deleteDoc
 } from 'firebase/firestore';
 import { auth, db } from './firebase.config';
 import { cloudinaryService } from './cloudinary.service';
 import axios from 'axios';
 
-// Enhanced interfaces for comprehensive analysis
+// =============================================
+// INTERFACES
+// =============================================
+
 export interface InferredInterest {
   domain: string;
   confidence: number;
@@ -30,11 +33,15 @@ export interface InferredInterest {
 
 export interface ElectiveRecommendation {
   elective: string;
+  code?: string;
   match_score: number;
   reasons: string[];
   skills_to_gain: string[];
   career_relevance: string;
   difficulty_level: string;
+  score_breakdown?: any;
+  ranking_explanation?: any;
+  confidence?: any;
 }
 
 export interface HonoursRecommendation {
@@ -48,6 +55,7 @@ export interface HonoursRecommendation {
   semester_commitment: string;
   credits: number;
   eligibility_met: boolean;
+  score_breakdown?: any;
 }
 
 export interface CareerPath {
@@ -60,15 +68,17 @@ export interface CareerPath {
   salary_range: string;
   growth_potential: string;
   preparation_path: string[];
+  companies_hiring?: string[];
 }
 
 export interface SkillGapAnalysis {
   current_skills: string[];
-  required_skills: string[];
+  required_skills?: string[];
   skill_gaps: string[];
   priority_skills: string[];
   learning_resources: Record<string, string[]>;
   estimated_learning_time: string;
+  completeness_percentage?: number;
 }
 
 export interface NextStep {
@@ -92,6 +102,14 @@ export interface ComprehensiveAnalysis {
     student_semester: number;
     confidence_score: number;
     error?: string;
+    ml_model_used?: boolean;
+    files_parsed?: number;
+  };
+  data_summary?: {
+    total_marks_subjects: number;
+    total_interests: number;
+    total_projects: number;
+    cgpa: number;
   };
 }
 
@@ -105,17 +123,36 @@ interface ProjectFile {
   uploadedAt: string;
 }
 
+// =============================================
+// SERVICE CLASS
+// =============================================
+
 class StudentProjectsCloudinaryService {
   private readonly COLLECTION = 'student_projects';
-  private readonly API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1';
-  private axiosInstance = axios.create({
-    baseURL: this.API_BASE_URL,
-    headers: {
-      'Content-Type': 'application/json',
-    },
-  });
+  
+   private readonly API_BASE_URL: string;
+  private axiosInstance;
 
   constructor() {
+    const rawUrl = (import.meta.env.VITE_API_URL || 'http://localhost:8000').replace(/\/+$/, '');
+    
+    // If VITE_API_URL already has /api/v1, use it; otherwise add it
+    if (rawUrl.endsWith('/api/v1')) {
+      this.API_BASE_URL = rawUrl;
+    } else {
+      this.API_BASE_URL = `${rawUrl}/api/v1`;
+    }
+
+    console.log('🔧 StudentProjects API URL:', this.API_BASE_URL);
+
+    this.axiosInstance = axios.create({
+      baseURL: this.API_BASE_URL,
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      timeout: 60000,
+    });
+
     // Add auth interceptor
     this.axiosInstance.interceptors.request.use(
       async (config) => {
@@ -138,8 +175,13 @@ class StudentProjectsCloudinaryService {
     return await user.getIdToken();
   }
 
+
+  // =============================================
+  // CREATE PROJECT (saves to Firestore + triggers backend MongoDB save)
+  // =============================================
+
   async createProject(
-    projectData: any, 
+    projectData: any,
     files?: File[],
     onUploadProgress?: (fileIndex: number, progress: number) => void
   ) {
@@ -151,11 +193,11 @@ class StudentProjectsCloudinaryService {
 
       // Upload files to Cloudinary
       let uploadedFiles: ProjectFile[] = [];
-      
+
       if (files && files.length > 0) {
         for (let i = 0; i < files.length; i++) {
           const file = files[i];
-          
+
           const validation = cloudinaryService.validateFile(file);
           if (!validation.valid) {
             console.error(`File ${file.name} validation failed:`, validation.error);
@@ -173,20 +215,19 @@ class StudentProjectsCloudinaryService {
               name: file.name,
               url: uploadResult.secure_url,
               publicId: uploadResult.public_id,
-              thumbnailUrl: uploadResult.thumbnail_url || 
-                           cloudinaryService.getThumbnailUrl(uploadResult.public_id),
+              thumbnailUrl: uploadResult.thumbnail_url ||
+                cloudinaryService.getThumbnailUrl(uploadResult.public_id),
               size: file.size,
               type: file.type,
               uploadedAt: new Date().toISOString()
             });
-
           } catch (error) {
             console.error(`Failed to upload file ${file.name}:`, error);
           }
         }
       }
 
-      // Create project document
+      // Create project document for Firestore
       const projectId = `project_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
       const projectDoc = {
         ...projectData,
@@ -200,17 +241,21 @@ class StudentProjectsCloudinaryService {
         status: 'active'
       };
 
-      // Save to Firestore
+      // Save to Firestore (for frontend listing)
       await setDoc(doc(db, this.COLLECTION, projectId), projectDoc);
+      console.log('✅ Project saved to Firestore:', projectId);
 
-      // Generate AI interests
+      // Also save to MongoDB via backend (for ML recommendations)
+      try {
+        await this.saveProjectToBackend(projectData, uploadedFiles);
+        console.log('✅ Project also saved to MongoDB via backend');
+      } catch (backendError) {
+        console.warn('⚠️ Backend MongoDB save failed (analysis will still work):', backendError);
+      }
+
+      // Generate local interests for Firestore profile
       const inferredInterests = this.analyzeProjectInterests(projectData);
-
-      // Update user's interest profile
       await this.updateUserInterestProfile(user.uid, inferredInterests);
-
-      // Dispatch event for dashboard refresh
-      //window.dispatchEvent(new Event('projectUploaded'));
 
       return {
         success: true,
@@ -218,197 +263,320 @@ class StudentProjectsCloudinaryService {
         uploadedFiles,
         inferredInterests
       };
-
     } catch (error: any) {
       console.error('Error in createProject:', error);
       throw new Error(`Failed to create project: ${error.message}`);
     }
   }
 
-async analyzeProjectComprehensive(
+  // =============================================
+  // SAVE PROJECT TO BACKEND (MongoDB)
+  // =============================================
+
+  private async saveProjectToBackend(projectData: any, uploadedFiles: ProjectFile[]) {
+    try {
+      const payload = {
+        title: projectData.title,
+        description: projectData.description,
+        detailed_description: projectData.detailedDescription || '',
+        project_type: projectData.projectType || 'personal',
+        start_date: projectData.startDate,
+        end_date: projectData.endDate,
+        programming_languages: projectData.programmingLanguages || [],
+        frameworks: projectData.frameworks || [],
+        tools: projectData.tools || [],
+        technologies: projectData.technologies || [],
+        github_url: projectData.githubUrl || '',
+        demo_url: projectData.demoUrl || '',
+        is_team_project: projectData.isTeamProject || false,
+        team_size: projectData.teamSize || 1,
+        key_achievements: projectData.keyAchievements || [],
+        challenges_faced: projectData.challengesFaced || [],
+        learnings: projectData.learnings || [],
+        files: uploadedFiles.map(f => ({
+          name: f.name,
+          url: f.url,
+          size: f.size,
+          type: f.type,
+        })),
+      };
+
+      await this.axiosInstance.post('/student-projects/save-project', payload);
+    } catch (error) {
+      // Non-critical - the analyze-comprehensive endpoint also saves
+      console.warn('Direct project save to backend failed:', error);
+    }
+  }
+
+  // =============================================
+  // COMPREHENSIVE ANALYSIS (the main AI analysis)
+  // =============================================
+
+  async analyzeProjectComprehensive(
     projectData: any,
     files?: File[]
   ): Promise<ComprehensiveAnalysis> {
     try {
       const formData = new FormData();
-      
+
       const studentBranch = localStorage.getItem('userBranch') || 'IT';
       const studentSemester = parseInt(localStorage.getItem('userSemester') || '5');
-      
-      formData.append('project_data', JSON.stringify(projectData));
+
+      // Send project data as JSON string
+      formData.append('project_data', JSON.stringify({
+        title: projectData.title,
+        description: projectData.description,
+        detailedDescription: projectData.detailedDescription || '',
+        projectType: projectData.projectType || 'personal',
+        startDate: projectData.startDate,
+        endDate: projectData.endDate,
+        programmingLanguages: projectData.programmingLanguages || [],
+        frameworks: projectData.frameworks || [],
+        tools: projectData.tools || [],
+        technologies: projectData.technologies || [],
+        githubUrl: projectData.githubUrl || '',
+        demoUrl: projectData.demoUrl || '',
+        isTeamProject: projectData.isTeamProject || false,
+        teamSize: projectData.teamSize || 1,
+        keyAchievements: projectData.keyAchievements || [],
+        challengesFaced: projectData.challengesFaced || [],
+        learnings: projectData.learnings || [],
+      }));
+
       formData.append('student_branch', studentBranch);
       formData.append('student_semester', studentSemester.toString());
-      
+
       if (files && files.length > 0) {
         files.forEach(file => {
           formData.append('files', file);
         });
       }
-      
+
+      console.log('🔄 Sending analysis request to backend...');
+      console.log('   Branch:', studentBranch, 'Semester:', studentSemester);
+      console.log('   Skills:', projectData.programmingLanguages);
+      console.log('   Frameworks:', projectData.frameworks);
+      console.log('   Tools:', projectData.tools);
+
+      const token = await this.getAuthToken();
+
       const response = await fetch(`${this.API_BASE_URL}/student-projects/analyze-comprehensive`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${await this.getAuthToken()}`
+          'Authorization': `Bearer ${token}`
         },
         body: formData
       });
-      
+
       if (!response.ok) {
-        const error = await response.json().catch(() => ({ detail: 'Analysis failed' }));
-        throw new Error(error.detail || 'Analysis failed');
+        const errorText = await response.text();
+        console.error('❌ Backend analysis failed:', response.status, errorText);
+
+        let errorDetail = 'Analysis failed';
+        try {
+          const errorJson = JSON.parse(errorText);
+          errorDetail = errorJson.detail || errorDetail;
+        } catch {
+          // not JSON
+        }
+        throw new Error(errorDetail);
       }
-      
+
       const result = await response.json();
-      
-      // ═══════════════════════════════════════════════════════════
-      //  ROBUST RESPONSE PARSING
-      //  The backend can return:
-      //    A) Legacy format (top-level fields)
-      //    B) Nested under result.analysis
-      //    C) New format with cumulative_recommendations
-      // ═══════════════════════════════════════════════════════════
-      
-      const source = result.analysis || result;
-      
-      // Parse inferred interests (handle both formats)
-      const inferredInterests: InferredInterest[] = (source.inferred_interests || []).map((i: any) => ({
-        domain: i.domain || '',
-        confidence: i.confidence || 0,
-        keywords: i.keywords || i.matched_keywords || [],
-        relatedSkills: i.relatedSkills || i.related_skills || [],
-        careerPaths: i.careerPaths || i.career_paths || [],
-        industryRelevance: i.industryRelevance || i.industry_relevance || (i.confidence * 0.9),
-        reasoning: i.reasoning || `Detected from project analysis`,
-        evidence: i.evidence || i.keywords || [],
-      }));
-      
-      // Parse elective recommendations (handle both legacy and cumulative)
-      let electiveRecs: ElectiveRecommendation[] = [];
-      if (source.elective_recommendations && source.elective_recommendations.length > 0) {
-        // Legacy format from backend
-        electiveRecs = source.elective_recommendations.map((e: any) => ({
-          elective: e.elective || e.elective_name || '',
-          code: e.code || e.elective_code || '',
-          match_score: e.match_score || 0,
-          reasons: e.reasons || [e.match_explanation || 'Based on your profile'],
-          skills_to_gain: e.skills_to_gain || e.skill_alignment || [],
-          career_relevance: e.career_relevance || '',
-          difficulty_level: e.difficulty_level || 'Intermediate',
-        }));
-      } else if (source.cumulative_recommendations?.electives) {
-        // New cumulative format
-        electiveRecs = source.cumulative_recommendations.electives.map((e: any) => ({
-          elective: e.elective_name || '',
-          code: e.elective_code || '',
-          match_score: e.match_score || 0,
-          reasons: [e.match_explanation || 'Based on cumulative analysis'],
-          skills_to_gain: e.skill_alignment || [],
-          career_relevance: (e.career_relevance || []).join(', '),
-          difficulty_level: 'Intermediate',
-        }));
-      }
-      
-      // Parse honours recommendations
-      let honoursRecs: HonoursRecommendation[] = [];
-      if (source.honours_minor_recommendations && source.honours_minor_recommendations.length > 0) {
-        honoursRecs = source.honours_minor_recommendations;
-      } else if (source.cumulative_recommendations?.honours) {
-        honoursRecs = source.cumulative_recommendations.honours.map((h: any) => ({
-          program: h.program || '',
-          type: h.type || 'Honours',
-          match_score: h.match_score || 0,
-          reasons: [h.explanation || 'Based on your profile'],
-          courses: h.skills_gained || h.courses || [],
-          career_paths: h.career_paths || [],
-          skills_to_develop: h.skills_gained || [],
-          semester_commitment: '4 semesters (Sem V-VIII)',
-          credits: 18,
-          eligibility_met: h.eligibility !== false,
-        }));
-      }
-      
-      // Parse career paths
-      let careerPaths: CareerPath[] = [];
-      if (source.career_paths && source.career_paths.length > 0) {
-        careerPaths = source.career_paths.map((c: any) => ({
-          title: c.title || c.career || '',
-          match_score: c.match_score || 0,
-          source_domains: c.source_domains || [],
-          required_skills: c.required_skills || c.missing_skills || [],
-          honours_program: c.honours_program,
-          market_demand: c.market_demand || c.growth_potential || 'High',
-          salary_range: c.salary_range || '',
-          growth_potential: c.growth_potential || 'High',
-          preparation_path: c.preparation_path || [],
-          companies_hiring: c.companies_hiring || c.top_companies || [],
-        }));
-      } else if (source.cumulative_recommendations?.careers) {
-        careerPaths = source.cumulative_recommendations.careers.map((c: any) => ({
-          title: c.career || '',
-          match_score: c.match_score || 0,
-          source_domains: [],
-          required_skills: c.missing_skills || [],
-          market_demand: c.growth_potential === 'Very High' ? 'Very High' : 'High',
-          salary_range: c.salary_range || '',
-          growth_potential: c.growth_potential || 'High',
-          preparation_path: c.preparation_path || [],
-          companies_hiring: c.top_companies || [],
-        }));
-      }
-      
-      // Parse skill gap analysis
-      const skillGap: SkillGapAnalysis = source.skill_gap_analysis || {
-        current_skills: source.cumulative_recommendations?.electives?.[0]?.skill_alignment || [],
-        required_skills: [],
-        skill_gaps: [],
-        priority_skills: [],
-        learning_resources: {},
-        estimated_learning_time: '2-3 months',
-      };
-      
-      // Parse next steps
-      const nextSteps: NextStep[] = (source.next_steps || []).map((s: any) => ({
-        category: s.category || 'General',
-        action: s.action || '',
-        deadline: s.deadline || 'This semester',
-        priority: s.priority || 'medium',
-        details: s.details || '',
-      }));
-      
-      const validatedAnalysis: ComprehensiveAnalysis = {
-        inferred_interests: inferredInterests,
-        elective_recommendations: electiveRecs,
-        honours_minor_recommendations: honoursRecs,
-        career_paths: careerPaths,
-        skill_gap_analysis: skillGap,
-        next_steps: nextSteps,
-        metadata: {
-          analysis_date: source.metadata?.analysis_date || result.generated_at || new Date().toISOString(),
-          student_branch: result.student_info?.branch || studentBranch,
-          student_semester: result.student_info?.semester || studentSemester,
-          confidence_score: source.metadata?.confidence_score || 0.8,
-        },
-      };
-      
+      console.log('✅ Raw backend response received:', Object.keys(result));
+
+      // Parse the response into our frontend format
+      const analysis = this.parseBackendResponse(result, studentBranch, studentSemester);
+
       // Store for quick access
-      localStorage.setItem('latestAnalysis', JSON.stringify(validatedAnalysis));
+      localStorage.setItem('latestAnalysis', JSON.stringify(analysis));
       localStorage.setItem('analysisDate', new Date().toISOString());
-      
+
       console.log('✅ Analysis parsed successfully:', {
-        interests: validatedAnalysis.inferred_interests.length,
-        electives: validatedAnalysis.elective_recommendations.length,
-        honours: validatedAnalysis.honours_minor_recommendations.length,
-        careers: validatedAnalysis.career_paths.length,
-        nextSteps: validatedAnalysis.next_steps.length,
+        interests: analysis.inferred_interests.length,
+        electives: analysis.elective_recommendations.length,
+        honours: analysis.honours_minor_recommendations.length,
+        careers: analysis.career_paths.length,
+        nextSteps: analysis.next_steps.length,
       });
-      
-      return validatedAnalysis;
-      
+
+      return analysis;
+
     } catch (error: any) {
-      console.error('Comprehensive analysis error:', error);
+      console.error('❌ Comprehensive analysis error:', error);
+      console.log('🔄 Falling back to frontend analysis...');
       return this.fallbackFrontendAnalysis(projectData, files || []);
     }
   }
+
+  // =============================================
+  // PARSE BACKEND RESPONSE (handles all formats)
+  // =============================================
+
+  private parseBackendResponse(
+    result: any,
+    studentBranch: string,
+    studentSemester: number
+  ): ComprehensiveAnalysis {
+    // The backend can return data at top level OR nested under result.analysis
+    const source = result.analysis || result;
+
+    // --- Parse inferred interests ---
+    const inferredInterests: InferredInterest[] = (source.inferred_interests || []).map((i: any) => ({
+      domain: i.domain || '',
+      confidence: i.confidence || 0,
+      keywords: i.keywords || i.matched_keywords || [],
+      relatedSkills: i.relatedSkills || i.related_skills || [],
+      careerPaths: i.careerPaths || i.career_paths || [],
+      industryRelevance: i.industryRelevance || i.industry_relevance || (i.confidence * 0.9),
+      reasoning: i.reasoning || 'Detected from project analysis',
+      evidence: i.evidence || i.keywords || i.matched_keywords || [],
+    }));
+
+    // --- Parse elective recommendations ---
+    let electiveRecs: ElectiveRecommendation[] = [];
+
+    // Try top-level elective_recommendations first
+    if (source.elective_recommendations && source.elective_recommendations.length > 0) {
+      electiveRecs = source.elective_recommendations.map((e: any) => ({
+        elective: e.elective || e.elective_name || '',
+        code: e.code || e.elective_code || '',
+        match_score: e.match_score || 0,
+        reasons: e.reasons || [e.match_explanation || 'Based on your profile'],
+        skills_to_gain: e.skills_to_gain || e.skill_alignment || [],
+        career_relevance: Array.isArray(e.career_relevance)
+          ? e.career_relevance.join(', ')
+          : e.career_relevance || '',
+        difficulty_level: e.difficulty_level || 'Intermediate',
+        score_breakdown: e.score_breakdown || null,
+        ranking_explanation: e.ranking_explanation || null,
+        confidence: e.confidence || null,
+      }));
+    }
+    // Try cumulative_recommendations.electives
+    else if (source.cumulative_recommendations?.electives) {
+      electiveRecs = source.cumulative_recommendations.electives.map((e: any) => ({
+        elective: e.elective_name || e.elective || '',
+        code: e.elective_code || '',
+        match_score: e.match_score || 0,
+        reasons: [e.match_explanation || 'Based on cumulative analysis'],
+        skills_to_gain: e.skill_alignment || [],
+        career_relevance: Array.isArray(e.career_relevance)
+          ? e.career_relevance.join(', ')
+          : e.career_relevance || '',
+        difficulty_level: 'Intermediate',
+        score_breakdown: e.score_breakdown || null,
+        ranking_explanation: e.ranking_explanation || null,
+        confidence: e.confidence || null,
+      }));
+    }
+
+    // --- Parse honours recommendations ---
+    let honoursRecs: HonoursRecommendation[] = [];
+
+    if (source.honours_minor_recommendations && source.honours_minor_recommendations.length > 0) {
+      honoursRecs = source.honours_minor_recommendations.map((h: any) => ({
+        program: h.program || '',
+        type: h.type || 'Honours',
+        match_score: h.match_score || 0,
+        reasons: h.reasons || [h.explanation || 'Based on your profile'],
+        courses: h.courses || h.skills_gained || [],
+        career_paths: h.career_paths || [],
+        skills_to_develop: h.skills_to_develop || h.skills_gained || [],
+        semester_commitment: h.semester_commitment || '4 semesters (Sem V-VIII)',
+        credits: h.credits || 18,
+        eligibility_met: h.eligibility_met !== undefined ? h.eligibility_met : (h.eligibility !== false),
+        score_breakdown: h.score_breakdown || null,
+      }));
+    } else if (source.cumulative_recommendations?.honours) {
+      honoursRecs = source.cumulative_recommendations.honours.map((h: any) => ({
+        program: h.program || '',
+        type: h.type || 'Honours',
+        match_score: h.match_score || 0,
+        reasons: [h.explanation || 'Based on your profile'],
+        courses: h.skills_gained || h.courses || [],
+        career_paths: h.career_paths || [],
+        skills_to_develop: h.skills_gained || [],
+        semester_commitment: '4 semesters (Sem V-VIII)',
+        credits: 18,
+        eligibility_met: h.eligibility !== false,
+        score_breakdown: h.score_breakdown || null,
+      }));
+    }
+
+    // --- Parse career paths ---
+    let careerPaths: CareerPath[] = [];
+
+    if (source.career_paths && source.career_paths.length > 0) {
+      careerPaths = source.career_paths.map((c: any) => ({
+        title: c.title || c.career || '',
+        match_score: c.match_score || 0,
+        source_domains: c.source_domains || [],
+        required_skills: c.required_skills || c.missing_skills || [],
+        honours_program: c.honours_program,
+        market_demand: c.market_demand || c.growth_potential || 'High',
+        salary_range: c.salary_range || '',
+        growth_potential: c.growth_potential || 'High',
+        preparation_path: c.preparation_path || [],
+        companies_hiring: c.companies_hiring || c.top_companies || [],
+      }));
+    } else if (source.cumulative_recommendations?.careers) {
+      careerPaths = source.cumulative_recommendations.careers.map((c: any) => ({
+        title: c.career || '',
+        match_score: c.match_score || 0,
+        source_domains: [],
+        required_skills: c.missing_skills || [],
+        market_demand: c.growth_potential === 'Very High' ? 'Very High' : 'High',
+        salary_range: c.salary_range || '',
+        growth_potential: c.growth_potential || 'High',
+        preparation_path: c.preparation_path || [],
+        companies_hiring: c.top_companies || [],
+      }));
+    }
+
+    // --- Parse skill gap analysis ---
+    const rawSkillGap = source.skill_gap_analysis || {};
+    const skillGap: SkillGapAnalysis = {
+      current_skills: rawSkillGap.current_skills || [],
+      required_skills: rawSkillGap.required_skills || [],
+      skill_gaps: rawSkillGap.skill_gaps || [],
+      priority_skills: rawSkillGap.priority_skills || [],
+      learning_resources: rawSkillGap.learning_resources || {},
+      estimated_learning_time: rawSkillGap.estimated_learning_time || '2-3 months',
+      completeness_percentage: rawSkillGap.completeness_percentage || 0,
+    };
+
+    // --- Parse next steps ---
+    const nextSteps: NextStep[] = (source.next_steps || []).map((s: any) => ({
+      category: s.category || 'General',
+      action: s.action || '',
+      deadline: s.deadline || 'This semester',
+      priority: s.priority || 'medium',
+      details: s.details || '',
+    }));
+
+    return {
+      inferred_interests: inferredInterests,
+      elective_recommendations: electiveRecs,
+      honours_minor_recommendations: honoursRecs,
+      career_paths: careerPaths,
+      skill_gap_analysis: skillGap,
+      next_steps: nextSteps,
+      metadata: {
+        analysis_date: source.metadata?.analysis_date || result.generated_at || new Date().toISOString(),
+        student_branch: result.student_info?.branch || studentBranch,
+        student_semester: result.student_info?.semester || studentSemester,
+        confidence_score: source.metadata?.confidence_score || 0.8,
+        ml_model_used: source.metadata?.ml_model_used || false,
+        files_parsed: source.metadata?.files_parsed || 0,
+      },
+      data_summary: result.data_summary || undefined,
+    };
+  }
+
+  // =============================================
+  // FALLBACK FRONTEND ANALYSIS
+  // =============================================
 
   private fallbackFrontendAnalysis(
     projectData: any,
@@ -417,8 +585,7 @@ async analyzeProjectComprehensive(
     try {
       const studentBranch = localStorage.getItem('userBranch') || 'IT';
       const studentSemester = parseInt(localStorage.getItem('userSemester') || '5');
-      
-      // Generate comprehensive analysis using frontend logic
+
       const inferredInterests = this.analyzeProjectInterests(projectData);
       const electiveRecommendations = this.recommendElectives(projectData, studentBranch, studentSemester);
       const honoursRecommendations = this.recommendHonoursPrograms(projectData, studentBranch, inferredInterests);
@@ -437,15 +604,12 @@ async analyzeProjectComprehensive(
           analysis_date: new Date().toISOString(),
           student_branch: studentBranch,
           student_semester: studentSemester,
-          confidence_score: 0.7, // Lower confidence for frontend analysis
-          error: 'Backend analysis failed, using frontend fallback'
+          confidence_score: 0.6,
+          error: 'Backend unavailable - using frontend fallback analysis'
         }
       };
-
     } catch (error: any) {
-      console.error('Error in frontend fallback analysis:', error);
-      
-      // Return empty analysis structure on error
+      console.error('Frontend fallback analysis also failed:', error);
       return {
         inferred_interests: [],
         elective_recommendations: [],
@@ -453,7 +617,6 @@ async analyzeProjectComprehensive(
         career_paths: [],
         skill_gap_analysis: {
           current_skills: projectData.programmingLanguages || [],
-          required_skills: [],
           skill_gaps: [],
           priority_skills: [],
           learning_resources: {},
@@ -471,264 +634,319 @@ async analyzeProjectComprehensive(
     }
   }
 
-  // Existing methods remain the same...
-  private recommendElectives(projectData: any, branch: string, semester: number): ElectiveRecommendation[] {
-    const recommendations: ElectiveRecommendation[] = [];
-    
-    // IT Branch Semester 5 Electives
-    if (branch === 'IT' && semester === 5) {
-      // Data Warehousing
-      if (projectData.tools?.some((t: string) => 
-        ['SQL', 'Database', 'ETL', 'BI'].some(keyword => t.toLowerCase().includes(keyword.toLowerCase()))
-      )) {
-        recommendations.push({
-          elective: 'Data Warehousing',
-          match_score: 92,
-          reasons: [
-            'Your experience with databases aligns perfectly',
-            'Critical for data-driven career paths',
-            'Builds on your existing SQL knowledge'
-          ],
-          skills_to_gain: ['ETL', 'OLAP', 'Data Modeling', 'Business Intelligence'],
-          career_relevance: 'Essential for Data Analyst and BI Developer roles',
-          difficulty_level: 'Moderate - Well prepared'
-        });
-      }
+  // =============================================
+  // LOCAL INTEREST ANALYSIS (for fallback + Firestore)
+  // =============================================
 
-      // Cloud Computing
-      if (projectData.tools?.some((t: string) => 
-        ['Docker', 'AWS', 'Cloud', 'Kubernetes'].some(keyword => t.toLowerCase().includes(keyword.toLowerCase()))
-      )) {
-        recommendations.push({
-          elective: 'Cloud Computing',
-          match_score: 88,
-          reasons: [
-            'Your DevOps tools experience is valuable',
-            'High industry demand for cloud skills',
-            'Natural progression from your current skills'
-          ],
-          skills_to_gain: ['AWS', 'Azure', 'Docker', 'Microservices', 'Serverless'],
-          career_relevance: 'Critical for modern tech careers',
-          difficulty_level: 'Moderate - Some preparation needed'
-        });
-      }
+  private analyzeProjectInterests(projectData: any): InferredInterest[] {
+    const interests: InferredInterest[] = [];
+    const languages = projectData.programmingLanguages || [];
+    const frameworks = projectData.frameworks || [];
+    const tools = projectData.tools || [];
+    const allTech = [...languages, ...frameworks, ...tools].map(s => s.toLowerCase());
+    const textBlob = [
+      projectData.title || '',
+      projectData.description || '',
+      projectData.detailedDescription || '',
+      ...allTech,
+      ...(projectData.keyAchievements || []),
+      ...(projectData.learnings || []),
+    ].join(' ').toLowerCase();
+
+    // AI/ML Detection
+    const aiKeywords = ['python', 'tensorflow', 'pytorch', 'scikit-learn', 'sklearn',
+      'machine learning', 'deep learning', 'neural', 'nlp', 'ai',
+      'keras', 'pandas', 'numpy', 'data science', 'model', 'prediction',
+      'classification', 'regression', 'computer vision', 'opencv'];
+    const aiMatches = aiKeywords.filter(kw => textBlob.includes(kw));
+    if (aiMatches.length > 0) {
+      interests.push({
+        domain: 'Artificial Intelligence & Machine Learning',
+        confidence: Math.min(aiMatches.length / 4, 1.0),
+        keywords: aiMatches,
+        relatedSkills: ['TensorFlow', 'PyTorch', 'Pandas', 'NumPy', 'Scikit-learn'],
+        careerPaths: ['ML Engineer', 'Data Scientist', 'AI Researcher'],
+        industryRelevance: 0.95,
+        reasoning: 'AI/ML technologies detected in project',
+        evidence: aiMatches.slice(0, 5),
+      });
     }
 
-    // Default recommendation if no specific matches
+    // Web Development Detection
+    const webKeywords = ['javascript', 'typescript', 'react', 'angular', 'vue',
+      'node', 'express', 'html', 'css', 'frontend', 'backend', 'fullstack',
+      'web', 'django', 'flask', 'fastapi', 'next.js', 'rest api'];
+    const webMatches = webKeywords.filter(kw => textBlob.includes(kw));
+    if (webMatches.length > 0) {
+      interests.push({
+        domain: 'Web Development',
+        confidence: Math.min(webMatches.length / 4, 1.0),
+        keywords: webMatches,
+        relatedSkills: ['JavaScript', 'React', 'Node.js', 'HTML/CSS', 'TypeScript'],
+        careerPaths: ['Full Stack Developer', 'Frontend Developer', 'Backend Developer'],
+        industryRelevance: 0.90,
+        reasoning: 'Web technologies detected in project',
+        evidence: webMatches.slice(0, 5),
+      });
+    }
+
+    // Cloud & DevOps Detection
+    const cloudKeywords = ['docker', 'kubernetes', 'aws', 'azure', 'gcp', 'cloud',
+      'devops', 'terraform', 'ci/cd', 'jenkins', 'serverless', 'microservices',
+      'container', 'deploy', 'hosting'];
+    const cloudMatches = cloudKeywords.filter(kw => textBlob.includes(kw));
+    if (cloudMatches.length > 0) {
+      interests.push({
+        domain: 'Cloud & Distributed Systems',
+        confidence: Math.min(cloudMatches.length / 4, 1.0),
+        keywords: cloudMatches,
+        relatedSkills: ['AWS', 'Docker', 'Kubernetes', 'Terraform', 'Linux'],
+        careerPaths: ['Cloud Architect', 'DevOps Engineer', 'SRE'],
+        industryRelevance: 0.92,
+        reasoning: 'Cloud/DevOps tools detected in project',
+        evidence: cloudMatches.slice(0, 5),
+      });
+    }
+
+    // Data Science & Analytics Detection
+    const dataKeywords = ['sql', 'database', 'mongodb', 'postgresql', 'data',
+      'analytics', 'visualization', 'tableau', 'power bi', 'etl',
+      'data warehouse', 'dashboard', 'report', 'bi'];
+    const dataMatches = dataKeywords.filter(kw => textBlob.includes(kw));
+    if (dataMatches.length > 0) {
+      interests.push({
+        domain: 'Data Science & Analytics',
+        confidence: Math.min(dataMatches.length / 4, 1.0),
+        keywords: dataMatches,
+        relatedSkills: ['SQL', 'Python', 'Tableau', 'Pandas', 'R'],
+        careerPaths: ['Data Analyst', 'BI Developer', 'Data Engineer'],
+        industryRelevance: 0.88,
+        reasoning: 'Data technologies detected in project',
+        evidence: dataMatches.slice(0, 5),
+      });
+    }
+
+    // IoT & Embedded Detection
+    const iotKeywords = ['arduino', 'raspberry pi', 'iot', 'embedded', 'sensor',
+      'mqtt', 'bluetooth', 'zigbee', 'microcontroller', 'esp32',
+      'smart home', 'wearable', 'gpio'];
+    const iotMatches = iotKeywords.filter(kw => textBlob.includes(kw));
+    if (iotMatches.length > 0) {
+      interests.push({
+        domain: 'Mobile & IoT Development',
+        confidence: Math.min(iotMatches.length / 3, 1.0),
+        keywords: iotMatches,
+        relatedSkills: ['Arduino', 'Raspberry Pi', 'C/C++', 'MQTT', 'Sensors'],
+        careerPaths: ['IoT Engineer', 'Embedded Developer'],
+        industryRelevance: 0.85,
+        reasoning: 'IoT/Embedded technologies detected in project',
+        evidence: iotMatches.slice(0, 5),
+      });
+    }
+
+    // Sort by confidence
+    interests.sort((a, b) => b.confidence - a.confidence);
+    return interests.slice(0, 4);
+  }
+
+  // =============================================
+  // LOCAL ELECTIVE RECOMMENDATIONS (fallback)
+  // =============================================
+
+  private recommendElectives(projectData: any, branch: string, semester: number): ElectiveRecommendation[] {
+    const recommendations: ElectiveRecommendation[] = [];
+    const allTech = [
+      ...(projectData.programmingLanguages || []),
+      ...(projectData.frameworks || []),
+      ...(projectData.tools || []),
+    ].map(s => s.toLowerCase());
+    const textBlob = [
+      projectData.title || '',
+      projectData.description || '',
+      ...allTech,
+    ].join(' ').toLowerCase();
+
+    // ML
+    const mlKeywords = ['python', 'tensorflow', 'pytorch', 'machine learning', 'ai', 'data science', 'neural'];
+    const mlHits = mlKeywords.filter(kw => textBlob.includes(kw)).length;
+    if (mlHits > 0) {
+      recommendations.push({
+        elective: 'Machine Learning',
+        match_score: Math.min(mlHits * 15 + 30, 95),
+        reasons: ['Your Python/AI skills align perfectly', 'High industry demand for ML engineers'],
+        skills_to_gain: ['TensorFlow', 'PyTorch', 'Neural Networks', 'NLP'],
+        career_relevance: 'Essential for Data Science and AI careers',
+        difficulty_level: mlHits >= 3 ? 'Well Prepared' : 'Moderate',
+      });
+    }
+
+    // Cloud Computing
+    const cloudKeywords = ['docker', 'aws', 'cloud', 'kubernetes', 'devops', 'deploy', 'web', 'react', 'node'];
+    const cloudHits = cloudKeywords.filter(kw => textBlob.includes(kw)).length;
+    if (cloudHits > 0) {
+      recommendations.push({
+        elective: 'Cloud Computing Services',
+        match_score: Math.min(cloudHits * 12 + 30, 92),
+        reasons: ['Your DevOps/web experience aligns well', 'Critical for modern deployment'],
+        skills_to_gain: ['AWS', 'Azure', 'Docker', 'Kubernetes', 'Serverless'],
+        career_relevance: 'Essential for Cloud Architect and DevOps roles',
+        difficulty_level: cloudHits >= 3 ? 'Well Prepared' : 'Moderate',
+      });
+    }
+
+    // DWM
+    const dwmKeywords = ['sql', 'database', 'mongodb', 'data', 'analytics', 'etl'];
+    const dwmHits = dwmKeywords.filter(kw => textBlob.includes(kw)).length;
+    if (dwmHits > 0) {
+      recommendations.push({
+        elective: 'Data Warehouse and Mining',
+        match_score: Math.min(dwmHits * 14 + 25, 90),
+        reasons: ['Database skills provide solid foundation', 'Critical for data careers'],
+        skills_to_gain: ['ETL', 'OLAP', 'Data Modeling', 'Business Intelligence'],
+        career_relevance: 'Essential for Data Analyst and BI Developer roles',
+        difficulty_level: 'Moderate',
+      });
+    }
+
+    // WT
+    const wtKeywords = ['iot', 'arduino', 'embedded', 'sensor', 'wireless', 'network', 'microcontroller'];
+    const wtHits = wtKeywords.filter(kw => textBlob.includes(kw)).length;
+    if (wtHits > 0) {
+      recommendations.push({
+        elective: 'Wireless Technology',
+        match_score: Math.min(wtHits * 14 + 25, 90),
+        reasons: ['IoT/embedded experience aligns well', 'Growing IoT market demand'],
+        skills_to_gain: ['IoT Protocols', 'Wireless Networks', 'Sensor Integration'],
+        career_relevance: 'Essential for IoT Engineer and Network roles',
+        difficulty_level: 'Moderate',
+      });
+    }
+
+    // Default if no matches
     if (recommendations.length === 0) {
       recommendations.push({
-        elective: 'Cloud Computing',
-        match_score: 75,
-        reasons: [
-          'Universal relevance in modern tech',
-          'High industry demand',
-          'Complements any tech stack'
-        ],
-        skills_to_gain: ['Cloud Architecture', 'DevOps', 'Scalability'],
-        career_relevance: 'Essential for most tech careers',
-        difficulty_level: 'Challenging - Preparation required'
+        elective: 'Machine Learning',
+        match_score: 65,
+        reasons: ['Universal relevance in modern tech', 'High industry demand'],
+        skills_to_gain: ['Python', 'TensorFlow', 'Data Analysis'],
+        career_relevance: 'Applicable across many tech careers',
+        difficulty_level: 'Challenging - Preparation needed',
+      });
+    }
+
+    recommendations.sort((a, b) => b.match_score - a.match_score);
+    return recommendations;
+  }
+
+  // =============================================
+  // LOCAL HONOURS RECOMMENDATIONS (fallback)
+  // =============================================
+
+  private recommendHonoursPrograms(
+    projectData: any,
+    branch: string,
+    interests: InferredInterest[]
+  ): HonoursRecommendation[] {
+    const recommendations: HonoursRecommendation[] = [];
+    const interestDomains = interests.map(i => i.domain.toLowerCase());
+
+    if (interestDomains.some(d => d.includes('ai') || d.includes('machine learning'))) {
+      recommendations.push({
+        program: 'AI & Machine Learning',
+        type: branch === 'IT' ? 'Honours' : 'Minor',
+        match_score: 90,
+        reasons: ['Strong alignment with your AI/ML interests', 'Excellent career prospects'],
+        courses: ['Knowledge Engineering', 'Foundation ML', 'Deep Learning', 'Advanced AI'],
+        career_paths: ['ML Engineer', 'AI Researcher', 'Data Scientist'],
+        skills_to_develop: ['TensorFlow', 'PyTorch', 'Neural Networks', 'NLP'],
+        semester_commitment: '4 semesters (Sem V-VIII)',
+        credits: 18,
+        eligibility_met: true,
+      });
+    }
+
+    if (interestDomains.some(d => d.includes('cloud') || d.includes('web'))) {
+      recommendations.push({
+        program: 'Cloud Computing',
+        type: 'Minor',
+        match_score: 80,
+        reasons: ['DevOps/cloud tools experience is valuable', 'High industry demand'],
+        courses: ['Cloud Architecture', 'AWS Services', 'Kubernetes', 'Serverless'],
+        career_paths: ['Cloud Architect', 'DevOps Engineer', 'SRE'],
+        skills_to_develop: ['AWS', 'Azure', 'Docker', 'Kubernetes', 'Terraform'],
+        semester_commitment: '4 semesters (Sem V-VIII)',
+        credits: 18,
+        eligibility_met: true,
+      });
+    }
+
+    if (interestDomains.some(d => d.includes('data'))) {
+      recommendations.push({
+        program: 'Data Science',
+        type: branch === 'IT' ? 'Minor' : 'Honours',
+        match_score: 85,
+        reasons: ['Data-focused project experience', 'High industry demand'],
+        courses: ['Statistical Methods', 'Big Data', 'Machine Learning', 'Visualization'],
+        career_paths: ['Data Scientist', 'Data Analyst', 'BI Analyst'],
+        skills_to_develop: ['Python', 'R', 'SQL', 'Tableau'],
+        semester_commitment: '4 semesters (Sem V-VIII)',
+        credits: 18,
+        eligibility_met: true,
+      });
+    }
+
+    if (recommendations.length === 0) {
+      recommendations.push({
+        program: 'AI & Machine Learning',
+        type: 'Honours',
+        match_score: 70,
+        reasons: ['Universal relevance', 'Strong career prospects in AI'],
+        courses: ['Foundation ML', 'Deep Learning'],
+        career_paths: ['ML Engineer', 'Data Scientist'],
+        skills_to_develop: ['Python', 'TensorFlow'],
+        semester_commitment: '4 semesters (Sem V-VIII)',
+        credits: 18,
+        eligibility_met: true,
       });
     }
 
     return recommendations;
   }
 
-private recommendHonoursPrograms(
-  projectData: any, 
-  branch: string,
-  interests: InferredInterest[]
-): HonoursRecommendation[] {
-  const recommendations: HonoursRecommendation[] = [];
-  
-  // IT Department specific programmes
-  const IT_HONOURS = ['Cybersecurity', 'AI & Machine Learning', 'AIML'];
-  const IT_MINORS = ['Data Science', 'Cloud Computing', 'Blockchain', 'Full Stack Development', 'IoT', 'DevOps'];
-  
-  // Helper function to determine type for IT branch
-  const getProgrammeTypeForIT = (programName: string): 'Honours' | 'Minor' => {
-    const nameLower = programName.toLowerCase();
-    if (IT_HONOURS.some(h => nameLower.includes(h.toLowerCase()))) {
-      return 'Honours';
-    }
-    return 'Minor';
-  };
-  
-  // AI & ML - Honours for IT
-  if (interests.some(i => i.domain.includes('AI') || i.domain.includes('Machine Learning'))) {
-    if (['IT', 'COMP', 'EXTC'].includes(branch)) {
-      recommendations.push({
-        program: 'AI & Machine Learning',
-        type: branch === 'IT' ? 'Honours' : (branch === 'COMP' ? 'Honours' : 'Minor'),
-        match_score: 90,
-        reasons: [
-          'Strong alignment with your AI/ML interests',
-          'Your programming skills provide solid foundation',
-          'Excellent career prospects in AI field'
-        ],
-        courses: ['Knowledge Engineering', 'Foundation ML', 'Deep Learning', 'Advanced AI'],
-        career_paths: ['ML Engineer', 'AI Researcher', 'Data Scientist'],
-        skills_to_develop: ['TensorFlow', 'PyTorch', 'Neural Networks', 'NLP'],
-        semester_commitment: '4 semesters (Sem V-VIII)',
-        credits: 18,
-        eligibility_met: true
-      });
-    }
-  }
-
-  // Cybersecurity - Honours for IT
-  if (interests.some(i => 
-    i.domain.includes('Security') || 
-    i.domain.includes('Cyber') ||
-    i.domain.includes('Network')
-  ) || projectData.tools?.some((t: string) => 
-    ['Security', 'Crypto', 'Firewall', 'Penetration'].some(kw => 
-      t.toLowerCase().includes(kw.toLowerCase())
-    )
-  )) {
-    recommendations.push({
-      program: 'Cybersecurity',
-      type: branch === 'IT' ? 'Honours' : 'Minor',  // ✅ FIXED: Honours for IT only
-      match_score: 85,
-      reasons: [
-        'Strong alignment with security interests',
-        'High industry demand for cybersecurity professionals',
-        'Critical for modern tech careers'
-      ],
-      courses: ['Network Security', 'Cryptography', 'Ethical Hacking', 'Security Operations'],
-      career_paths: ['Security Analyst', 'Penetration Tester', 'Security Architect'],
-      skills_to_develop: ['Ethical Hacking', 'SIEM', 'Incident Response', 'Compliance'],
-      semester_commitment: '4 semesters (Sem V-VIII)',
-      credits: 18,
-      eligibility_met: true
-    });
-  }
-
-  // Data Science - Minor for IT
-  if (interests.some(i => i.domain.includes('Data'))) {
-    recommendations.push({
-      program: 'Data Science',
-      type: branch === 'IT' ? 'Minor' : (branch === 'COMP' ? 'Honours' : 'Minor'),  // ✅ FIXED: Minor for IT
-      match_score: 85,
-      reasons: [
-        'Aligns with data-focused projects',
-        'High industry demand',
-        'Complements programming skills'
-      ],
-      courses: ['Statistical Methods', 'Big Data', 'Machine Learning', 'Visualization'],
-      career_paths: ['Data Scientist', 'Data Analyst', 'Business Intelligence Analyst'],
-      skills_to_develop: ['Python', 'R', 'SQL', 'Tableau'],
-      semester_commitment: '4 semesters (Sem V-VIII)',
-      credits: 18,
-      eligibility_met: true
-    });
-  }
-
-  // Cloud Computing - Minor for IT
-  if (projectData.tools?.some((t: string) => 
-    ['Docker', 'AWS', 'Cloud', 'Kubernetes', 'Azure', 'GCP'].some(keyword => 
-      t.toLowerCase().includes(keyword.toLowerCase())
-    )
-  )) {
-    recommendations.push({
-      program: 'Cloud Computing',
-      type: 'Minor',  // ✅ Always Minor for IT
-      match_score: 80,
-      reasons: [
-        'Your DevOps tools experience is valuable',
-        'High industry demand for cloud skills',
-        'Natural progression from your current skills'
-      ],
-      courses: ['Cloud Architecture', 'AWS Services', 'Azure', 'Kubernetes'],
-      career_paths: ['Cloud Architect', 'DevOps Engineer', 'SRE'],
-      skills_to_develop: ['AWS', 'Azure', 'Docker', 'Kubernetes', 'Terraform'],
-      semester_commitment: '4 semesters (Sem V-VIII)',
-      credits: 18,
-      eligibility_met: true
-    });
-  }
-
-  // Blockchain - Minor for IT
-  if (projectData.programmingLanguages?.includes('Solidity') ||
-      interests.some(i => i.domain.toLowerCase().includes('blockchain'))) {
-    recommendations.push({
-      program: 'Blockchain Technology',
-      type: 'Minor',  // ✅ Always Minor for IT
-      match_score: 78,
-      reasons: [
-        'Emerging field with high potential',
-        'Unique skill combination',
-        'Growing industry demand'
-      ],
-      courses: ['Intro Blockchain', 'Smart Contracts', 'DApp Development', 'Web3'],
-      career_paths: ['Blockchain Developer', 'Smart Contract Engineer', 'Web3 Developer'],
-      skills_to_develop: ['Solidity', 'Web3.js', 'Ethereum', 'Hyperledger'],
-      semester_commitment: '4 semesters (Sem V-VIII)',
-      credits: 18,
-      eligibility_met: true
-    });
-  }
-
-  // Research option
-  if (projectData.projectType === 'research' || projectData.keyAchievements?.some((a: string) => 
-    a.toLowerCase().includes('publish') || a.toLowerCase().includes('paper')
-  )) {
-    recommendations.push({
-      program: 'Honours in Research',
-      type: 'Research',
-      match_score: 88,
-      reasons: [
-        'Research experience demonstrated',
-        'Path to publication/patent',
-        'IIT/TIFR collaboration opportunity'
-      ],
-      courses: ['Research Methodology', 'Literature Review', 'Research Project'],
-      career_paths: ['Research Scientist', 'PhD Candidate', 'R&D Engineer'],
-      skills_to_develop: ['Research Methods', 'Academic Writing', 'Data Analysis'],
-      semester_commitment: '4 semesters (Sem V-VIII)',
-      credits: 18,
-      eligibility_met: true
-    });
-  }
-
-  return recommendations;
-}
+  // =============================================
+  // LOCAL CAREER PATH GENERATION (fallback)
+  // =============================================
 
   private generateCareerPaths(
     interests: InferredInterest[],
     honoursPrograms: HonoursRecommendation[]
   ): CareerPath[] {
     const paths: CareerPath[] = [];
-    
+
     interests.forEach(interest => {
       interest.careerPaths.forEach(career => {
-        const relevantHonours = honoursPrograms.find(h => 
+        const relevantHonours = honoursPrograms.find(h =>
           h.career_paths.includes(career)
         );
-        
-        paths.push({
-          title: career,
-          match_score: Math.round(interest.confidence * 100),
-          source_domains: [interest.domain],
-          required_skills: interest.relatedSkills,
-          honours_program: relevantHonours?.program,
-          market_demand: this.getMarketDemand(career),
-          salary_range: this.getSalaryRange(career),
-          growth_potential: this.getGrowthPotential(career),
-          preparation_path: this.getPreparationPath(career)
-        });
+
+        if (!paths.find(p => p.title === career)) {
+          paths.push({
+            title: career,
+            match_score: Math.round(interest.confidence * 100),
+            source_domains: [interest.domain],
+            required_skills: interest.relatedSkills,
+            honours_program: relevantHonours?.program,
+            market_demand: this.getMarketDemand(career),
+            salary_range: this.getSalaryRange(career),
+            growth_potential: this.getGrowthPotential(career),
+            preparation_path: this.getPreparationPath(career),
+            companies_hiring: [],
+          });
+        }
       });
     });
 
-    // Sort and deduplicate
-    const uniquePaths = paths.reduce((acc: CareerPath[], current) => {
-      const exists = acc.find(item => item.title === current.title);
-      if (!exists) {
-        acc.push(current);
-      }
-      return acc;
-    }, []);
-
-    return uniquePaths.sort((a, b) => b.match_score - a.match_score).slice(0, 5);
+    return paths.sort((a, b) => b.match_score - a.match_score).slice(0, 5);
   }
 
   private analyzeSkillGaps(projectData: any, careerPaths: CareerPath[]): SkillGapAnalysis {
@@ -743,49 +961,32 @@ private recommendHonoursPrograms(
       path.required_skills.forEach(skill => requiredSkills.add(skill));
     });
 
-    const skillGaps = Array.from(requiredSkills).filter(skill => 
+    const skillGaps = Array.from(requiredSkills).filter(skill =>
       !currentSkills.some((cs: string) => cs.toLowerCase() === skill.toLowerCase())
     );
-
-    const prioritySkills = skillGaps.slice(0, 5);
-
-    const learningResources: Record<string, string[]> = {};
-    prioritySkills.forEach(skill => {
-      learningResources[skill] = this.getLearningResources(skill);
-    });
 
     return {
       current_skills: currentSkills,
       required_skills: Array.from(requiredSkills),
       skill_gaps: skillGaps,
-      priority_skills: prioritySkills,
-      learning_resources: learningResources,
-      estimated_learning_time: `${prioritySkills.length * 2} weeks`
+      priority_skills: skillGaps.slice(0, 5),
+      learning_resources: {},
+      estimated_learning_time: `${Math.max(skillGaps.length * 2, 4)} weeks`
     };
   }
 
   private generateNextSteps(semester: number, honoursPrograms: HonoursRecommendation[]): NextStep[] {
     const steps: NextStep[] = [];
 
-    if (semester === 4) {
-      steps.push({
-        category: 'Academic',
-        action: 'Apply for Honours/Minor Program',
-        deadline: 'Before Semester 5 registration',
-        priority: 'High',
-        details: honoursPrograms.length > 0 
-          ? `Consider ${honoursPrograms[0].program} (${honoursPrograms[0].match_score}% match)`
-          : 'Review available Honours/Minor options'
-      });
-    }
-
-    if (semester >= 5) {
+    if (semester <= 5) {
       steps.push({
         category: 'Academic',
         action: 'Select Next Semester Electives',
         deadline: 'Registration period',
         priority: 'High',
-        details: 'Choose electives aligned with your career goals'
+        details: honoursPrograms.length > 0
+          ? `Consider electives aligned with ${honoursPrograms[0].program}`
+          : 'Choose electives aligned with career goals',
       });
     }
 
@@ -794,19 +995,23 @@ private recommendHonoursPrograms(
       action: 'Start Online Certification',
       deadline: 'Next 2 months',
       priority: 'Medium',
-      details: 'Focus on cloud computing or data science certifications'
+      details: 'Focus on certifications that strengthen your profile',
     });
 
     steps.push({
       category: 'Portfolio',
-      action: 'Build Advanced Project',
-      deadline: 'This semester',
+      action: 'Upload More Projects',
+      deadline: 'Ongoing',
       priority: 'Medium',
-      details: 'Create a project showcasing your specialized skills'
+      details: 'Each project improves AI recommendation accuracy by 10-15%',
     });
 
     return steps;
   }
+
+  // =============================================
+  // HELPER METHODS
+  // =============================================
 
   private getMarketDemand(career: string): string {
     const highDemand = ['ML Engineer', 'Data Scientist', 'Cloud Architect', 'DevOps Engineer'];
@@ -816,131 +1021,40 @@ private recommendHonoursPrograms(
   }
 
   private getSalaryRange(career: string): string {
-    const salaryMap: Record<string, string> = {
-      'ML Engineer': '8-25 LPA',
-      'Data Scientist': '7-22 LPA',
-      'Full Stack Developer': '5-18 LPA',
-      'Cloud Architect': '12-30 LPA',
-      'DevOps Engineer': '6-20 LPA'
+    const map: Record<string, string> = {
+      'ML Engineer': '₹8-25 LPA', 'Data Scientist': '₹7-22 LPA',
+      'Full Stack Developer': '₹5-18 LPA', 'Cloud Architect': '₹12-30 LPA',
+      'DevOps Engineer': '₹6-20 LPA', 'Frontend Developer': '₹5-15 LPA',
+      'Backend Developer': '₹6-18 LPA', 'AI Researcher': '₹10-30 LPA',
+      'IoT Engineer': '₹5-14 LPA', 'Data Analyst': '₹4-12 LPA',
     };
-    
-    for (const [key, value] of Object.entries(salaryMap)) {
+    for (const [key, value] of Object.entries(map)) {
       if (career.includes(key)) return value;
     }
-    return '5-15 LPA';
+    return '₹5-15 LPA';
   }
 
   private getGrowthPotential(career: string): string {
-    if (career.includes('AI') || career.includes('ML') || career.includes('Cloud')) {
-      return 'Excellent';
-    }
-    if (career.includes('Developer') || career.includes('Engineer')) {
-      return 'Good';
-    }
+    if (career.includes('AI') || career.includes('ML') || career.includes('Cloud')) return 'Excellent';
+    if (career.includes('Developer') || career.includes('Engineer')) return 'Good';
     return 'Moderate';
   }
 
   private getPreparationPath(career: string): string[] {
-    const basePath = [
-      'Complete relevant electives',
-      'Choose appropriate Honours/Minor program',
-      'Build portfolio projects'
-    ];
-
+    const base = ['Complete relevant electives', 'Build portfolio projects'];
     if (career.includes('ML') || career.includes('Data')) {
-      return [
-        ...basePath,
-        'Master Python and ML libraries',
-        'Participate in Kaggle competitions',
-        'Get cloud ML certifications'
-      ];
+      return [...base, 'Master Python and ML libraries', 'Participate in Kaggle'];
     }
-
     if (career.includes('Cloud') || career.includes('DevOps')) {
-      return [
-        ...basePath,
-        'Get AWS/Azure certifications',
-        'Learn containerization (Docker/Kubernetes)',
-        'Practice CI/CD pipelines'
-      ];
+      return [...base, 'Get AWS/Azure certifications', 'Learn Docker/Kubernetes'];
     }
-
-    return [...basePath, 'Gain internship experience', 'Network with professionals'];
+    return [...base, 'Gain internship experience'];
   }
 
-  private getLearningResources(skill: string): string[] {
-    const resourceMap: Record<string, string[]> = {
-      'Python': ['Python for Everybody (Coursera)', 'Real Python', 'Python Crash Course'],
-      'Machine Learning': ['Andrew Ng ML Course', 'Fast.ai', 'Kaggle Learn'],
-      'Cloud': ['AWS Training', 'Google Cloud Skills', 'Azure Learn'],
-      'Docker': ['Docker Official Docs', 'Docker Mastery Course', 'Play with Docker'],
-      'React': ['React Official Tutorial', 'Scrimba React', 'FreeCodeCamp React']
-    };
+  // =============================================
+  // CRUD OPERATIONS
+  // =============================================
 
-    for (const [key, resources] of Object.entries(resourceMap)) {
-      if (skill.toLowerCase().includes(key.toLowerCase())) {
-        return resources;
-      }
-    }
-
-    return ['YouTube Tutorials', 'Official Documentation', 'Udemy Courses'];
-  }
-
-  private analyzeProjectInterests(projectData: any): InferredInterest[] {
-    const interests: InferredInterest[] = [];
-    const { programmingLanguages = [], frameworks = [], tools = [] } = projectData;
-
-    // Enhanced AI/ML Interest Detection
-    if (programmingLanguages.includes('Python') || 
-        frameworks.some((f: string) => ['TensorFlow', 'PyTorch', 'Scikit-learn'].includes(f))) {
-      interests.push({
-        domain: 'Artificial Intelligence & Machine Learning',
-        confidence: 0.90,
-        keywords: ['Machine Learning', 'Deep Learning', 'Neural Networks', 'Data Science', 'AI'],
-        relatedSkills: ['TensorFlow', 'PyTorch', 'Pandas', 'NumPy', 'Jupyter'],
-        careerPaths: ['ML Engineer', 'Data Scientist', 'AI Researcher'],
-        industryRelevance: 0.95,
-        reasoning: 'Strong alignment with AI/ML based on technology stack',
-        evidence: ['Uses Python', 'ML frameworks detected']
-      });
-    }
-
-    // Web Development Interest
-    if (programmingLanguages.some((lang: string) => 
-      ['JavaScript', 'TypeScript', 'HTML', 'CSS'].includes(lang)) ||
-      frameworks.some((f: string) => 
-      ['React', 'Angular', 'Vue', 'Node.js', 'Express'].includes(f))) {
-      interests.push({
-        domain: 'Web Development',
-        confidence: 0.85,
-        keywords: ['Web Development', 'Frontend', 'Backend', 'Full Stack'],
-        relatedSkills: ['JavaScript', 'React', 'Node.js', 'CSS', 'APIs'],
-        careerPaths: ['Frontend Developer', 'Backend Developer', 'Full Stack Developer'],
-        industryRelevance: 0.90,
-        reasoning: 'Web technologies detected in project stack',
-        evidence: ['Web frameworks/languages used']
-      });
-    }
-
-    // Data Engineering Interest
-    if (tools.some((t: string) => 
-      ['SQL', 'Database', 'PostgreSQL', 'MongoDB', 'ETL'].some(keyword => t.includes(keyword)))) {
-      interests.push({
-        domain: 'Data Engineering',
-        confidence: 0.80,
-        keywords: ['Data Engineering', 'Databases', 'ETL', 'Data Pipelines'],
-        relatedSkills: ['SQL', 'Database Design', 'ETL', 'Data Modeling'],
-        careerPaths: ['Data Engineer', 'Database Administrator', 'ETL Developer'],
-        industryRelevance: 0.88,
-        reasoning: 'Database and data processing tools detected',
-        evidence: ['Database technologies used']
-      });
-    }
-
-    return interests;
-  }
-
-  // Keep all other existing methods...
   async getUserProjects() {
     try {
       const user = auth.currentUser;
@@ -949,7 +1063,7 @@ private recommendHonoursPrograms(
       const projectsRef = collection(db, this.COLLECTION);
       const q = query(projectsRef, where('userId', '==', user.uid));
       const snapshot = await getDocs(q);
-      
+
       return snapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
@@ -960,27 +1074,25 @@ private recommendHonoursPrograms(
     }
   }
 
-    async deleteProject(projectId: string) {
+  async deleteProject(projectId: string) {
     try {
       const user = auth.currentUser;
       if (!user) throw new Error('User not authenticated');
 
-      // 1. Delete from Firestore
+      // Delete from Firestore
       await deleteDoc(doc(db, this.COLLECTION, projectId));
 
-      // 2. Also delete from MongoDB (so recommendations don't use stale data)
+      // Also delete from MongoDB
       try {
         await this.axiosInstance.delete(`/student-projects/project/${projectId}`);
-        console.log('✅ Project deleted from MongoDB too');
+        console.log('✅ Project deleted from MongoDB');
       } catch (backendErr) {
-        // Non-critical: MongoDB may not have this project, or endpoint may not exist yet
         console.warn('MongoDB delete failed (non-critical):', backendErr);
       }
 
-      // 3. Invalidate recommendation cache
+      // Invalidate recommendation cache
       try {
         await this.axiosInstance.post('/recommendations/invalidate-cache');
-        console.log('♻️ Recommendation cache invalidated after delete');
       } catch (cacheErr) {
         console.warn('Cache invalidation failed (non-critical):', cacheErr);
       }
@@ -998,13 +1110,13 @@ private recommendHonoursPrograms(
       if (!user) return { topDomains: [] };
 
       const userDoc = await getDoc(doc(db, 'users', user.uid));
-      
+
       if (!userDoc.exists() || !userDoc.data().interestProfile) {
         return { topDomains: [] };
       }
 
       const profile = userDoc.data().interestProfile;
-      const domains = Object.entries(profile.domains)
+      const domains = Object.entries(profile.domains || {})
         .map(([name, data]: any) => ({
           name,
           strength: Math.round(data.score * 100),
@@ -1021,33 +1133,26 @@ private recommendHonoursPrograms(
     }
   }
 
-  private async updateUserInterestProfile(userId: string, newInterests: any[]) {
+  private async updateUserInterestProfile(userId: string, newInterests: InferredInterest[]) {
     try {
       const userDocRef = doc(db, 'users', userId);
-      const userDoc = await getDoc(userDocRef);
-      
-      if (userDoc.exists()) {
-        const currentProfile = userDoc.data().interestProfile || { domains: {} };
-        
+      const userDocSnap = await getDoc(userDocRef);
+
+      if (userDocSnap.exists()) {
+        const currentProfile = userDocSnap.data().interestProfile || { domains: {} };
+
         newInterests.forEach(interest => {
           const domain = interest.domain;
           if (!currentProfile.domains[domain]) {
             currentProfile.domains[domain] = {
-              score: 0,
-              count: 0,
-              keywords: [],
-              lastUpdated: null
+              score: 0, count: 0, keywords: [], lastUpdated: null
             };
           }
-          
-          currentProfile.domains[domain].score = 
-            (currentProfile.domains[domain].score * currentProfile.domains[domain].count + interest.confidence) / 
-            (currentProfile.domains[domain].count + 1);
-          currentProfile.domains[domain].count += 1;
-          currentProfile.domains[domain].keywords = [
-            ...new Set([...currentProfile.domains[domain].keywords, ...interest.keywords])
-          ].slice(0, 10);
-          currentProfile.domains[domain].lastUpdated = new Date().toISOString();
+          const d = currentProfile.domains[domain];
+          d.score = (d.score * d.count + interest.confidence) / (d.count + 1);
+          d.count += 1;
+          d.keywords = [...new Set([...d.keywords, ...interest.keywords])].slice(0, 10);
+          d.lastUpdated = new Date().toISOString();
         });
 
         await updateDoc(userDocRef, {
@@ -1060,50 +1165,10 @@ private recommendHonoursPrograms(
     }
   }
 
-  async getEligibleHonoursPrograms(branch: string): Promise<HonoursRecommendation[]> {
-    // This would normally call your backend
-    // For now, returning static data based on FCRIT handbook
-    const programs: HonoursRecommendation[] = [];
-    
-    if (['IT', 'COMP', 'EXTC'].includes(branch)) {
-      programs.push({
-        program: 'AI & Machine Learning',
-        type: 'Honours',
-        match_score: 0,
-        reasons: [],
-        courses: ['Knowledge Engineering', 'Foundation ML', 'Deep Learning', 'Advanced AI'],
-        career_paths: ['ML Engineer', 'AI Researcher', 'Data Scientist'],
-        skills_to_develop: ['Python', 'TensorFlow', 'Neural Networks'],
-        semester_commitment: '4 semesters (Sem V-VIII)',
-        credits: 18,
-        eligibility_met: true
-      });
-    }
-    
-    return programs;
-  }
+  // =============================================
+  // UTILITY METHODS
+  // =============================================
 
-  async getAvailableElectives(branch: string, semester: number): Promise<any> {
-    // Return electives based on branch and semester
-    if (branch === 'IT' && semester === 5) {
-      return {
-        'Data Warehousing': {
-          credits: 3,
-          description: 'Learn ETL, OLAP, dimensional modeling',
-          prerequisites: ['Database Management Systems']
-        },
-        'Cloud Computing': {
-          credits: 3,
-          description: 'Master cloud platforms, Docker, Kubernetes',
-          prerequisites: ['Computer Networks']
-        }
-      };
-    }
-    
-    return {};
-  }
-
-  // Utility method to get latest analysis from localStorage
   getLatestAnalysis(): ComprehensiveAnalysis | null {
     try {
       const stored = localStorage.getItem('latestAnalysis');
@@ -1113,7 +1178,6 @@ private recommendHonoursPrograms(
     }
   }
 
-  // Utility method to clear stored analysis
   clearStoredAnalysis(): void {
     localStorage.removeItem('latestAnalysis');
     localStorage.removeItem('analysisDate');

@@ -268,7 +268,7 @@ export const StudentProjectsUpload: React.FC<StudentProjectsUploadProps> = ({ on
   const handleSubmit = async (): Promise<void> => {
     console.log('Starting project submission...');
     setIsSubmitting(true);
-    
+
     try {
       // Validate required fields
       if (!formData.title || !formData.description) {
@@ -277,88 +277,100 @@ export const StudentProjectsUpload: React.FC<StudentProjectsUploadProps> = ({ on
         return;
       }
 
+      if (formData.programmingLanguages.length === 0) {
+        toast.error('Please add at least one programming language');
+        setIsSubmitting(false);
+        return;
+      }
+
       // Update file status to uploading
-      setFiles(prev => prev.map(f => ({ 
-        ...f, 
-        status: 'uploading' as const, 
-        progress: 0 
+      setFiles(prev => prev.map(f => ({
+        ...f,
+        status: 'uploading' as const,
+        progress: 0
       })));
 
       // Prepare project data
       const projectData = {
         ...formData,
-        startDate: new Date(formData.startDate).toISOString(),
-        endDate: formData.endDate 
-          ? new Date(formData.endDate).toISOString() 
+        startDate: formData.startDate
+          ? new Date(formData.startDate).toISOString()
+          : new Date().toISOString(),
+        endDate: formData.endDate
+          ? new Date(formData.endDate).toISOString()
           : null
       };
 
-      // Step 1: Get comprehensive analysis
-      let analysis = null;
-      
-      try {
-        console.log('Fetching comprehensive analysis...');
-        analysis = await studentProjectsService.analyzeProjectComprehensive(
-          projectData,
-          files.map(f => f.file)
-        );
-        console.log('Analysis received:', analysis);
-      } catch (analysisError) {
-        console.error('Analysis error:', analysisError);
-        // Continue with upload even if analysis fails
-      }
-
-      // Step 2: Upload project to database
-      console.log('Uploading project...');
+      // Step 1: Upload project to Firestore + MongoDB
+      console.log('📦 Step 1: Uploading project...');
       await studentProjectsService.createProject(
         projectData,
         files.map(f => f.file),
         (fileIndex, progress) => {
-          setFiles(prev => prev.map((f, idx) => 
-            idx === fileIndex 
-              ? { 
-                  ...f, 
-                  progress, 
-                  status: progress === 100 ? 'completed' as const : 'uploading' as const 
+          setFiles(prev => prev.map((f, idx) =>
+            idx === fileIndex
+              ? {
+                  ...f,
+                  progress,
+                  status: progress === 100 ? 'completed' as const : 'uploading' as const
                 }
               : f
           ));
         }
       );
-
-      console.log('Project uploaded successfully');
+      console.log('✅ Project uploaded successfully');
       toast.success('Project uploaded successfully!');
 
+      // Step 2: Get comprehensive AI analysis
+      let analysis = null;
+      try {
+        console.log('🤖 Step 2: Getting AI analysis...');
+        analysis = await studentProjectsService.analyzeProjectComprehensive(
+          projectData,
+          files.map(f => f.file)
+        );
+        console.log('✅ Analysis received:', {
+          interests: analysis?.inferred_interests?.length || 0,
+          electives: analysis?.elective_recommendations?.length || 0,
+          careers: analysis?.career_paths?.length || 0,
+        });
+      } catch (analysisError) {
+        console.error('⚠️ Analysis error (project still saved):', analysisError);
+        toast.error('Project saved but analysis failed. You can view analysis later.');
+      }
+
       // Step 3: Show analysis modal if we have valid data
-      if (analysis && analysis.inferred_interests && analysis.inferred_interests.length > 0) {
-        console.log('Opening analysis modal...');
+      if (analysis &&
+          analysis.inferred_interests &&
+          analysis.inferred_interests.length > 0) {
+        console.log('📊 Opening analysis modal...');
         setAnalysisData(analysis);
         setShowAnalysisModal(true);
-        // Notify parent dashboard if callback provided
+
         if (onAnalysisComplete) {
           onAnalysisComplete(analysis);
         }
         // DON'T reset form here - let modal close handler do it
       } else {
-        console.log('No analysis data, resetting form');
+        console.log('ℹ️ No analysis data, resetting form');
         resetForm();
         window.dispatchEvent(new Event('projectUploaded'));
       }
 
     } catch (error: any) {
-      console.error('Submission error:', error);
+      console.error('❌ Submission error:', error);
       toast.error(error.message || 'Failed to upload project');
-      
-      // Update file status to error
-      setFiles(prev => prev.map(f => ({ 
-        ...f, 
+
+      setFiles(prev => prev.map(f => ({
+        ...f,
         status: 'error' as const,
-        error: error.message 
+        error: error.message
       })));
     } finally {
       setIsSubmitting(false);
     }
   };
+
 
   // =============================================
   // FETCH INTEREST PROFILE ON MOUNT
