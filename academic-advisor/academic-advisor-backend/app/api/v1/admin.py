@@ -1,3 +1,4 @@
+# academic-advisor/academic-advisor-backend/app/api/v1/admin.py
 """
 Admin API endpoints
 Provides admin-only access to system-wide data, user management, and curriculum editing.

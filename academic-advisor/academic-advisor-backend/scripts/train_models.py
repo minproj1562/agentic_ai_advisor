@@ -1,9 +1,13 @@
-# academic-advisor/academic-advisor-backend/scripts/train_models.py
+# scripts/train_models.py
 """
-Enhanced Training Script with configurable dataset size
-Run: python -m scripts.train_models
-     python -m scripts.train_models --samples 2000
-     python -m scripts.train_models --samples 2000 --test-size 0.2
+Enhanced Training Script with model comparison and selection.
+
+Usage:
+    python -m scripts.train_models                           # Default training
+    python -m scripts.train_models --samples 1000            # More data
+    python -m scripts.train_models --compare                 # Run comparison first
+    python -m scripts.train_models --compare --hard-mode     # With hard samples
+    python -m scripts.train_models --model XGBoost           # Use specific model
 """
 
 import asyncio
@@ -12,7 +16,6 @@ import os
 import logging
 import argparse
 
-# Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 logging.basicConfig(
@@ -24,50 +27,71 @@ logger = logging.getLogger(__name__)
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Train recommendation models')
-    parser.add_argument(
-        '--samples', '-n',
-        type=int,
-        default=1250,
-        help='Number of samples PER CLASS (default: 1250, total = samples × 4)'
-    )
-    parser.add_argument(
-        '--test-size', '-t',
-        type=float,
-        default=0.2,
-        help='Test set proportion (default: 0.2 = 20%%)'
-    )
-    parser.add_argument(
-        '--no-feedback',
-        action='store_true',
-        help='Skip loading feedback data from MongoDB'
-    )
-    parser.add_argument(
-        '--export-data',
-        action='store_true',
-        help='Export generated training data to JSON file'
-    )
+    parser.add_argument('--samples', '-n', type=int, default=1250,
+                        help='Samples per class (default: 1250)')
+    parser.add_argument('--test-size', '-t', type=float, default=0.2,
+                        help='Test set proportion (default: 0.2)')
+    parser.add_argument('--no-feedback', action='store_true',
+                        help='Skip loading feedback from MongoDB')
+    parser.add_argument('--compare', action='store_true',
+                        help='Run full model comparison before training')
+    parser.add_argument('--hard-mode', action='store_true',
+                        help='Include hard/overlapping samples for robust evaluation')
+    parser.add_argument('--model', type=str, default=None,
+                        help='Specific model to use (e.g., XGBoost, RandomForest)')
+    parser.add_argument('--export-data', action='store_true',
+                        help='Export training data to JSON')
     return parser.parse_args()
 
 
 async def main():
     args = parse_args()
-    
-    total_samples = args.samples * 4  # 4 classes
-    test_samples = int(total_samples * args.test_size)
-    train_samples = total_samples - test_samples
-    
-    logger.info("=" * 70)
-    logger.info("Academic Advisor - Enhanced Model Training Script")
-    logger.info("=" * 70)
-    logger.info(f"")
-    logger.info(f"📊 CONFIGURATION:")
-    logger.info(f"   Samples per class: {args.samples}")
-    logger.info(f"   Total samples:     {total_samples}")
-    logger.info(f"   Training set:      {train_samples} ({(1-args.test_size)*100:.0f}%)")
-    logger.info(f"   Test set:          {test_samples} ({args.test_size*100:.0f}%)")
-    logger.info(f"")
 
-    # Try to connect to DB for feedback data (optional)
+    total_samples = args.samples * 4
+    
+    logger.info("=" * 70)
+    logger.info("🎓 Academic Advisor — Model Training Pipeline")
+    logger.info("=" * 70)
+    logger.info(f"  Samples per class: {args.samples}")
+    logger.info(f"  Total samples: {total_samples}")
+    logger.info(f"  Test size: {args.test_size * 100:.0f}%")
+    logger.info(f"  Compare models: {args.compare}")
+    logger.info(f"  Hard mode: {args.hard_mode}")
+    if args.model:
+        logger.info(f"  Requested model: {args.model}")
+    logger.info("")
+
+    # ── Step 0: Model Comparison (optional) ──
+    if args.compare:
+        logger.info("🔬 Running model comparison first...")
+        from app.ml.utils.training import generate_training_dataset
+        from app.ml.models.recommendation_engine import recommendation_engine
+        from app.ml.utils.model_comparison import run_model_comparison
+
+        comparison_data = generate_training_dataset(n_samples_per_class=min(args.samples, 500))
+        
+        if args.hard_mode:
+            from scripts.compare_models import generate_hard_samples
+            hard = generate_hard_samples(n_per_class=100)
+            comparison_data.extend(hard)
+
+        save_dir = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            'app', 'ml', 'models', 'saved',
+        )
+
+        report = run_model_comparison(
+            training_data=comparison_data,
+            feature_extractor=recommendation_engine.extract_features,
+            test_size=args.test_size,
+            save_dir=save_dir,
+        )
+        
+        best_model_name = report.get('recommendation', {}).get('recommended_model', 'RandomForest')
+        logger.info(f"\n🏆 Best model from comparison: {best_model_name}")
+        logger.info("Now training with full dataset...\n")
+
+    # ── Step 1: Connect to MongoDB (optional) ──
     db_connected = False
     if not args.no_feedback:
         try:
@@ -82,47 +106,25 @@ async def main():
                 document_models=[RecommendationFeedback, TrainingDataPoint],
             )
             db_connected = True
-            
-            # Count existing feedback
             feedback_count = await RecommendationFeedback.count()
-            logger.info(f"✅ Connected to MongoDB")
-            logger.info(f"   Existing feedback records: {feedback_count}")
+            logger.info(f"✅ MongoDB connected ({feedback_count} feedback records)")
         except Exception as e:
-            logger.warning(f"⚠️ Could not connect to MongoDB: {e}")
-            logger.info("   Training with synthetic data only...")
-    else:
-        logger.info("⏭️ Skipping MongoDB (--no-feedback flag)")
+            logger.warning(f"⚠️ MongoDB not available: {e}")
 
-    # Import training functions
+    # ── Step 2: Train ──
     from app.ml.utils.training import (
         train_recommendation_model,
         evaluate_model_accuracy,
-        generate_training_dataset
     )
 
-    # Optionally export the generated data
-    if args.export_data:
-        import json
-        logger.info(f"\n📁 Exporting training data...")
-        dataset = generate_training_dataset(n_samples_per_class=args.samples)
-        
-        export_path = os.path.join(
-            os.path.dirname(__file__),
-            f"training_data_{total_samples}_samples.json"
-        )
-        with open(export_path, 'w') as f:
-            json.dump(dataset, f, indent=2)
-        logger.info(f"   Exported to: {export_path}")
-
-    # Train the model
-    logger.info(f"\n🚀 Starting training...")
+    logger.info("🚀 Starting training...")
     metrics = await train_recommendation_model(
         n_synthetic=args.samples,
         include_feedback=db_connected,
         test_size=args.test_size,
     )
 
-    # Display results
+    # ── Step 3: Display Results ──
     logger.info("\n" + "=" * 70)
     logger.info("📈 TRAINING RESULTS")
     logger.info("=" * 70)
@@ -136,10 +138,9 @@ async def main():
     logger.info(f"  📦 Dataset Split:")
     logger.info(f"     Train samples:  {metrics['n_training_samples']}")
     logger.info(f"     Test samples:   {metrics['n_test_samples']}")
-    logger.info(f"")
 
     if 'per_class' in metrics:
-        logger.info(f"  🎯 Per-Class Performance:")
+        logger.info(f"\n  🎯 Per-Class Performance:")
         logger.info(f"     {'Class':<6} {'Precision':>10} {'Recall':>10} {'F1-Score':>10}")
         logger.info(f"     {'-'*6} {'-'*10} {'-'*10} {'-'*10}")
         for cls, m in metrics['per_class'].items():
@@ -153,21 +154,20 @@ async def main():
         for i, row in enumerate(cm):
             logger.info(f"     {labels[i]:>6} " + " ".join(f"{v:>6}" for v in row))
 
-    # Evaluate on held-out test set
-    logger.info("\n" + "─" * 70)
-    logger.info("🧪 Running evaluation on held-out test set...")
+    # ── Step 4: Evaluation ──
+    logger.info(f"\n{'─' * 70}")
+    logger.info("🧪 Running evaluation on fresh held-out test set...")
     eval_results = await evaluate_model_accuracy()
     
-    logger.info(f"\n  📊 Evaluation Results:")
-    logger.info(f"     Overall accuracy: {eval_results.get('accuracy', 0):.4f} ({eval_results.get('accuracy', 0)*100:.2f}%)")
+    logger.info(f"  Overall accuracy: {eval_results.get('accuracy', 0):.4f}")
     
     if 'per_class_accuracy' in eval_results:
-        logger.info(f"\n  🎯 Per-Class Accuracy:")
+        logger.info(f"\n  Per-Class Accuracy:")
         for cls, acc in eval_results['per_class_accuracy'].items():
             bar = '█' * int(acc * 20)
             logger.info(f"     {cls}: {bar} {acc:.4f}")
 
-    logger.info("\n" + "=" * 70)
+    logger.info(f"\n{'=' * 70}")
     logger.info("✅ Training complete!")
     logger.info(f"   Models saved to: app/ml/models/saved/")
     logger.info("=" * 70)

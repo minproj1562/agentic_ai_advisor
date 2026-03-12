@@ -1,3 +1,4 @@
+#academic-advisor/academic-advisor-backend/app/dependencies.py
 """
 FastAPI Dependencies - UPDATED
 """

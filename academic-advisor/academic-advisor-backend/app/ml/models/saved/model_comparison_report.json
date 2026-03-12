@@ -1,0 +1,1573 @@
+{
+  "timestamp": "2026-03-03T06:54:43.381504",
+  "dataset": {
+    "total_samples": 2400,
+    "feature_dimension": 38,
+    "train_samples": 1920,
+    "test_samples": 480,
+    "test_size": 0.2,
+    "class_distribution": {
+      "CCS": 623,
+      "DWM": 623,
+      "ML": 629,
+      "WT": 525
+    },
+    "cv_folds": 5
+  },
+  "models": {
+    "RandomForest": {
+      "training_time_seconds": 0.2678,
+      "inference_time_seconds": 0.0354,
+      "inference_time_per_sample_ms": 0.0737,
+      "accuracy": 1.0,
+      "precision_macro": 1.0,
+      "precision_weighted": 1.0,
+      "recall_macro": 1.0,
+      "recall_weighted": 1.0,
+      "f1_macro": 1.0,
+      "f1_weighted": 1.0,
+      "per_class": {
+        "CCS": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1_score": 1.0,
+          "support": 125
+        },
+        "DWM": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1_score": 1.0,
+          "support": 124
+        },
+        "ML": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1_score": 1.0,
+          "support": 126
+        },
+        "WT": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1_score": 1.0,
+          "support": 105
+        }
+      },
+      "sensitivity": {
+        "CCS": 1.0,
+        "DWM": 1.0,
+        "ML": 1.0,
+        "WT": 1.0
+      },
+      "specificity": {
+        "CCS": 1.0,
+        "DWM": 1.0,
+        "ML": 1.0,
+        "WT": 1.0
+      },
+      "confusion_matrix": [
+        [
+          125,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          124,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          126,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          105
+        ]
+      ],
+      "roc_auc_ovr": 1.0,
+      "roc_auc_weighted": 1.0,
+      "matthews_corrcoef": 1.0,
+      "cohen_kappa": 1.0,
+      "cv_accuracy_mean": 1.0,
+      "cv_accuracy_std": 0.0,
+      "cv_f1_mean": 1.0,
+      "cv_f1_std": 0.0,
+      "cv_precision_mean": 1.0,
+      "cv_recall_mean": 1.0,
+      "cv_scores": [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "description": "Ensemble of decision trees with bagging. Handles non-linear relationships well, robust to overfitting. Current production model.",
+      "hyperparameters": {
+        "n_estimators": "200 trees in the forest",
+        "max_depth": "15 levels deep (prevents overfitting)",
+        "class_weight": "balanced (handles class imbalance)"
+      }
+    },
+    "GradientBoosting": {
+      "training_time_seconds": 13.8154,
+      "inference_time_seconds": 0.004,
+      "inference_time_per_sample_ms": 0.0083,
+      "accuracy": 1.0,
+      "precision_macro": 1.0,
+      "precision_weighted": 1.0,
+      "recall_macro": 1.0,
+      "recall_weighted": 1.0,
+      "f1_macro": 1.0,
+      "f1_weighted": 1.0,
+      "per_class": {
+        "CCS": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1_score": 1.0,
+          "support": 125
+        },
+        "DWM": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1_score": 1.0,
+          "support": 124
+        },
+        "ML": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1_score": 1.0,
+          "support": 126
+        },
+        "WT": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1_score": 1.0,
+          "support": 105
+        }
+      },
+      "sensitivity": {
+        "CCS": 1.0,
+        "DWM": 1.0,
+        "ML": 1.0,
+        "WT": 1.0
+      },
+      "specificity": {
+        "CCS": 1.0,
+        "DWM": 1.0,
+        "ML": 1.0,
+        "WT": 1.0
+      },
+      "confusion_matrix": [
+        [
+          125,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          124,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          126,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          105
+        ]
+      ],
+      "roc_auc_ovr": 1.0,
+      "roc_auc_weighted": 1.0,
+      "matthews_corrcoef": 1.0,
+      "cohen_kappa": 1.0,
+      "cv_accuracy_mean": 0.9996,
+      "cv_accuracy_std": 0.0008,
+      "cv_f1_mean": 0.9996,
+      "cv_f1_std": 0.0008,
+      "cv_precision_mean": 0.9996,
+      "cv_recall_mean": 0.9996,
+      "cv_scores": [
+        0.9979,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "description": "Sequential boosting \u2014 each tree corrects errors of the previous. Often achieves highest accuracy but slower to train.",
+      "hyperparameters": {
+        "n_estimators": "200 boosting rounds",
+        "learning_rate": "0.1 (conservative, prevents overfitting)",
+        "subsample": "0.8 (stochastic gradient boosting)"
+      }
+    },
+    "ExtraTrees": {
+      "training_time_seconds": 0.2493,
+      "inference_time_seconds": 0.0361,
+      "inference_time_per_sample_ms": 0.0753,
+      "accuracy": 1.0,
+      "precision_macro": 1.0,
+      "precision_weighted": 1.0,
+      "recall_macro": 1.0,
+      "recall_weighted": 1.0,
+      "f1_macro": 1.0,
+      "f1_weighted": 1.0,
+      "per_class": {
+        "CCS": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1_score": 1.0,
+          "support": 125
+        },
+        "DWM": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1_score": 1.0,
+          "support": 124
+        },
+        "ML": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1_score": 1.0,
+          "support": 126
+        },
+        "WT": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1_score": 1.0,
+          "support": 105
+        }
+      },
+      "sensitivity": {
+        "CCS": 1.0,
+        "DWM": 1.0,
+        "ML": 1.0,
+        "WT": 1.0
+      },
+      "specificity": {
+        "CCS": 1.0,
+        "DWM": 1.0,
+        "ML": 1.0,
+        "WT": 1.0
+      },
+      "confusion_matrix": [
+        [
+          125,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          124,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          126,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          105
+        ]
+      ],
+      "roc_auc_ovr": 1.0,
+      "roc_auc_weighted": 1.0,
+      "matthews_corrcoef": 1.0,
+      "cohen_kappa": 1.0,
+      "cv_accuracy_mean": 1.0,
+      "cv_accuracy_std": 0.0,
+      "cv_f1_mean": 1.0,
+      "cv_f1_std": 0.0,
+      "cv_precision_mean": 1.0,
+      "cv_recall_mean": 1.0,
+      "cv_scores": [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "description": "Extremely Randomized Trees \u2014 faster than RF, uses random thresholds. Good for high-dimensional feature spaces.",
+      "hyperparameters": {
+        "n_estimators": "200 trees",
+        "max_depth": "15 (matches RF for fair comparison)"
+      }
+    },
+    "AdaBoost": {
+      "training_time_seconds": 0.9935,
+      "inference_time_seconds": 0.0147,
+      "inference_time_per_sample_ms": 0.0307,
+      "accuracy": 1.0,
+      "precision_macro": 1.0,
+      "precision_weighted": 1.0,
+      "recall_macro": 1.0,
+      "recall_weighted": 1.0,
+      "f1_macro": 1.0,
+      "f1_weighted": 1.0,
+      "per_class": {
+        "CCS": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1_score": 1.0,
+          "support": 125
+        },
+        "DWM": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1_score": 1.0,
+          "support": 124
+        },
+        "ML": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1_score": 1.0,
+          "support": 126
+        },
+        "WT": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1_score": 1.0,
+          "support": 105
+        }
+      },
+      "sensitivity": {
+        "CCS": 1.0,
+        "DWM": 1.0,
+        "ML": 1.0,
+        "WT": 1.0
+      },
+      "specificity": {
+        "CCS": 1.0,
+        "DWM": 1.0,
+        "ML": 1.0,
+        "WT": 1.0
+      },
+      "confusion_matrix": [
+        [
+          125,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          124,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          126,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          105
+        ]
+      ],
+      "roc_auc_ovr": 1.0,
+      "roc_auc_weighted": 1.0,
+      "matthews_corrcoef": 1.0,
+      "cohen_kappa": 1.0,
+      "cv_accuracy_mean": 0.9996,
+      "cv_accuracy_std": 0.0008,
+      "cv_f1_mean": 0.9996,
+      "cv_f1_std": 0.0008,
+      "cv_precision_mean": 0.9996,
+      "cv_recall_mean": 0.9996,
+      "cv_scores": [
+        0.9979,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "description": "Adaptive Boosting \u2014 focuses on misclassified samples. Good when classes are separable but with noise.",
+      "hyperparameters": {
+        "n_estimators": "150 weak learners",
+        "learning_rate": "0.5 (moderate boosting strength)"
+      }
+    },
+    "KNN_5": {
+      "training_time_seconds": 0.0,
+      "inference_time_seconds": 1.8112,
+      "inference_time_per_sample_ms": 3.7734,
+      "accuracy": 0.9979,
+      "precision_macro": 0.998,
+      "precision_weighted": 0.9979,
+      "recall_macro": 0.998,
+      "recall_weighted": 0.9979,
+      "f1_macro": 0.998,
+      "f1_weighted": 0.9979,
+      "per_class": {
+        "CCS": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1_score": 1.0,
+          "support": 125
+        },
+        "DWM": {
+          "precision": 0.992,
+          "recall": 1.0,
+          "f1_score": 0.996,
+          "support": 124
+        },
+        "ML": {
+          "precision": 1.0,
+          "recall": 0.9921,
+          "f1_score": 0.996,
+          "support": 126
+        },
+        "WT": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1_score": 1.0,
+          "support": 105
+        }
+      },
+      "sensitivity": {
+        "CCS": 1.0,
+        "DWM": 1.0,
+        "ML": 0.9921,
+        "WT": 1.0
+      },
+      "specificity": {
+        "CCS": 1.0,
+        "DWM": 0.9972,
+        "ML": 1.0,
+        "WT": 1.0
+      },
+      "confusion_matrix": [
+        [
+          125,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          124,
+          0,
+          0
+        ],
+        [
+          0,
+          1,
+          125,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          105
+        ]
+      ],
+      "roc_auc_ovr": 1.0,
+      "roc_auc_weighted": 1.0,
+      "matthews_corrcoef": 0.9972,
+      "cohen_kappa": 0.9972,
+      "cv_accuracy_mean": 0.9954,
+      "cv_accuracy_std": 0.0016,
+      "cv_f1_mean": 0.9956,
+      "cv_f1_std": 0.0015,
+      "cv_precision_mean": 0.9956,
+      "cv_recall_mean": 0.9956,
+      "cv_scores": [
+        0.9958,
+        0.9979,
+        0.9958,
+        0.9938,
+        0.9938
+      ],
+      "description": "K-Nearest Neighbors (k=5). Instance-based learning \u2014 classifies by majority vote of nearest neighbors. Current secondary model.",
+      "hyperparameters": {
+        "n_neighbors": "5 (balances bias-variance)",
+        "weights": "distance (closer neighbors have more influence)"
+      }
+    },
+    "KNN_7": {
+      "training_time_seconds": 0.0,
+      "inference_time_seconds": 0.004,
+      "inference_time_per_sample_ms": 0.0084,
+      "accuracy": 1.0,
+      "precision_macro": 1.0,
+      "precision_weighted": 1.0,
+      "recall_macro": 1.0,
+      "recall_weighted": 1.0,
+      "f1_macro": 1.0,
+      "f1_weighted": 1.0,
+      "per_class": {
+        "CCS": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1_score": 1.0,
+          "support": 125
+        },
+        "DWM": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1_score": 1.0,
+          "support": 124
+        },
+        "ML": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1_score": 1.0,
+          "support": 126
+        },
+        "WT": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1_score": 1.0,
+          "support": 105
+        }
+      },
+      "sensitivity": {
+        "CCS": 1.0,
+        "DWM": 1.0,
+        "ML": 1.0,
+        "WT": 1.0
+      },
+      "specificity": {
+        "CCS": 1.0,
+        "DWM": 1.0,
+        "ML": 1.0,
+        "WT": 1.0
+      },
+      "confusion_matrix": [
+        [
+          125,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          124,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          126,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          105
+        ]
+      ],
+      "roc_auc_ovr": 1.0,
+      "roc_auc_weighted": 1.0,
+      "matthews_corrcoef": 1.0,
+      "cohen_kappa": 1.0,
+      "cv_accuracy_mean": 0.9958,
+      "cv_accuracy_std": 0.0023,
+      "cv_f1_mean": 0.996,
+      "cv_f1_std": 0.0022,
+      "cv_precision_mean": 0.996,
+      "cv_recall_mean": 0.996,
+      "cv_scores": [
+        0.9938,
+        1.0,
+        0.9958,
+        0.9958,
+        0.9938
+      ],
+      "description": "KNN with k=7 \u2014 more neighbors for smoother decision boundaries.",
+      "hyperparameters": {
+        "n_neighbors": "7"
+      }
+    },
+    "KNN_3": {
+      "training_time_seconds": 0.001,
+      "inference_time_seconds": 0.003,
+      "inference_time_per_sample_ms": 0.0062,
+      "accuracy": 0.9938,
+      "precision_macro": 0.994,
+      "precision_weighted": 0.9938,
+      "recall_macro": 0.994,
+      "recall_weighted": 0.9938,
+      "f1_macro": 0.994,
+      "f1_weighted": 0.9937,
+      "per_class": {
+        "CCS": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1_score": 1.0,
+          "support": 125
+        },
+        "DWM": {
+          "precision": 0.9919,
+          "recall": 0.9839,
+          "f1_score": 0.9879,
+          "support": 124
+        },
+        "ML": {
+          "precision": 0.9843,
+          "recall": 0.9921,
+          "f1_score": 0.9881,
+          "support": 126
+        },
+        "WT": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1_score": 1.0,
+          "support": 105
+        }
+      },
+      "sensitivity": {
+        "CCS": 1.0,
+        "DWM": 0.9839,
+        "ML": 0.9921,
+        "WT": 1.0
+      },
+      "specificity": {
+        "CCS": 1.0,
+        "DWM": 0.9972,
+        "ML": 0.9944,
+        "WT": 1.0
+      },
+      "confusion_matrix": [
+        [
+          125,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          122,
+          2,
+          0
+        ],
+        [
+          0,
+          1,
+          125,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          105
+        ]
+      ],
+      "roc_auc_ovr": 1.0,
+      "roc_auc_weighted": 1.0,
+      "matthews_corrcoef": 0.9917,
+      "cohen_kappa": 0.9917,
+      "cv_accuracy_mean": 0.9946,
+      "cv_accuracy_std": 0.0028,
+      "cv_f1_mean": 0.9948,
+      "cv_f1_std": 0.0027,
+      "cv_precision_mean": 0.9949,
+      "cv_recall_mean": 0.9948,
+      "cv_scores": [
+        0.9958,
+        0.9979,
+        0.9958,
+        0.9896,
+        0.9938
+      ],
+      "description": "KNN with k=3 \u2014 fewer neighbors, more sensitive to local patterns.",
+      "hyperparameters": {
+        "n_neighbors": "3"
+      }
+    },
+    "LogisticRegression": {
+      "training_time_seconds": 0.0276,
+      "inference_time_seconds": 0.001,
+      "inference_time_per_sample_ms": 0.0021,
+      "accuracy": 1.0,
+      "precision_macro": 1.0,
+      "precision_weighted": 1.0,
+      "recall_macro": 1.0,
+      "recall_weighted": 1.0,
+      "f1_macro": 1.0,
+      "f1_weighted": 1.0,
+      "per_class": {
+        "CCS": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1_score": 1.0,
+          "support": 125
+        },
+        "DWM": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1_score": 1.0,
+          "support": 124
+        },
+        "ML": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1_score": 1.0,
+          "support": 126
+        },
+        "WT": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1_score": 1.0,
+          "support": 105
+        }
+      },
+      "sensitivity": {
+        "CCS": 1.0,
+        "DWM": 1.0,
+        "ML": 1.0,
+        "WT": 1.0
+      },
+      "specificity": {
+        "CCS": 1.0,
+        "DWM": 1.0,
+        "ML": 1.0,
+        "WT": 1.0
+      },
+      "confusion_matrix": [
+        [
+          125,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          124,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          126,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          105
+        ]
+      ],
+      "roc_auc_ovr": 1.0,
+      "roc_auc_weighted": 1.0,
+      "matthews_corrcoef": 1.0,
+      "cohen_kappa": 1.0,
+      "cv_accuracy_mean": 0.9983,
+      "cv_accuracy_std": 0.0016,
+      "cv_f1_mean": 0.9984,
+      "cv_f1_std": 0.0015,
+      "cv_precision_mean": 0.9984,
+      "cv_recall_mean": 0.9984,
+      "cv_scores": [
+        0.9958,
+        1.0,
+        0.9979,
+        0.9979,
+        1.0
+      ],
+      "description": "Multinomial Logistic Regression \u2014 linear classifier extended to multi-class. Baseline model. If this performs well, data is linearly separable.",
+      "hyperparameters": {
+        "multi_class": "multinomial (softmax)",
+        "C": "1.0 (regularization strength)",
+        "class_weight": "balanced"
+      }
+    },
+    "SVM_RBF": {
+      "training_time_seconds": 0.1357,
+      "inference_time_seconds": 0.0101,
+      "inference_time_per_sample_ms": 0.021,
+      "accuracy": 1.0,
+      "precision_macro": 1.0,
+      "precision_weighted": 1.0,
+      "recall_macro": 1.0,
+      "recall_weighted": 1.0,
+      "f1_macro": 1.0,
+      "f1_weighted": 1.0,
+      "per_class": {
+        "CCS": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1_score": 1.0,
+          "support": 125
+        },
+        "DWM": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1_score": 1.0,
+          "support": 124
+        },
+        "ML": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1_score": 1.0,
+          "support": 126
+        },
+        "WT": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1_score": 1.0,
+          "support": 105
+        }
+      },
+      "sensitivity": {
+        "CCS": 1.0,
+        "DWM": 1.0,
+        "ML": 1.0,
+        "WT": 1.0
+      },
+      "specificity": {
+        "CCS": 1.0,
+        "DWM": 1.0,
+        "ML": 1.0,
+        "WT": 1.0
+      },
+      "confusion_matrix": [
+        [
+          125,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          124,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          126,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          105
+        ]
+      ],
+      "roc_auc_ovr": 1.0,
+      "roc_auc_weighted": 1.0,
+      "matthews_corrcoef": 1.0,
+      "cohen_kappa": 1.0,
+      "cv_accuracy_mean": 0.9988,
+      "cv_accuracy_std": 0.0017,
+      "cv_f1_mean": 0.9988,
+      "cv_f1_std": 0.0016,
+      "cv_precision_mean": 0.9988,
+      "cv_recall_mean": 0.9988,
+      "cv_scores": [
+        0.9958,
+        1.0,
+        1.0,
+        0.9979,
+        1.0
+      ],
+      "description": "Support Vector Machine with RBF kernel \u2014 finds optimal hyperplane in transformed feature space. Excellent for moderate-sized datasets with complex boundaries.",
+      "hyperparameters": {
+        "kernel": "rbf (Radial Basis Function \u2014 non-linear)",
+        "C": "10.0 (high penalty for misclassification)",
+        "gamma": "scale (auto-calculated from features)"
+      }
+    },
+    "SVM_Linear": {
+      "training_time_seconds": 0.062,
+      "inference_time_seconds": 0.001,
+      "inference_time_per_sample_ms": 0.0021,
+      "accuracy": 1.0,
+      "precision_macro": 1.0,
+      "precision_weighted": 1.0,
+      "recall_macro": 1.0,
+      "recall_weighted": 1.0,
+      "f1_macro": 1.0,
+      "f1_weighted": 1.0,
+      "per_class": {
+        "CCS": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1_score": 1.0,
+          "support": 125
+        },
+        "DWM": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1_score": 1.0,
+          "support": 124
+        },
+        "ML": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1_score": 1.0,
+          "support": 126
+        },
+        "WT": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1_score": 1.0,
+          "support": 105
+        }
+      },
+      "sensitivity": {
+        "CCS": 1.0,
+        "DWM": 1.0,
+        "ML": 1.0,
+        "WT": 1.0
+      },
+      "specificity": {
+        "CCS": 1.0,
+        "DWM": 1.0,
+        "ML": 1.0,
+        "WT": 1.0
+      },
+      "confusion_matrix": [
+        [
+          125,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          124,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          126,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          105
+        ]
+      ],
+      "roc_auc_ovr": 1.0,
+      "roc_auc_weighted": 1.0,
+      "matthews_corrcoef": 1.0,
+      "cohen_kappa": 1.0,
+      "cv_accuracy_mean": 0.9979,
+      "cv_accuracy_std": 0.0019,
+      "cv_f1_mean": 0.998,
+      "cv_f1_std": 0.0018,
+      "cv_precision_mean": 0.998,
+      "cv_recall_mean": 0.998,
+      "cv_scores": [
+        0.9958,
+        1.0,
+        0.9958,
+        0.9979,
+        1.0
+      ],
+      "description": "Linear SVM \u2014 tests if linear separation is sufficient.",
+      "hyperparameters": {
+        "kernel": "linear",
+        "C": "1.0"
+      }
+    },
+    "MLP_Neural": {
+      "training_time_seconds": 0.2449,
+      "inference_time_seconds": 0.001,
+      "inference_time_per_sample_ms": 0.0021,
+      "accuracy": 1.0,
+      "precision_macro": 1.0,
+      "precision_weighted": 1.0,
+      "recall_macro": 1.0,
+      "recall_weighted": 1.0,
+      "f1_macro": 1.0,
+      "f1_weighted": 1.0,
+      "per_class": {
+        "CCS": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1_score": 1.0,
+          "support": 125
+        },
+        "DWM": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1_score": 1.0,
+          "support": 124
+        },
+        "ML": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1_score": 1.0,
+          "support": 126
+        },
+        "WT": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1_score": 1.0,
+          "support": 105
+        }
+      },
+      "sensitivity": {
+        "CCS": 1.0,
+        "DWM": 1.0,
+        "ML": 1.0,
+        "WT": 1.0
+      },
+      "specificity": {
+        "CCS": 1.0,
+        "DWM": 1.0,
+        "ML": 1.0,
+        "WT": 1.0
+      },
+      "confusion_matrix": [
+        [
+          125,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          124,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          126,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          105
+        ]
+      ],
+      "roc_auc_ovr": 1.0,
+      "roc_auc_weighted": 1.0,
+      "matthews_corrcoef": 1.0,
+      "cohen_kappa": 1.0,
+      "cv_accuracy_mean": 0.9962,
+      "cv_accuracy_std": 0.0031,
+      "cv_f1_mean": 0.9964,
+      "cv_f1_std": 0.0029,
+      "cv_precision_mean": 0.9964,
+      "cv_recall_mean": 0.9964,
+      "cv_scores": [
+        0.9938,
+        1.0,
+        0.9938,
+        0.9938,
+        1.0
+      ],
+      "description": "Multi-Layer Perceptron (3 hidden layers: 128\u219264\u219232). Deep learning approach \u2014 can learn complex non-linear patterns. Uses early stopping to prevent overfitting.",
+      "hyperparameters": {
+        "architecture": "38\u2192128\u219264\u219232\u21924",
+        "activation": "ReLU",
+        "optimizer": "Adam (lr=0.001, adaptive)",
+        "early_stopping": "Yes (15% validation)"
+      }
+    },
+    "MLP_Simple": {
+      "training_time_seconds": 0.188,
+      "inference_time_seconds": 0.0,
+      "inference_time_per_sample_ms": 0.0,
+      "accuracy": 0.9917,
+      "precision_macro": 0.992,
+      "precision_weighted": 0.9917,
+      "recall_macro": 0.992,
+      "recall_weighted": 0.9917,
+      "f1_macro": 0.992,
+      "f1_weighted": 0.9917,
+      "per_class": {
+        "CCS": {
+          "precision": 0.9919,
+          "recall": 0.984,
+          "f1_score": 0.988,
+          "support": 125
+        },
+        "DWM": {
+          "precision": 0.984,
+          "recall": 0.9919,
+          "f1_score": 0.988,
+          "support": 124
+        },
+        "ML": {
+          "precision": 0.9921,
+          "recall": 0.9921,
+          "f1_score": 0.9921,
+          "support": 126
+        },
+        "WT": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1_score": 1.0,
+          "support": 105
+        }
+      },
+      "sensitivity": {
+        "CCS": 0.984,
+        "DWM": 0.9919,
+        "ML": 0.9921,
+        "WT": 1.0
+      },
+      "specificity": {
+        "CCS": 0.9972,
+        "DWM": 0.9944,
+        "ML": 0.9972,
+        "WT": 1.0
+      },
+      "confusion_matrix": [
+        [
+          123,
+          1,
+          1,
+          0
+        ],
+        [
+          1,
+          123,
+          0,
+          0
+        ],
+        [
+          0,
+          1,
+          125,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          105
+        ]
+      ],
+      "roc_auc_ovr": 0.9999,
+      "roc_auc_weighted": 0.9999,
+      "matthews_corrcoef": 0.9889,
+      "cohen_kappa": 0.9889,
+      "cv_accuracy_mean": 0.9892,
+      "cv_accuracy_std": 0.0061,
+      "cv_f1_mean": 0.9895,
+      "cv_f1_std": 0.0059,
+      "cv_precision_mean": 0.9897,
+      "cv_recall_mean": 0.9895,
+      "cv_scores": [
+        0.9917,
+        0.9792,
+        0.9979,
+        0.9896,
+        0.9875
+      ],
+      "description": "Simpler MLP (2 layers: 64\u219232) \u2014 tests if fewer parameters suffice.",
+      "hyperparameters": {
+        "architecture": "38\u219264\u219232\u21924"
+      }
+    },
+    "NaiveBayes": {
+      "training_time_seconds": 0.001,
+      "inference_time_seconds": 0.0,
+      "inference_time_per_sample_ms": 0.0,
+      "accuracy": 1.0,
+      "precision_macro": 1.0,
+      "precision_weighted": 1.0,
+      "recall_macro": 1.0,
+      "recall_weighted": 1.0,
+      "f1_macro": 1.0,
+      "f1_weighted": 1.0,
+      "per_class": {
+        "CCS": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1_score": 1.0,
+          "support": 125
+        },
+        "DWM": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1_score": 1.0,
+          "support": 124
+        },
+        "ML": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1_score": 1.0,
+          "support": 126
+        },
+        "WT": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1_score": 1.0,
+          "support": 105
+        }
+      },
+      "sensitivity": {
+        "CCS": 1.0,
+        "DWM": 1.0,
+        "ML": 1.0,
+        "WT": 1.0
+      },
+      "specificity": {
+        "CCS": 1.0,
+        "DWM": 1.0,
+        "ML": 1.0,
+        "WT": 1.0
+      },
+      "confusion_matrix": [
+        [
+          125,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          124,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          126,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          105
+        ]
+      ],
+      "roc_auc_ovr": 1.0,
+      "roc_auc_weighted": 1.0,
+      "matthews_corrcoef": 1.0,
+      "cohen_kappa": 1.0,
+      "cv_accuracy_mean": 0.9992,
+      "cv_accuracy_std": 0.0017,
+      "cv_f1_mean": 0.9992,
+      "cv_f1_std": 0.0016,
+      "cv_precision_mean": 0.9992,
+      "cv_recall_mean": 0.9992,
+      "cv_scores": [
+        1.0,
+        1.0,
+        1.0,
+        0.9958,
+        1.0
+      ],
+      "description": "Gaussian Naive Bayes \u2014 assumes features are independent and normally distributed. Fast baseline. If it performs well, features are highly discriminative.",
+      "hyperparameters": {
+        "assumption": "Gaussian feature distribution",
+        "independence": "Features assumed independent (naive)"
+      }
+    },
+    "DecisionTree": {
+      "training_time_seconds": 0.019,
+      "inference_time_seconds": 0.0,
+      "inference_time_per_sample_ms": 0.0,
+      "accuracy": 1.0,
+      "precision_macro": 1.0,
+      "precision_weighted": 1.0,
+      "recall_macro": 1.0,
+      "recall_weighted": 1.0,
+      "f1_macro": 1.0,
+      "f1_weighted": 1.0,
+      "per_class": {
+        "CCS": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1_score": 1.0,
+          "support": 125
+        },
+        "DWM": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1_score": 1.0,
+          "support": 124
+        },
+        "ML": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1_score": 1.0,
+          "support": 126
+        },
+        "WT": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1_score": 1.0,
+          "support": 105
+        }
+      },
+      "sensitivity": {
+        "CCS": 1.0,
+        "DWM": 1.0,
+        "ML": 1.0,
+        "WT": 1.0
+      },
+      "specificity": {
+        "CCS": 1.0,
+        "DWM": 1.0,
+        "ML": 1.0,
+        "WT": 1.0
+      },
+      "confusion_matrix": [
+        [
+          125,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          124,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          126,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          105
+        ]
+      ],
+      "roc_auc_ovr": 1.0,
+      "roc_auc_weighted": 1.0,
+      "matthews_corrcoef": 1.0,
+      "cohen_kappa": 1.0,
+      "cv_accuracy_mean": 0.9988,
+      "cv_accuracy_std": 0.001,
+      "cv_f1_mean": 0.9987,
+      "cv_f1_std": 0.0011,
+      "cv_precision_mean": 0.9986,
+      "cv_recall_mean": 0.9988,
+      "cv_scores": [
+        0.9979,
+        0.9979,
+        0.9979,
+        1.0,
+        1.0
+      ],
+      "description": "Single Decision Tree \u2014 interpretable baseline. If RF >> DT, then ensemble averaging helps significantly.",
+      "hyperparameters": {
+        "max_depth": "10",
+        "class_weight": "balanced"
+      }
+    }
+  },
+  "ranking": [
+    {
+      "model": "NaiveBayes",
+      "composite_score": 0.9996,
+      "accuracy": 1.0,
+      "cv_accuracy": 0.9992,
+      "f1_macro": 1.0,
+      "roc_auc": 1.0,
+      "avg_specificity": 1.0,
+      "training_time": 0.001,
+      "rank": 1
+    },
+    {
+      "model": "KNN_7",
+      "composite_score": 0.9983,
+      "accuracy": 1.0,
+      "cv_accuracy": 0.9958,
+      "f1_macro": 1.0,
+      "roc_auc": 1.0,
+      "avg_specificity": 1.0,
+      "training_time": 0.0,
+      "rank": 2
+    },
+    {
+      "model": "DecisionTree",
+      "composite_score": 0.9977,
+      "accuracy": 1.0,
+      "cv_accuracy": 0.9988,
+      "f1_macro": 1.0,
+      "roc_auc": 1.0,
+      "avg_specificity": 1.0,
+      "training_time": 0.019,
+      "rank": 3
+    },
+    {
+      "model": "KNN_5",
+      "composite_score": 0.9976,
+      "accuracy": 0.9979,
+      "cv_accuracy": 0.9954,
+      "f1_macro": 0.998,
+      "roc_auc": 1.0,
+      "avg_specificity": 0.9993,
+      "training_time": 0.0,
+      "rank": 4
+    },
+    {
+      "model": "LogisticRegression",
+      "composite_score": 0.9966,
+      "accuracy": 1.0,
+      "cv_accuracy": 0.9983,
+      "f1_macro": 1.0,
+      "roc_auc": 1.0,
+      "avg_specificity": 1.0,
+      "training_time": 0.0276,
+      "rank": 5
+    },
+    {
+      "model": "KNN_3",
+      "composite_score": 0.996,
+      "accuracy": 0.9938,
+      "cv_accuracy": 0.9946,
+      "f1_macro": 0.994,
+      "roc_auc": 1.0,
+      "avg_specificity": 0.9979,
+      "training_time": 0.001,
+      "rank": 6
+    },
+    {
+      "model": "SVM_Linear",
+      "composite_score": 0.9933,
+      "accuracy": 1.0,
+      "cv_accuracy": 0.9979,
+      "f1_macro": 1.0,
+      "roc_auc": 1.0,
+      "avg_specificity": 1.0,
+      "training_time": 0.062,
+      "rank": 7
+    },
+    {
+      "model": "SVM_RBF",
+      "composite_score": 0.9876,
+      "accuracy": 1.0,
+      "cv_accuracy": 0.9988,
+      "f1_macro": 1.0,
+      "roc_auc": 1.0,
+      "avg_specificity": 1.0,
+      "training_time": 0.1357,
+      "rank": 8
+    },
+    {
+      "model": "ExtraTrees",
+      "composite_score": 0.98,
+      "accuracy": 1.0,
+      "cv_accuracy": 1.0,
+      "f1_macro": 1.0,
+      "roc_auc": 1.0,
+      "avg_specificity": 1.0,
+      "training_time": 0.2493,
+      "rank": 9
+    },
+    {
+      "model": "RandomForest",
+      "composite_score": 0.9789,
+      "accuracy": 1.0,
+      "cv_accuracy": 1.0,
+      "f1_macro": 1.0,
+      "roc_auc": 1.0,
+      "avg_specificity": 1.0,
+      "training_time": 0.2678,
+      "rank": 10
+    },
+    {
+      "model": "MLP_Neural",
+      "composite_score": 0.9788,
+      "accuracy": 1.0,
+      "cv_accuracy": 0.9962,
+      "f1_macro": 1.0,
+      "roc_auc": 1.0,
+      "avg_specificity": 1.0,
+      "training_time": 0.2449,
+      "rank": 11
+    },
+    {
+      "model": "MLP_Simple",
+      "composite_score": 0.9776,
+      "accuracy": 0.9917,
+      "cv_accuracy": 0.9892,
+      "f1_macro": 0.992,
+      "roc_auc": 0.9999,
+      "avg_specificity": 0.9972,
+      "training_time": 0.188,
+      "rank": 12
+    },
+    {
+      "model": "AdaBoost",
+      "composite_score": 0.95,
+      "accuracy": 1.0,
+      "cv_accuracy": 0.9996,
+      "f1_macro": 1.0,
+      "roc_auc": 1.0,
+      "avg_specificity": 1.0,
+      "training_time": 0.9935,
+      "rank": 13
+    },
+    {
+      "model": "GradientBoosting",
+      "composite_score": 0.9066,
+      "accuracy": 1.0,
+      "cv_accuracy": 0.9996,
+      "f1_macro": 1.0,
+      "roc_auc": 1.0,
+      "avg_specificity": 1.0,
+      "training_time": 13.8154,
+      "rank": 14
+    }
+  ],
+  "best_model": {
+    "model": "NaiveBayes",
+    "composite_score": 0.9996,
+    "accuracy": 1.0,
+    "cv_accuracy": 0.9992,
+    "f1_macro": 1.0,
+    "roc_auc": 1.0,
+    "avg_specificity": 1.0,
+    "training_time": 0.001,
+    "rank": 1
+  },
+  "recommendation": {
+    "recommended_model": "NaiveBayes",
+    "composite_score": 0.9996,
+    "reasons": [
+      "Highest composite score: 0.9996",
+      "CV Accuracy: 0.9992 (generalizes well)",
+      "F1 Macro: 1.0000 (balanced across classes)",
+      "ROC AUC: 1.0000 (strong discrimination)",
+      "Note: Very close to KNN_7 (diff=0.0013). Consider KNN_7 if speed is critical."
+    ],
+    "runner_up": "KNN_7"
+  }
+}

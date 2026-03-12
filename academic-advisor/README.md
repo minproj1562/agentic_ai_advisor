@@ -1160,3 +1160,18 @@ Default password: Faculty@FCRIT2024
 
 ## To set admin role
 python -m scripts.set_admin_role --email youremail@example.com
+
+# Step 1: Install XGBoost (optional but recommended)
+pip install xgboost lightgbm
+
+# Step 2: Run model comparison (THIS IS WHAT YOU WANT)
+python -m scripts.compare_models --samples 500
+
+# Step 3: Run with hard/overlapping samples (more realistic)
+python -m scripts.compare_models --samples 500 --hard-mode
+
+# Step 4: After seeing results, train with full data
+python -m scripts.train_models --samples 1250
+
+# Step 5: Train WITH comparison (all-in-one)
+python -m scripts.train_models --samples 1000 --compare --hard-mode

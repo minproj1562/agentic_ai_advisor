@@ -1,3 +1,4 @@
+// academic-advisor/academic-advisor-frontend/src/components/AuthLayout.tsx
 import React, { ReactNode } from 'react';
 import { motion } from 'framer-motion';
 
