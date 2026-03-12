@@ -1,27 +1,28 @@
 """
 Error tracking with Sentry
 """
+# academic-advisor-backend/app/core/error_tracking.py
 
 import sentry_sdk
 from sentry_sdk.integrations.fastapi import FastApiIntegration
-from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
 from sentry_sdk.integrations.redis import RedisIntegration
 from sentry_sdk.integrations.celery import CeleryIntegration
+from sentry_sdk.integrations.mongo import MongoIntegration  # replaces SqlalchemyIntegration
 
 from app.config import settings
 
 def init_sentry():
     """
-    Initialize Sentry for error tracking
+    Initialize Sentry for error tracking with MongoDB (Beanie) support.
     """
     if settings.SENTRY_DSN:
         sentry_sdk.init(
             dsn=settings.SENTRY_DSN,
             integrations=[
                 FastApiIntegration(transaction_style="endpoint"),
-                SqlalchemyIntegration(),
-                RedisIntegration(),
-                CeleryIntegration()
+                MongoIntegration(),          # Captures MongoDB queries (works with Motor/Beanie)
+                RedisIntegration(),           # If you use Redis (optional)
+                CeleryIntegration()           # If you use Celery (optional)
             ],
             traces_sample_rate=0.1 if settings.ENVIRONMENT == "production" else 1.0,
             environment=settings.ENVIRONMENT,
@@ -34,50 +35,45 @@ def init_sentry():
 
 def before_send_filter(event, hint):
     """
-    Filter sensitive data before sending to Sentry
+    Filter sensitive data before sending to Sentry.
     """
-    # Remove sensitive data
+    # Remove sensitive data from request headers
     if 'request' in event and 'headers' in event['request']:
         headers = event['request']['headers']
-        
-        # Remove authorization headers
         headers.pop('authorization', None)
         headers.pop('cookie', None)
-        
-    # Remove passwords from data
+
+    # Remove passwords from extra data
     if 'extra' in event:
         for key in list(event['extra'].keys()):
             if 'password' in key.lower():
                 del event['extra'][key]
-    
+
     return event
 
 def before_send_transaction_filter(event, hint):
     """
-    Filter transactions before sending
+    Filter transactions before sending.
     """
     # Don't send health check transactions
     if event.get('transaction') == '/health':
         return None
-    
     return event
 
 def capture_exception(error: Exception, **kwargs):
     """
-    Capture exception with additional context
+    Capture exception with additional context.
     """
     with sentry_sdk.push_scope() as scope:
         for key, value in kwargs.items():
             scope.set_extra(key, value)
-        
         sentry_sdk.capture_exception(error)
 
 def capture_message(message: str, level: str = "info", **kwargs):
     """
-    Capture message with context
+    Capture message with context.
     """
     with sentry_sdk.push_scope() as scope:
         for key, value in kwargs.items():
             scope.set_extra(key, value)
-        
         sentry_sdk.capture_message(message, level=level)

@@ -5,22 +5,27 @@ import type { ChatMessage, ChatResponseContent, ChatFeedback } from '../types/ch
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
-// ── Out-of-scope patterns ───────────────────────────────
+// ══════════════════════════════════════════════════════════
+// OUT-OF-SCOPE DETECTION
+// ══════════════════════════════════════════════════════════
 
 const OUT_OF_SCOPE_PATTERNS = [
-  /\b(movie|film|actor|actress|bollywood|hollywood|netflix)\b/i,
-  /\b(cricket|football|soccer|basketball|ipl|fifa|sports)\b/i,
-  /\b(politics|election|vote|government|minister|party)\b/i,
-  /\b(weather|recipe|cook|food|restaurant|hotel)\b/i,
-  /\b(game|gaming|pubg|fortnite|minecraft|gta)\b/i,
-  /\b(relationship|dating|love|marriage)\b/i,
+  /\b(movie|film|actor|actress|bollywood|hollywood|netflix|show|series)\b/i,
+  /\b(cricket|football|soccer|basketball|ipl|fifa|sports|match|player)\b/i,
+  /\b(politics|election|vote|government|minister|party|congress|bjp)\b/i,
+  /\b(weather|recipe|cook|food|restaurant|hotel|travel|vacation)\b/i,
+  /\b(game|gaming|pubg|fortnite|minecraft|gta|xbox|playstation)\b/i,
+  /\b(relationship|dating|love|marriage|breakup)\b/i,
+  /\b(religion|god|temple|church|mosque|prayer)\b/i,
 ];
 
 function isOutOfScope(msg: string): boolean {
   return OUT_OF_SCOPE_PATTERNS.some(p => p.test(msg));
 }
 
-// ── Service ─────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════
+// CHATBOT SERVICE CLASS
+// ══════════════════════════════════════════════════════════
 
 class ChatbotService {
   private sessionToken: string | null = null;
@@ -31,50 +36,70 @@ class ChatbotService {
     this.restoreSession();
   }
 
-  // ── Core: send message ────────────────────────────────
+  // ──────────────────────────────────────────────────────
+  // CORE: Send Message
+  // ──────────────────────────────────────────────────────
 
   async sendMessage(
     message: string,
+    studentData?: Record<string, unknown>,
     includeStudentData = true,
   ): Promise<ChatResponseContent | string> {
     // Client-side out-of-scope guard
     if (isOutOfScope(message)) {
-      return 'Beyond my scope';
+      return this.createOutOfScopeResponse();
     }
 
     // Try backend
     if (this.isBackendAvailable) {
       try {
         const token = await this.getAuthToken();
+        
+        const requestBody: Record<string, unknown> = {
+          message: message.trim(),
+          session_token: this.sessionToken,
+          include_student_data: includeStudentData,
+        };
+        
+        if (includeStudentData && studentData) {
+          requestBody.student_data = studentData;
+        }
 
-        const res = await fetch(`${API_BASE_URL}/api/v1/chatbot/chat`, {
+        console.log('📤 Sending to chatbot:', {
+          message: message.trim().substring(0, 50) + '...',
+          hasStudentData: !!studentData,
+          hasSessionToken: !!this.sessionToken,
+        });
+
+        const response = await fetch(`${API_BASE_URL}/api/v1/chatbot/chat`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             ...(token ? { Authorization: `Bearer ${token}` } : {}),
           },
-          body: JSON.stringify({
-            message,
-            session_token: this.sessionToken,
-            include_student_data: includeStudentData,
-          }),
+          body: JSON.stringify(requestBody),
         });
 
-        if (res.ok) {
-          const ct = res.headers.get('content-type');
-          if (ct?.includes('text/plain')) {
-            return await res.text();
-          }
-          const data = await res.json();
+        if (response.ok) {
+          const data = await response.json();
+          console.log('📥 JSON response:', {
+            type: data.type,
+            intent: data.intent,
+            confidence: data.confidence,
+          });
+          
+          // Update session token
           if (data.session_token) {
             this.sessionToken = data.session_token;
             this.saveSession();
           }
-          return data;
+          
+          return data as ChatResponseContent;
         }
 
-        console.warn('Backend error, switching to offline');
+        console.warn(`Backend returned ${response.status}, switching to offline`);
         this.isBackendAvailable = false;
+        
       } catch (err) {
         console.warn('Backend unreachable:', err);
         this.isBackendAvailable = false;
@@ -85,12 +110,14 @@ class ChatbotService {
     return this.offlineResponse(message);
   }
 
-  // ── Feedback (Task 22) ────────────────────────────────
+  // ──────────────────────────────────────────────────────
+  // Feedback
+  // ──────────────────────────────────────────────────────
 
   async submitFeedback(feedback: ChatFeedback): Promise<boolean> {
     try {
       const token = await this.getAuthToken();
-      const res = await fetch(`${API_BASE_URL}/api/v1/chatbot/feedback`, {
+      const response = await fetch(`${API_BASE_URL}/api/v1/chatbot/feedback`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -98,35 +125,43 @@ class ChatbotService {
         },
         body: JSON.stringify(feedback),
       });
-      return res.ok;
+      return response.ok;
     } catch {
       console.warn('Feedback submission failed');
       return false;
     }
   }
 
-  // ── Suggestions ───────────────────────────────────────
+  // ──────────────────────────────────────────────────────
+  // Suggestions
+  // ──────────────────────────────────────────────────────
 
   async getSuggestions(): Promise<string[]> {
     if (this.isBackendAvailable) {
       try {
         const token = await this.getAuthToken();
-        const res = await fetch(
-          `${API_BASE_URL}/api/v1/chatbot/suggestions${
-            this.sessionToken ? `?session_token=${this.sessionToken}` : ''
-          }`,
-          { headers: token ? { Authorization: `Bearer ${token}` } : {} },
-        );
-        if (res.ok) {
-          const data = await res.json();
+        const url = this.sessionToken
+          ? `${API_BASE_URL}/api/v1/chatbot/suggestions?session_token=${this.sessionToken}`
+          : `${API_BASE_URL}/api/v1/chatbot/suggestions`;
+          
+        const response = await fetch(url, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
           return data.suggestions || this.defaultSuggestions();
         }
-      } catch { /* fall through */ }
+      } catch {
+        // Fall through to defaults
+      }
     }
     return this.defaultSuggestions();
   }
 
-  // ── History ───────────────────────────────────────────
+  // ──────────────────────────────────────────────────────
+  // History
+  // ──────────────────────────────────────────────────────
 
   async getHistory(limit = 20): Promise<ChatMessage[]> {
     return this.conversationHistory.slice(-limit);
@@ -139,7 +174,9 @@ class ChatbotService {
     }
   }
 
-  // ── Session management ────────────────────────────────
+  // ──────────────────────────────────────────────────────
+  // Session Management
+  // ──────────────────────────────────────────────────────
 
   async clearSession(): Promise<void> {
     if (this.sessionToken && this.isBackendAvailable) {
@@ -153,7 +190,9 @@ class ChatbotService {
           },
           body: JSON.stringify({ session_token: this.sessionToken }),
         });
-      } catch { /* ignore */ }
+      } catch {
+        // Ignore errors
+      }
     }
     this.sessionToken = null;
     this.conversationHistory = [];
@@ -169,11 +208,21 @@ class ChatbotService {
     try {
       const saved = localStorage.getItem('chatbot_session');
       if (saved) {
-        const s = JSON.parse(saved);
-        this.sessionToken = s.token;
-        this.conversationHistory = s.history || [];
+        const parsed = JSON.parse(saved);
+        const timestamp = new Date(parsed.timestamp);
+        const now = new Date();
+        const hoursDiff = (now.getTime() - timestamp.getTime()) / (1000 * 60 * 60);
+        
+        if (hoursDiff < 24) {
+          this.sessionToken = parsed.token;
+          this.conversationHistory = parsed.history || [];
+        } else {
+          localStorage.removeItem('chatbot_session');
+        }
       }
-    } catch { /* ignore */ }
+    } catch {
+      // Ignore
+    }
   }
 
   isOnlineMode(): boolean {
@@ -185,11 +234,15 @@ class ChatbotService {
   }
 
   isOutOfScope(response: ChatResponseContent | string): boolean {
-    if (typeof response === 'string') return response === 'Beyond my scope';
+    if (typeof response === 'string') {
+      return response.includes('out of scope') || response.includes('academic');
+    }
     return response.intent === 'OUT_OF_SCOPE';
   }
 
-  // ── Private helpers ───────────────────────────────────
+  // ──────────────────────────────────────────────────────
+  // Private Helpers
+  // ──────────────────────────────────────────────────────
 
   private async getAuthToken(): Promise<string | null> {
     try {
@@ -215,12 +268,29 @@ class ChatbotService {
 
   private defaultSuggestions(): string[] {
     return [
+      'Explain deadlock in Operating Systems',
+      'Who teaches Machine Learning?',
       'How to become a data scientist?',
       'Show my academic performance',
-      'Which electives for ML career?',
-      'Create a study plan',
-      'Career options in cybersecurity?',
+      'Recommend electives for AI career',
     ];
+  }
+
+  private createOutOfScopeResponse(): ChatResponseContent {
+    return {
+      type: 'text',
+      intent: 'OUT_OF_SCOPE',
+      content: {
+        message: "I'm an academic advisor and can only help with academic-related queries.",
+        scope: [
+          '📚 Syllabus and course content',
+          '👨‍🏫 Faculty information',
+          '📊 Academic performance',
+          '💼 Career guidance in tech',
+        ],
+      },
+      confidence: 'High',
+    };
   }
 
   private offlineResponse(message: string): ChatResponseContent {
@@ -230,9 +300,9 @@ class ChatbotService {
       content: {
         message:
           "I'm currently in offline mode with limited capabilities.\n\n" +
-          'I can help with:\n' +
+          'I can help you with:\n' +
           '📚 Syllabus & concepts\n' +
-          '👨‍🏫 Faculty info\n' +
+          '👨‍🏫 Faculty information\n' +
           '📊 Performance analysis\n' +
           '📖 Elective recommendations\n' +
           '💼 Career guidance\n' +
@@ -243,6 +313,10 @@ class ChatbotService {
     };
   }
 }
+
+// ══════════════════════════════════════════════════════════
+// EXPORT
+// ══════════════════════════════════════════════════════════
 
 export const chatbotService = new ChatbotService();
 export type { ChatMessage, ChatResponseContent };

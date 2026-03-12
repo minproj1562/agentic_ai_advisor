@@ -1,4 +1,4 @@
-# scripts/seed_data.py
+# scripts/seed_faculty_data.py
 """
 Complete Seed Script for Academic Advisor
 Based on FCRIT B.Tech CSE/IT Curriculum (R2024.1 / R25)
@@ -641,6 +641,8 @@ async def create_students(faculty_list: List[Faculty], count_per_faculty: int = 
     return students
 
 
+# Replace the create_projects function in scripts/seed_faculty_data.py
+
 async def create_projects(students: List[StudentProfile]):
     """Create sample projects for students"""
     print("\n📁 Creating student projects...")
@@ -649,31 +651,31 @@ async def create_projects(students: List[StudentProfile]):
         {
             "title": "AI-Powered Plagiarism Detector",
             "tech": ["Python", "TensorFlow", "NLP", "Flask"],
-            "type": ProjectType.MAJOR_PROJECT,
+            "type": ProjectType.RESEARCH,
             "domain": "AI/ML"
         },
         {
             "title": "Smart Traffic Management System",
             "tech": ["Python", "OpenCV", "IoT", "React"],
-            "type": ProjectType.MAJOR_PROJECT,
+            "type": ProjectType.ACADEMIC,
             "domain": "IoT"
         },
         {
             "title": "Blockchain-based Voting System",
             "tech": ["Solidity", "Web3.js", "React", "Node.js"],
-            "type": ProjectType.MAJOR_PROJECT,
+            "type": ProjectType.HACKATHON,
             "domain": "Blockchain"
         },
         {
             "title": "Health Monitoring Wearable App",
             "tech": ["Flutter", "Firebase", "TensorFlow Lite"],
-            "type": ProjectType.MINOR_PROJECT,
+            "type": ProjectType.PERSONAL,
             "domain": "Mobile"
         },
         {
             "title": "E-Commerce Recommendation Engine",
             "tech": ["Python", "Scikit-learn", "Django", "PostgreSQL"],
-            "type": ProjectType.MINOR_PROJECT,
+            "type": ProjectType.INTERNSHIP,
             "domain": "Data Science"
         },
         {
@@ -685,7 +687,7 @@ async def create_projects(students: List[StudentProfile]):
         {
             "title": "Image Classification using CNN",
             "tech": ["Python", "TensorFlow", "Keras", "OpenCV"],
-            "type": ProjectType.ACADEMIC,
+            "type": ProjectType.COMPETITION,
             "domain": "AI/ML"
         },
         {
@@ -693,6 +695,30 @@ async def create_projects(students: List[StudentProfile]):
             "tech": ["Python", "Scikit-learn", "Flask", "React"],
             "type": ProjectType.RESEARCH,
             "domain": "Data Science"
+        },
+        {
+            "title": "Open Source CLI Tool",
+            "tech": ["Python", "Click", "Rich", "GitHub Actions"],
+            "type": ProjectType.OPEN_SOURCE,
+            "domain": "DevOps"
+        },
+        {
+            "title": "Portfolio Website for Client",
+            "tech": ["React", "Next.js", "Tailwind CSS", "Vercel"],
+            "type": ProjectType.FREELANCE,
+            "domain": "Web Dev"
+        },
+        {
+            "title": "Smart India Hackathon Project",
+            "tech": ["Python", "Django", "PostgreSQL", "Docker"],
+            "type": ProjectType.HACKATHON,
+            "domain": "Full Stack"
+        },
+        {
+            "title": "Company Internship Project",
+            "tech": ["Java", "Spring Boot", "MySQL", "AWS"],
+            "type": ProjectType.INTERNSHIP,
+            "domain": "Backend"
         }
     ]
     
@@ -719,8 +745,7 @@ async def create_projects(students: List[StudentProfile]):
             projects_created += 1
     
     print(f"  ✅ Created {projects_created} projects for {len(students)} students")
-
-
+    
 async def create_meeting_requests(faculty_list: List[Faculty], students: List[StudentProfile]):
     """Create sample meeting requests"""
     print("\n📅 Creating meeting requests...")

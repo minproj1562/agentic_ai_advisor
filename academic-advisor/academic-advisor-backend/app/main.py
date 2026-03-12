@@ -1,6 +1,7 @@
-# academic-advisor-backend/app/main.py
+# app/main.py
 """
 FastAPI Main Application
+COMPLETE FILE - Updated for chatbot with syllabus support
 """
 
 from fastapi import FastAPI, Request
@@ -19,7 +20,11 @@ import os
 from app.config import settings
 from app.api.v1.api import api_router
 
-# Import ALL document models (no duplicates)
+# ══════════════════════════════════════════════════════════
+# IMPORT ALL DOCUMENT MODELS
+# ══════════════════════════════════════════════════════════
+
+# Student/Core models
 from app.models.student_profile import StudentProfile
 from app.models.student_performance import StudentPerformance
 from app.models.student_projects import StudentProject, StudentInterestProfile as ProjectInterestProfile
@@ -30,24 +35,47 @@ from app.models.messages import Message, Conversation
 from app.models.faculty import Faculty
 from app.models.meeting_request import MeetingRequest
 from app.models.analytics import Analytics
-from app.models.readiness import (SubjectRequirementMap, ReadinessResult)
-from app.models.chatbot import ChatSession, ChatFeedback, ChatbotAnalyticsDoc
-from app.models.career import CareerPath
+from app.models.readiness import SubjectRequirementMap, ReadinessResult
 from app.models.recommendation import (
     RecommendationRecord,
     RecommendationFeedback,
     TrainingDataPoint,
 )
 
-# Configure logging
+# Chatbot models
+from app.models.chatbot import ChatSession, ChatMessage, ChatFeedback, ChatbotAnalyticsDoc
+from app.models.career import CareerPath
+
+# Syllabus models - IMPORTANT for chatbot to work
+from app.models.syllabus import (
+    Department,
+    Subject,
+    SubjectUnit,
+    Topic,
+    Abbreviation,
+    ProgramElective,
+    OpenElective,
+    LiberalLearningCourse,
+    MDMCourse,
+    CreditStructure,
+)
+
+# ══════════════════════════════════════════════════════════
+# LOGGING CONFIGURATION
+# ══════════════════════════════════════════════════════════
+
 logging.basicConfig(
     level=getattr(logging, settings.LOG_LEVEL),
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
-# Document models for Beanie (each model listed ONCE)
+# ══════════════════════════════════════════════════════════
+# DOCUMENT MODELS FOR BEANIE (COMPLETE LIST)
+# ══════════════════════════════════════════════════════════
+
 document_models = [
+    # Student/Core models
     StudentProfile,
     StudentPerformance,
     StudentProject,
@@ -65,13 +93,31 @@ document_models = [
     TrainingDataPoint,
     SubjectRequirementMap,
     ReadinessResult,
+    
+    # Chatbot models
     ChatSession,
+    ChatMessage,
     ChatFeedback,
     ChatbotAnalyticsDoc,
     CareerPath,
-
+    
+    # Syllabus models (REQUIRED for chatbot)
+    Department,
+    Subject,
+    SubjectUnit,
+    Topic,
+    Abbreviation,
+    ProgramElective,
+    OpenElective,
+    LiberalLearningCourse,
+    MDMCourse,
+    CreditStructure,
 ]
 
+
+# ══════════════════════════════════════════════════════════
+# FIREBASE INITIALIZATION
+# ══════════════════════════════════════════════════════════
 
 def init_firebase():
     """Initialize Firebase Admin SDK only if not already initialized"""
@@ -95,22 +141,42 @@ def init_firebase():
 init_firebase()
 
 
+# ══════════════════════════════════════════════════════════
+# APPLICATION LIFESPAN
+# ══════════════════════════════════════════════════════════
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan manager"""
     logger.info("🚀 Starting up Academic Advisor API...")
 
-    # Initialize MongoDB + Beanie
+    # ─────────────────────────────────────────────────────
+    # 1. Initialize MongoDB + Beanie
+    # ─────────────────────────────────────────────────────
     try:
         client = AsyncIOMotorClient(settings.MONGODB_URL)
+        db = client[settings.MONGODB_DATABASE]
+        
         await init_beanie(
-            database=client[settings.MONGODB_DATABASE],
+            database=db,
             document_models=document_models
         )
-        logger.info(f"✅ MongoDB connected — {len(document_models)} document models")
+        logger.info(f"✅ MongoDB connected — {len(document_models)} document models registered")
+        
+        # Set database reference for repositories
+        from app.database.connection import set_database, ensure_indexes
+        set_database(client, db)
+        
+        # Create indexes for optimal query performance
+        await ensure_indexes()
+        
     except Exception as e:
         logger.error(f"❌ MongoDB connection failed: {e}")
         raise
+
+    # ─────────────────────────────────────────────────────
+    # 2. Seed Readiness Data
+    # ─────────────────────────────────────────────────────
     try:
         from app.services.readiness_service import get_readiness_service
         svc = get_readiness_service()
@@ -119,10 +185,11 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"⚠️ Readiness seed check: {e}")
 
-        # Seed career data if empty
+    # ─────────────────────────────────────────────────────
+    # 3. Seed Career Data (if empty)
+    # ─────────────────────────────────────────────────────
     try:
-        from app.models.career import CareerPath as CP
-        count = await CP.find().count()
+        count = await CareerPath.find().count()
         if count == 0:
             from scripts.seed_career_data import seed_careers
             await seed_careers()
@@ -132,9 +199,28 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"⚠️ Career seed: {e}")
 
+    # ─────────────────────────────────────────────────────
+    # 4. Check Syllabus Data
+    # ─────────────────────────────────────────────────────
+    try:
+        subject_count = await Subject.find().count()
+        topic_count = await Topic.find().count()
+        dept_count = await Department.find().count()
+        
+        if subject_count == 0:
+            logger.warning("⚠️ No syllabus data found!")
+            logger.warning("   Run: python -m scripts.seed_all_chatbot_data")
+        else:
+            logger.info(f"✅ Syllabus data ready:")
+            logger.info(f"   - {dept_count} departments")
+            logger.info(f"   - {subject_count} subjects")
+            logger.info(f"   - {topic_count} topics")
+    except Exception as e:
+        logger.warning(f"⚠️ Syllabus check: {e}")
 
-    # Load ML models (optional)
-    # Auto-train if no saved model exists
+    # ─────────────────────────────────────────────────────
+    # 5. Load ML Models (optional)
+    # ─────────────────────────────────────────────────────
     try:
         from app.ml.models.recommendation_engine import recommendation_engine
         logger.info(
@@ -152,6 +238,9 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"⚠️ Recommendation engine not loaded: {e}")
 
+    # ─────────────────────────────────────────────────────
+    # 6. Start Background Tasks
+    # ─────────────────────────────────────────────────────
     try:
         from app.tasks.meeting_reminders import start_reminder_task
         start_reminder_task()
@@ -159,12 +248,27 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"⚠️ Meeting reminder task failed to start: {e}")
 
+    # ─────────────────────────────────────────────────────
+    # STARTUP COMPLETE
+    # ─────────────────────────────────────────────────────
+    logger.info("=" * 50)
+    logger.info("🎉 Academic Advisor API is ready!")
+    logger.info(f"   Environment: {settings.ENVIRONMENT}")
+    logger.info(f"   API Docs: http://localhost:8000/docs")
+    logger.info("=" * 50)
 
     yield
 
+    # ─────────────────────────────────────────────────────
+    # SHUTDOWN
+    # ─────────────────────────────────────────────────────
     logger.info("👋 Shutting down Academic Advisor API...")
     client.close()
 
+
+# ══════════════════════════════════════════════════════════
+# FASTAPI APPLICATION
+# ══════════════════════════════════════════════════════════
 
 app = FastAPI(
     title=settings.APP_NAME,
@@ -173,6 +277,10 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc",
 )
+
+# ─────────────────────────────────────────────────────
+# MIDDLEWARE
+# ─────────────────────────────────────────────────────
 
 app.add_middleware(
     CORSMiddleware,
@@ -192,21 +300,44 @@ if settings.ENVIRONMENT == "production":
     )
 
 
+# ─────────────────────────────────────────────────────
+# EXCEPTION HANDLERS
+# ─────────────────────────────────────────────────────
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     logger.error(f"Global error: {exc}", exc_info=True)
     return JSONResponse(status_code=500, content={"detail": "Internal server error"})
 
 
+# ─────────────────────────────────────────────────────
+# HEALTH & ROOT ENDPOINTS
+# ─────────────────────────────────────────────────────
+
 @app.get("/health")
 async def health_check():
-    return {
+    """Health check endpoint with detailed status."""
+    status = {
         "status": "healthy",
         "app": settings.APP_NAME,
         "version": settings.APP_VERSION,
         "environment": settings.ENVIRONMENT,
         "timestamp": datetime.utcnow().isoformat(),
     }
+    
+    # Check database
+    try:
+        subject_count = await Subject.find().count()
+        career_count = await CareerPath.find().count()
+        status["database"] = {
+            "connected": True,
+            "subjects": subject_count,
+            "careers": career_count,
+        }
+    except Exception as e:
+        status["database"] = {"connected": False, "error": str(e)}
+    
+    return status
 
 
 @app.get("/")
@@ -219,7 +350,16 @@ async def read_root():
     }
 
 
+# ─────────────────────────────────────────────────────
+# API ROUTER
+# ─────────────────────────────────────────────────────
+
 app.include_router(api_router, prefix=settings.API_V1_STR)
+
+
+# ─────────────────────────────────────────────────────
+# MAIN ENTRY POINT
+# ─────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     import uvicorn

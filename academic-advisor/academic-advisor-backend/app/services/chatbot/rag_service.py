@@ -27,9 +27,8 @@ except ImportError:
 from langchain_community.vectorstores import Chroma
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_core.documents import Document
-from sqlalchemy.orm import Session
-from sqlalchemy import or_, and_
 
+# Beanie ODM imports – assume these models are Beanie documents
 from app.models.chatbot import SyllabusContent, FacultyProfile, AcademicKnowledgeBase
 from app.core.config import settings
 
@@ -40,10 +39,11 @@ class RAGService:
     """
     Retrieval-Augmented Generation service for academic content.
     Handles vector storage, similarity search, and content retrieval.
+    Uses Beanie ODM for MongoDB and LangChain Chroma for vector search.
     """
     
-    def __init__(self, db: Session):
-        self.db = db
+    def __init__(self):
+        # No database session needed – Beanie handles connections globally
         self.embeddings = HuggingFaceEmbeddings(
             model_name="sentence-transformers/all-MiniLM-L6-v2"
         )
@@ -162,7 +162,7 @@ class RAGService:
     ) -> List[Dict[str, Any]]:
         """Retrieve relevant syllabus content"""
         
-        # Build filter
+        # Build filter for vector store
         filter_dict = {"type": "syllabus"}
         if subject_code:
             filter_dict["subject_code"] = subject_code
@@ -176,7 +176,7 @@ class RAGService:
             filter=filter_dict if len(filter_dict) > 1 else None
         )
         
-        # Also search database for exact matches
+        # Also search MongoDB for exact matches (using Beanie)
         db_results = await self._search_syllabus_db(query, subject_code, unit)
         
         # Combine and deduplicate results
@@ -190,25 +190,22 @@ class RAGService:
         subject_code: Optional[str] = None,
         unit: Optional[int] = None
     ) -> List[Dict[str, Any]]:
-        """Search syllabus in database"""
+        """Search syllabus in MongoDB using Beanie"""
         
         query_lower = query.lower()
         
-        filters = []
+        # Build filter conditions
+        filters = {}
         if subject_code:
-            filters.append(SyllabusContent.subject_code == subject_code)
+            filters["subject_code"] = subject_code
         if unit:
-            filters.append(SyllabusContent.unit_number == unit)
+            filters["unit_number"] = unit
             
-        # Search in topics, content, and keywords
-        db_query = self.db.query(SyllabusContent)
+        # Retrieve all matching documents (no built‑in full‑text search, so we filter in code)
+        # Note: This may be inefficient for large collections – consider adding a text index later.
+        results = await SyllabusContent.find(filters).to_list()
         
-        if filters:
-            db_query = db_query.filter(and_(*filters))
-            
-        results = db_query.all()
-        
-        # Filter by relevance
+        # Filter by relevance manually
         relevant_results = []
         for syllabus in results:
             relevance_score = 0
@@ -224,7 +221,7 @@ class RAGService:
                     if keyword.lower() in query_lower:
                         relevance_score += 0.2
                         
-            # Check content
+            # Check detailed content
             if syllabus.detailed_content and query_lower in syllabus.detailed_content.lower():
                 relevance_score += 0.5
                 
@@ -252,19 +249,8 @@ class RAGService:
             k=top_k
         )
         
-        # Also search database
-        db_query = self.db.query(FacultyProfile)
-        
-        if department:
-            db_query = db_query.filter(FacultyProfile.department == department)
-            
-        if subject:
-            # Filter by subjects taught
-            db_query = db_query.filter(
-                FacultyProfile.subjects_taught.contains([subject])
-            )
-            
-        db_results = db_query.all()
+        # Also search MongoDB
+        db_results = await self._search_faculty_db(department, subject)
         
         # Format results
         formatted_results = []
@@ -289,6 +275,23 @@ class RAGService:
             })
             
         return formatted_results[:top_k]
+    
+    async def _search_faculty_db(
+        self,
+        department: Optional[str] = None,
+        subject: Optional[str] = None
+    ) -> List[FacultyProfile]:
+        """Search faculty in MongoDB using Beanie"""
+        
+        filters = {}
+        if department:
+            filters["department"] = department
+        if subject:
+            # Filter by subjects_taught array containing the subject
+            # This is an array containment query in MongoDB
+            filters["subjects_taught"] = subject
+            
+        return await FacultyProfile.find(filters).to_list()
         
     def _format_faculty_info(self, faculty: FacultyProfile) -> Dict[str, Any]:
         """Format faculty profile for response"""
@@ -327,15 +330,14 @@ class RAGService:
             filter=filter_dict if filter_dict else None
         )
         
-        # Also check database
-        db_query = self.db.query(AcademicKnowledgeBase)
-        
+        # Also check MongoDB
+        db_query = AcademicKnowledgeBase.find()
         if category:
-            db_query = db_query.filter(AcademicKnowledgeBase.category == category)
+            db_query = db_query.find(AcademicKnowledgeBase.category == category)
         if department:
-            db_query = db_query.filter(AcademicKnowledgeBase.department == department)
+            db_query = db_query.find(AcademicKnowledgeBase.department == department)
             
-        db_results = db_query.limit(top_k).all()
+        db_results = await db_query.limit(top_k).to_list()
         
         formatted_results = []
         
@@ -346,6 +348,8 @@ class RAGService:
                 'score': 1 - score,
                 'source': 'vector_store'
             })
+            
+        # Optionally add db_results here if needed – for now just vector results
             
         return formatted_results
         

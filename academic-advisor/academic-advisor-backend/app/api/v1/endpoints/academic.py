@@ -8,6 +8,8 @@ import logging
 
 from app.core.security import get_current_user, FirebaseUser
 from app.services.academic_service import AcademicService
+# Add these imports at the top of the file (if not already present)
+from app.database.repositories.subject_repository import SubjectRepository
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -439,3 +441,276 @@ async def get_available_subjects_for_semester(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e)
         )
+# Add these new endpoints at the end of the file
+
+# ==================== SUBJECTS ENDPOINTS ====================
+
+@router.get("/subjects")
+async def list_subjects(
+    semester: Optional[int] = None,
+    department: Optional[str] = None,
+    search: Optional[str] = None,
+    limit: int = 50,
+    skip: int = 0,
+    current_user: FirebaseUser = Depends(get_current_user)
+):
+    """
+    List subjects with optional filtering.
+    
+    - **semester**: Filter by semester number (1-8)
+    - **department**: Filter by department code (e.g., "CSE", "IT")
+    - **search**: Full-text search on subject name/code/topics
+    """
+    try:
+        subject_repo = SubjectRepository()
+        
+        if search:
+            # Full-text search
+            subjects = await subject_repo.text_search(search, limit=limit)
+        elif semester:
+            # Filter by semester
+            subjects = await subject_repo.get_subjects_by_semester(semester, department)
+        else:
+            # Get all (with optional department filter)
+            coll = await subject_repo._get_collection()
+            query = {}
+            if department:
+                query["department"] = {"$regex": department, "$options": "i"}
+            
+            cursor = coll.find(query).skip(skip).limit(limit)
+            docs = await cursor.to_list(length=limit)
+            subjects = [subject_repo.Subject(**doc) for doc in docs] if docs else []
+        
+        return {
+            "success": True,
+            "count": len(subjects),
+            "subjects": [
+                {
+                    "code": s.code,
+                    "name": s.name,
+                    "semester": s.semester,
+                    "credits": s.credits,
+                    "subject_type": s.subject_type,
+                    "category": getattr(s, 'category', None),
+                    "teaching_scheme": s.teaching_scheme,
+                    "description": getattr(s, 'description', None),
+                }
+                for s in subjects
+            ],
+            "filters": {
+                "semester": semester,
+                "department": department,
+                "search": search
+            }
+        }
+    except Exception as e:
+        logger.error(f"Error listing subjects: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+
+
+@router.get("/subjects/{code}")
+async def get_subject_by_code(
+    code: str,
+    current_user: FirebaseUser = Depends(get_current_user)
+):
+    """
+    Get detailed information about a specific subject by its code.
+    
+    Returns the full subject including units and topics.
+    """
+    try:
+        subject_repo = SubjectRepository()
+        subject = await subject_repo.get_by_code(code.upper())
+        
+        if not subject:
+            # Try case-insensitive search
+            subject = await subject_repo.get_by_code(code)
+        
+        if not subject:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Subject with code '{code}' not found"
+            )
+        
+        # Build response with units and topics
+        result = {
+            "code": subject.code,
+            "name": subject.name,
+            "semester": subject.semester,
+            "credits": subject.credits,
+            "subject_type": subject.subject_type,
+            "category": getattr(subject, 'category', None),
+            "teaching_scheme": subject.teaching_scheme,
+            "description": getattr(subject, 'description', None),
+            "learning_outcomes": getattr(subject, 'learning_outcomes', []),
+            "reference_books": getattr(subject, 'reference_books', []),
+            "prerequisites": getattr(subject, 'prerequisites', []),
+            "examination_scheme": getattr(subject, 'examination_scheme', {}),
+            "is_active": getattr(subject, 'is_active', True),
+        }
+        
+        # Fetch units if available (depends on data structure)
+        # Note: You may need to adjust this based on how units are stored
+        if hasattr(subject, 'units'):
+            result["units"] = subject.units
+        
+        return {
+            "success": True,
+            "subject": result
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting subject {code}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+
+
+@router.get("/subjects/{code}/syllabus")
+async def get_subject_syllabus(
+    code: str,
+    current_user: FirebaseUser = Depends(get_current_user)
+):
+    """
+    Get the complete syllabus for a subject including all units and topics.
+    """
+    try:
+        subject_repo = SubjectRepository()
+        subject = await subject_repo.get_subject_syllabus(code.upper())
+        
+        if not subject:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Subject with code '{code}' not found"
+            )
+        
+        return {
+            "success": True,
+            "subject_code": subject.code,
+            "subject_name": subject.name,
+            "semester": subject.semester,
+            "credits": subject.credits,
+            "syllabus": {
+                "description": getattr(subject, 'description', ''),
+                "learning_outcomes": getattr(subject, 'learning_outcomes', []),
+                "units": getattr(subject, 'units', []),  # Adjust based on your data structure
+                "reference_books": getattr(subject, 'reference_books', []),
+                "prerequisites": getattr(subject, 'prerequisites', []),
+            }
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting syllabus for {code}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+
+
+@router.get("/subjects/search/topics")
+async def search_topics(
+    query: str,
+    limit: int = 10,
+    current_user: FirebaseUser = Depends(get_current_user)
+):
+    """
+    Search for topics across all subjects.
+    
+    Returns matching topics with their subject and unit context.
+    """
+    try:
+        if not query or len(query) < 2:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Search query must be at least 2 characters"
+            )
+        
+        subject_repo = SubjectRepository()
+        topics = await subject_repo.search_topics(query, limit=limit)
+        
+        return {
+            "success": True,
+            "query": query,
+            "count": len(topics),
+            "topics": topics
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error searching topics: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+
+
+@router.get("/subjects/semester/{semester_number}")
+async def get_subjects_by_semester(
+    semester_number: int,
+    department: Optional[str] = None,
+    current_user: FirebaseUser = Depends(get_current_user)
+):
+    """
+    Get all subjects for a specific semester.
+    
+    - **semester_number**: Semester number (1-8)
+    - **department**: Optional department filter
+    """
+    try:
+        if semester_number < 1 or semester_number > 8:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Semester number must be between 1 and 8"
+            )
+        
+        subject_repo = SubjectRepository()
+        subjects = await subject_repo.get_subjects_by_semester(semester_number, department)
+        
+        # Group by type
+        grouped = {
+            "core": [],
+            "elective": [],
+            "lab": [],
+            "other": []
+        }
+        
+        for s in subjects:
+            subject_data = {
+                "code": s.code,
+                "name": s.name,
+                "credits": s.credits,
+                "subject_type": s.subject_type,
+                "teaching_scheme": s.teaching_scheme,
+            }
+            
+            if s.subject_type in ['PCC', 'BSC', 'ESC']:
+                grouped["core"].append(subject_data)
+            elif s.subject_type in ['PEC', 'OEC']:
+                grouped["elective"].append(subject_data)
+            elif s.subject_type in ['LBC', 'SBL']:
+                grouped["lab"].append(subject_data)
+            else:
+                grouped["other"].append(subject_data)
+        
+        return {
+            "success": True,
+            "semester": semester_number,
+            "department": department,
+            "total_count": len(subjects),
+            "subjects": grouped,
+            "total_credits": sum(s.credits for s in subjects)
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting subjects for semester {semester_number}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )    

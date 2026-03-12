@@ -1,750 +1,868 @@
-# academic-advisor-backend/app/services/chatbot/response_generator.py
+# app/services/chatbot/response_generator.py
 """
-Response generator — Groq / Llama-3 powered
-Owns: CAREER_QUERY, PERFORMANCE_QUERY, ELECTIVE_QUERY, STUDY_PLAN_QUERY
-Delegates: SYLLABUS_QUERY, FACULTY_QUERY → Person A
+Response generator with safe enum handling and built-in concept definitions
 """
 
 import re
-import json
 import logging
-from typing import Dict, Any, Optional, List
-
-from app.core.config import settings
-from app.models.chatbot import IntentType, ResponseType
-from app.repositories.career_repository import CareerRepository
+from typing import Dict, List, Optional, Any
 
 logger = logging.getLogger(__name__)
 
-# Common career name aliases for better matching
-_CAREER_ALIASES: Dict[str, str] = {
+
+# ══════════════════════════════════════════════════════════
+# SAFE ENUM VALUE HELPER
+# ══════════════════════════════════════════════════════════
+
+def safe_enum_value(enum_or_string, default: str = "") -> str:
+    """Safely get .value from an enum or return string as-is."""
+    if enum_or_string is None:
+        return default
+    if isinstance(enum_or_string, str):
+        return enum_or_string
+    if hasattr(enum_or_string, 'value'):
+        return enum_or_string.value
+    if hasattr(enum_or_string, 'name'):
+        return enum_or_string.name
+    return str(enum_or_string)
+
+
+# ══════════════════════════════════════════════════════════
+# IMPORTS
+# ══════════════════════════════════════════════════════════
+# At the top of response_generator.py, update the import:
+
+try:
+    from app.database.repositories.subject_repository import SubjectRepository
+    _SUBJECT_REPO_AVAILABLE = True
+    logger.info("✅ SubjectRepository imported")
+except ImportError as e:
+    SubjectRepository = None
+    _SUBJECT_REPO_AVAILABLE = False
+    logger.warning(f"⚠️ SubjectRepository not available: {e}")
+    
+# Import from shared models
+try:
+    from app.models.chatbot import IntentType, ResponseType, ConfidenceLevel
+    MODELS_AVAILABLE = True
+    logger.info("✅ Chatbot models imported successfully")
+except ImportError as e:
+    MODELS_AVAILABLE = False
+    logger.warning(f"⚠️ Chatbot models not available: {e}")
+    
+    from enum import Enum
+    class IntentType(str, Enum):
+        SYLLABUS_QUERY = "SYLLABUS_QUERY"
+        FACULTY_QUERY = "FACULTY_QUERY"
+        PERFORMANCE_QUERY = "PERFORMANCE_QUERY"
+        ELECTIVE_QUERY = "ELECTIVE_QUERY"
+        CAREER_QUERY = "CAREER_QUERY"
+        STUDY_PLAN_QUERY = "STUDY_PLAN_QUERY"
+        CLARIFICATION = "CLARIFICATION"
+        OUT_OF_SCOPE = "OUT_OF_SCOPE"
+        GENERAL = "GENERAL"
+    
+    class ResponseType(str, Enum):
+        TEXT = "text"
+        CONCEPT_EXPLANATION = "concept_explanation"
+        SYLLABUS_BREAKDOWN = "syllabus_breakdown"
+        FACULTY_LIST = "faculty_list"
+        FACULTY_RECOMMENDATION = "faculty_recommendation"
+        PERFORMANCE_ANALYSIS = "performance_analysis"
+        ELECTIVE_RECOMMENDATION = "elective_recommendation"
+        CAREER_GUIDANCE = "career_guidance"
+        CAREER_LIST = "career_list"
+        STUDY_PLAN = "study_plan"
+        ERROR = "error"
+
+# Repository imports
+FacultyRepository = None
+SubjectRepository = None
+CareerRepository = None
+
+try:
+    from app.repositories.faculty_repository import FacultyRepository
+    logger.info("✅ FacultyRepository imported")
+except ImportError:
+    logger.warning("⚠️ FacultyRepository not available")
+
+try:
+    from app.database.repositories.subject_repository import SubjectRepository
+    logger.info("✅ SubjectRepository imported")
+except ImportError:
+    logger.warning("⚠️ SubjectRepository not available")
+
+try:
+    from app.repositories.career_repository import CareerRepository
+    logger.info("✅ CareerRepository imported")
+except ImportError:
+    logger.warning("⚠️ CareerRepository not available")
+
+
+# ══════════════════════════════════════════════════════════
+# SUBJECT & CAREER ALIASES
+# ══════════════════════════════════════════════════════════
+
+_SUBJECT_ALIASES = {
+    "os": "Operating Systems",
+    "operating system": "Operating Systems",
+    "operating systems": "Operating Systems",
+    "dbms": "Database Management Systems",
+    "database": "Database Management Systems",
+    "dsa": "Data Structures and Algorithms",
+    "data structure": "Data Structures and Algorithms",
+    "data structures": "Data Structures and Algorithms",
+    "cn": "Computer Networks",
+    "computer network": "Computer Networks",
+    "ml": "Machine Learning",
+    "ai": "Artificial Intelligence",
+    "oop": "Object Oriented Programming",
+    "oops": "Object Oriented Programming",
+}
+
+_CAREER_ALIASES = {
     "data scientist": "Data Scientist",
     "data science": "Data Scientist",
     "ml engineer": "ML Engineer",
-    "machine learning engineer": "ML Engineer",
+    "machine learning": "ML Engineer",
     "software developer": "Software Developer",
     "software engineer": "Software Developer",
     "sde": "Software Developer",
-    "web developer": "Full Stack Developer",
-    "full stack": "Full Stack Developer",
-    "frontend": "Full Stack Developer",
-    "backend": "Software Developer",
     "devops": "DevOps Engineer",
     "cloud": "Cloud Architect",
-    "cloud engineer": "Cloud Architect",
     "cybersecurity": "Cybersecurity Analyst",
-    "security": "Cybersecurity Analyst",
-    "ethical hacking": "Cybersecurity Analyst",
-    "hacker": "Cybersecurity Analyst",
-    "mobile": "Mobile App Developer",
-    "android": "Mobile App Developer",
-    "ios": "Mobile App Developer",
-    "flutter": "Mobile App Developer",
-    "blockchain": "Blockchain Developer",
-    "web3": "Blockchain Developer",
-    "iot": "IoT Developer",
-    "embedded": "IoT Developer",
-    "product manager": "Product Manager (Tech)",
-    "pm": "Product Manager (Tech)",
-    "ai research": "AI Research Engineer",
-    "research": "AI Research Engineer",
-    "network": "Network Engineer",
-    "networking": "Network Engineer",
-    "ui ux": "UI/UX Designer",
-    "ux": "UI/UX Designer",
-    "designer": "UI/UX Designer",
-    "qa": "QA / Test Automation Engineer",
-    "testing": "QA / Test Automation Engineer",
-    "tester": "QA / Test Automation Engineer",
-    "nlp": "NLP Engineer",
-    "natural language": "NLP Engineer",
-    "chatbot": "NLP Engineer",
-    "llm": "NLP Engineer",
-    "business analyst": "Business Analyst",
-    "ba": "Business Analyst",
-    "data analyst": "Data Analyst",
-    "analytics": "Data Analyst",
+    "web developer": "Full Stack Developer",
+    "full stack": "Full Stack Developer",
 }
 
 
-def _extract_career_name(query: str) -> Optional[str]:
-    """Try to extract a career name from a natural language query."""
+def _normalize_subject(query: str) -> str:
+    """Normalize subject name using aliases."""
     ql = query.lower().strip()
+    return _SUBJECT_ALIASES.get(ql, query)
 
-    # Direct alias match (longest first for better matching)
-    sorted_aliases = sorted(_CAREER_ALIASES.keys(), key=len, reverse=True)
-    for alias in sorted_aliases:
+
+def _extract_career_name(query: str) -> Optional[str]:
+    """Extract career name from query."""
+    ql = query.lower()
+    for alias, name in sorted(_CAREER_ALIASES.items(), key=lambda x: -len(x[0])):
         if alias in ql:
-            return _CAREER_ALIASES[alias]
-
+            return name
     return None
 
 
+# ══════════════════════════════════════════════════════════
+# BUILT-IN CONCEPT DEFINITIONS
+# ══════════════════════════════════════════════════════════
+
+CONCEPT_DEFINITIONS = {
+    "deadlock": {
+        "topic": "Deadlock",
+        "subject": "Operating Systems",
+        "definition": "A deadlock is a situation in computing where two or more processes are unable to proceed because each is waiting for the other to release a resource. It occurs when processes hold resources while waiting for others, creating a circular dependency.",
+        "explanation": "Deadlock occurs when four conditions are met simultaneously:\n\n1. **Mutual Exclusion**: Resources cannot be shared\n2. **Hold and Wait**: Processes hold resources while waiting for others\n3. **No Preemption**: Resources cannot be forcibly taken\n4. **Circular Wait**: Circular chain of processes waiting for each other",
+        "key_points": [
+            "Four necessary conditions: Mutual Exclusion, Hold and Wait, No Preemption, Circular Wait",
+            "Prevention strategies involve breaking at least one condition",
+            "Detection uses resource allocation graphs",
+            "Recovery through process termination or resource preemption",
+            "Banker's Algorithm is used for deadlock avoidance"
+        ],
+        "examples": [
+            "Two trains approaching each other on a single track",
+            "Dining Philosophers Problem",
+            "Two processes each holding a resource the other needs"
+        ],
+        "exam_frequency": "high",
+        "exam_weightage": "8-10 marks"
+    },
+    "normalization": {
+        "topic": "Normalization",
+        "subject": "Database Management Systems",
+        "definition": "Normalization is the process of organizing data in a database to reduce redundancy and improve data integrity by dividing tables and defining relationships between them.",
+        "explanation": "Normalization involves organizing columns and tables to minimize data redundancy.\n\n**Normal Forms:**\n- **1NF**: Atomic values, no repeating groups\n- **2NF**: 1NF + No partial dependencies\n- **3NF**: 2NF + No transitive dependencies\n- **BCNF**: Every determinant is a candidate key",
+        "key_points": [
+            "1NF: Eliminate repeating groups, ensure atomic values",
+            "2NF: Remove partial dependencies on composite keys",
+            "3NF: Remove transitive dependencies",
+            "BCNF: Stricter version of 3NF",
+            "Denormalization may be used for performance optimization"
+        ],
+        "examples": [
+            "Converting a flat student-course table into separate Student and Course tables",
+            "Removing redundant address information by creating an Address table"
+        ],
+        "exam_frequency": "high",
+        "exam_weightage": "10-12 marks"
+    },
+    "mutex": {
+        "topic": "Mutex (Mutual Exclusion)",
+        "subject": "Operating Systems",
+        "definition": "A mutex is a synchronization primitive that grants exclusive access to a shared resource to only one thread at a time, preventing race conditions in concurrent programming.",
+        "explanation": "Mutex ensures that only one thread can execute a critical section at any given time. When a thread acquires a mutex, other threads must wait until the mutex is released.",
+        "key_points": [
+            "Binary nature: locked or unlocked",
+            "Only the thread that locks can unlock (ownership)",
+            "Prevents race conditions in critical sections",
+            "Can cause deadlock if not used properly",
+            "Used for protecting shared data structures"
+        ],
+        "examples": [
+            "Protecting a shared counter variable",
+            "Ensuring only one thread writes to a file at a time"
+        ],
+        "exam_frequency": "medium",
+        "exam_weightage": "5-6 marks"
+    },
+    "semaphore": {
+        "topic": "Semaphore",
+        "subject": "Operating Systems",
+        "definition": "A semaphore is a synchronization primitive that controls access to a common resource by multiple processes using a counter variable.",
+        "explanation": "Unlike mutex which is binary, semaphores can have a count greater than 1, allowing multiple threads to access a resource up to a limit.\n\n**Operations:**\n- **Wait (P/Down)**: Decrement counter, block if negative\n- **Signal (V/Up)**: Increment counter, wake waiting process",
+        "key_points": [
+            "Binary Semaphore: Similar to mutex (0 or 1)",
+            "Counting Semaphore: Can be any non-negative integer",
+            "Wait (P) operation: Decrement and block if negative",
+            "Signal (V) operation: Increment and wake waiting process",
+            "No ownership concept unlike mutex"
+        ],
+        "examples": [
+            "Producer-Consumer problem",
+            "Reader-Writer problem",
+            "Limiting concurrent database connections"
+        ],
+        "exam_frequency": "high",
+        "exam_weightage": "8-10 marks"
+    },
+    "process": {
+        "topic": "Process",
+        "subject": "Operating Systems",
+        "definition": "A process is an instance of a program in execution. It includes the program code, current activity, and resources allocated to it.",
+        "explanation": "A process is more than just program code. It includes:\n- Program counter\n- CPU registers\n- Stack\n- Data section\n- Heap",
+        "key_points": [
+            "Process states: New, Ready, Running, Waiting, Terminated",
+            "PCB (Process Control Block) stores process information",
+            "Processes have independent memory spaces",
+            "Inter-process communication (IPC) needed for communication",
+            "Context switching required when CPU switches between processes"
+        ],
+        "examples": [
+            "Running a web browser creates a process",
+            "Each tab in Chrome is a separate process"
+        ],
+        "exam_frequency": "high",
+        "exam_weightage": "6-8 marks"
+    },
+    "thread": {
+        "topic": "Thread",
+        "subject": "Operating Systems",
+        "definition": "A thread is the smallest unit of execution within a process. Multiple threads can exist within the same process and share resources.",
+        "explanation": "Threads are lightweight processes that share the same memory space and resources of their parent process, making context switching faster.",
+        "key_points": [
+            "Threads share code, data, and files of the process",
+            "Each thread has its own stack and registers",
+            "Faster context switching than processes",
+            "Types: User-level threads, Kernel-level threads",
+            "Multithreading enables parallel execution"
+        ],
+        "examples": [
+            "Word processor: one thread for editing, another for spell-check",
+            "Web server handling multiple requests with threads"
+        ],
+        "exam_frequency": "high",
+        "exam_weightage": "6-8 marks"
+    },
+    "sql": {
+        "topic": "SQL (Structured Query Language)",
+        "subject": "Database Management Systems",
+        "definition": "SQL is a standard programming language used for managing and manipulating relational databases.",
+        "explanation": "SQL provides commands for:\n- **DDL**: CREATE, ALTER, DROP\n- **DML**: SELECT, INSERT, UPDATE, DELETE\n- **DCL**: GRANT, REVOKE\n- **TCL**: COMMIT, ROLLBACK",
+        "key_points": [
+            "DDL: Data Definition Language (schema operations)",
+            "DML: Data Manipulation Language (data operations)",
+            "DCL: Data Control Language (permissions)",
+            "Joins: INNER, LEFT, RIGHT, FULL OUTER",
+            "Aggregate functions: COUNT, SUM, AVG, MAX, MIN"
+        ],
+        "examples": [
+            "SELECT * FROM students WHERE grade > 80",
+            "INSERT INTO courses VALUES (101, 'DBMS', 4)"
+        ],
+        "exam_frequency": "high",
+        "exam_weightage": "10-15 marks"
+    },
+}
+
+
+# ══════════════════════════════════════════════════════════
+# CAREER DEFINITIONS
+# ══════════════════════════════════════════════════════════
+
+CAREER_DEFINITIONS = {
+    "Data Scientist": {
+        "title": "Data Scientist",
+        "description": "Data Scientists analyze complex data to help organizations make better decisions. They combine statistics, machine learning, and domain expertise to extract insights from data.",
+        "required_skills": ["Python", "Machine Learning", "Statistics", "SQL", "Data Visualization", "Deep Learning", "NLP"],
+        "recommended_subjects": ["Machine Learning", "Statistics", "Database Management", "Data Mining", "Linear Algebra"],
+        "market_demand": "Very High",
+        "salary_range": {"min": "₹8 LPA", "max": "₹30 LPA", "average": "₹15 LPA"},
+        "next_steps": [
+            "📚 Master Python and data science libraries (NumPy, Pandas, Scikit-learn)",
+            "📊 Learn statistics and probability thoroughly",
+            "🤖 Build ML projects on Kaggle",
+            "📜 Consider certifications: Google Data Analytics, IBM Data Science"
+        ]
+    },
+    "Software Developer": {
+        "title": "Software Developer",
+        "description": "Software Developers design, code, test, and maintain software applications. They work in various domains from web to mobile to systems programming.",
+        "required_skills": ["Programming (Java/Python/JS)", "Data Structures", "Algorithms", "Git", "System Design", "Databases"],
+        "recommended_subjects": ["Data Structures", "Algorithms", "Operating Systems", "Database Management", "Software Engineering"],
+        "market_demand": "Very High",
+        "salary_range": {"min": "₹6 LPA", "max": "₹25 LPA", "average": "₹12 LPA"},
+        "next_steps": [
+            "💻 Master at least one programming language deeply",
+            "🧮 Practice DSA on LeetCode/HackerRank regularly",
+            "🛠️ Build full-stack projects for portfolio",
+            "📝 Prepare for technical interviews (system design, coding)"
+        ]
+    },
+    "ML Engineer": {
+        "title": "ML Engineer",
+        "description": "ML Engineers build and deploy machine learning models at scale. They bridge the gap between data science and software engineering, focusing on production systems.",
+        "required_skills": ["Python", "TensorFlow/PyTorch", "MLOps", "Docker", "Cloud (AWS/GCP)", "System Design"],
+        "recommended_subjects": ["Machine Learning", "Deep Learning", "Software Engineering", "Cloud Computing", "Distributed Systems"],
+        "market_demand": "Very High",
+        "salary_range": {"min": "₹10 LPA", "max": "₹35 LPA", "average": "₹18 LPA"},
+        "next_steps": [
+            "🤖 Master ML/DL frameworks (TensorFlow, PyTorch)",
+            "☁️ Learn cloud platforms (AWS SageMaker, GCP AI Platform)",
+            "🐳 Learn Docker and Kubernetes for ML deployment",
+            "📜 Consider MLOps certifications"
+        ]
+    },
+    "DevOps Engineer": {
+        "title": "DevOps Engineer",
+        "description": "DevOps Engineers bridge development and operations, automating software delivery and infrastructure management.",
+        "required_skills": ["Linux", "Docker", "Kubernetes", "CI/CD", "Cloud (AWS/Azure/GCP)", "Terraform", "Python/Bash"],
+        "recommended_subjects": ["Operating Systems", "Computer Networks", "Cloud Computing", "Software Engineering"],
+        "market_demand": "Very High",
+        "salary_range": {"min": "₹8 LPA", "max": "₹28 LPA", "average": "₹14 LPA"},
+        "next_steps": [
+            "🐧 Master Linux and shell scripting",
+            "🐳 Learn Docker and container orchestration",
+            "☁️ Get certified in AWS/Azure/GCP",
+            "🔄 Practice CI/CD pipeline setup"
+        ]
+    },
+    "Full Stack Developer": {
+        "title": "Full Stack Developer",
+        "description": "Full Stack Developers work on both frontend and backend of web applications, handling everything from user interface to database management.",
+        "required_skills": ["HTML/CSS/JavaScript", "React/Vue/Angular", "Node.js/Python/Java", "Databases", "REST APIs", "Git"],
+        "recommended_subjects": ["Web Development", "Database Management", "Software Engineering", "Computer Networks"],
+        "market_demand": "High",
+        "salary_range": {"min": "₹5 LPA", "max": "₹22 LPA", "average": "₹10 LPA"},
+        "next_steps": [
+            "🎨 Master frontend (React/Vue/Angular)",
+            "⚙️ Learn backend (Node.js/Python/Java)",
+            "🗄️ Practice with SQL and NoSQL databases",
+            "🚀 Build and deploy full-stack projects"
+        ]
+    },
+}
+
+
+# ══════════════════════════════════════════════════════════
+# RESPONSE GENERATOR CLASS
+# ══════════════════════════════════════════════════════════
+
 class ResponseGenerator:
+    """Generates responses based on intent and context."""
 
-    def __init__(self):
-        self.career_repo = CareerRepository()
-        self._client = None
-
-    @property
-    def llm(self):
-        if self._client is None and settings.GROQ_API_KEY:
-            try:
-                from openai import AsyncOpenAI
-                self._client = AsyncOpenAI(
-                    api_key=settings.GROQ_API_KEY,
-                    base_url="https://api.groq.com/openai/v1",
-                )
-                logger.info("✅ Groq LLM client initialized")
-            except Exception as e:
-                logger.warning(f"Groq client init failed: {e}")
-                self._client = None
-        return self._client
-
-    # ── Public entry point ───────────────────────────────
+    def __init__(self, db=None, rag_service=None):
+        self.db = db
+        self.faculty_repo = FacultyRepository() if FacultyRepository else None
+        self.subject_repo = SubjectRepository() if SubjectRepository else None
+        self.career_repo = CareerRepository() if CareerRepository else None
+        logger.info("ResponseGenerator initialized")
 
     async def generate_response(
         self,
         query: str,
-        intent: IntentType,
+        intent,  # Can be IntentType enum or string
         context: Dict[str, Any],
-        student_data: Optional[Dict] = None,
-    ) -> Dict[str, Any] | str:
-        if intent == IntentType.OUT_OF_SCOPE:
-            return "Beyond my scope"
+        student_data: Optional[Dict] = None
+    ) -> Dict[str, Any]:
+        """Generate a response based on intent."""
+        
+        # Normalize intent to string for safe comparison
+        intent_str = safe_enum_value(intent, "GENERAL")
+        
+        logger.info(f"Generating response for intent: {intent_str}")
+        
+        # Handle out-of-scope
+        if intent_str == "OUT_OF_SCOPE":
+            return self._handle_out_of_scope()
 
+        # Handler mapping using strings
         handlers = {
-            IntentType.CAREER_QUERY: self._career,
-            IntentType.PERFORMANCE_QUERY: self._performance,
-            IntentType.ELECTIVE_QUERY: self._elective,
-            IntentType.STUDY_PLAN_QUERY: self._study_plan,
-            IntentType.CLARIFICATION: self._clarification,
+            "SYLLABUS_QUERY": self._handle_syllabus,
+            "FACULTY_QUERY": self._handle_faculty,
+            "PERFORMANCE_QUERY": self._handle_performance,
+            "ELECTIVE_QUERY": self._handle_elective,
+            "CAREER_QUERY": self._handle_career,
+            "STUDY_PLAN_QUERY": self._handle_study_plan,
+            "CLARIFICATION": self._handle_clarification,
+            "GENERAL": self._handle_generic,
         }
-        handler = handlers.get(intent, self._generic)
+
+        handler = handlers.get(intent_str, self._handle_generic)
+        
         try:
-            return await handler(query, context, student_data)
+            response = await handler(query, context, student_data)
+            return response
         except Exception as e:
-            logger.error(f"ResponseGenerator error: {e}", exc_info=True)
-            return self._error()
+            logger.error(f"Error generating response: {e}", exc_info=True)
+            return self._create_error_response(str(e))
 
-    # ════════════════  CAREER  ════════════════════════════
+    # ══════════════════════════════════════════════════════
+    # SYLLABUS HANDLER
+    # ══════════════════════════════════════════════════════
 
-    async def _career(
-        self, query: str, ctx: Dict, stu: Optional[Dict]
+    async def _handle_syllabus(
+        self,
+        query: str,
+        context: Dict[str, Any],
+        student_data: Optional[Dict] = None
     ) -> Dict[str, Any]:
-
-        # Step 1: Try alias-based exact match first
-        career_name = _extract_career_name(query)
-        target = None
-
-        if career_name:
-            target = await self.career_repo.find_by_title(career_name)
-
-        # Step 2: Try keyword search
-        if not target:
-            careers = await self.career_repo.search(query, limit=5)
-            if careers:
-                # Check for close title match
-                ql = query.lower()
-                for c in careers:
-                    if c.title.lower() in ql or any(
-                        kw in ql for kw in [k.lower() for k in c.keywords[:5]]
-                    ):
-                        target = c
-                        break
-                if not target:
-                    target = careers[0]  # Best scored result
-
-        # Step 3: Try interests-based search
-        if not target and stu:
-            interests = stu.get("interests", [])
-            if interests:
-                careers = await self.career_repo.find_by_interests(interests, 5)
-                if careers:
-                    target = careers[0]
-
-        # Step 4: If still nothing, return career list
-        if not target:
-            all_c = await self.career_repo.get_all()
-            if all_c:
-                return {
-                    "type": ResponseType.CAREER_LIST.value,
-                    "intent": IntentType.CAREER_QUERY.value,
-                    "content": {
-                        "message": "Here are career paths I can help you explore:",
-                        "careers": [
-                            {
-                                "title": c.title,
-                                "category": c.category.value,
-                                "demand": c.market_demand.value,
-                                "description": c.description[:150],
-                            }
-                            for c in all_c[:10]
-                        ],
-                        "hint": "Ask about a specific career for a detailed roadmap. E.g., 'Tell me about data science career'",
-                    },
-                    "confidence": "Medium",
-                }
-            return self._no_data(IntentType.CAREER_QUERY)
-
-        # ── We have a target career — build detailed response ──
-
-        # Get LLM personalized advice
-        llm_advice = await self._llm_career(query, target, stu)
-
-        career_obj = {
-            "title": target.title,
-            "category": target.category.value,
-            "description": target.description,
-            "required_skills": target.required_skills,
-            "recommended_subjects": target.recommended_subjects,
-            "recommended_electives": target.recommended_electives,
-            "job_titles": target.job_titles,
-            "salary_range": {
-                "entry_level": target.salary_range.entry_level,
-                "mid_level": target.salary_range.mid_level,
-                "senior_level": target.salary_range.senior_level,
-                "top_companies": target.salary_range.top_companies,
-            },
-            "top_companies_india": target.top_companies_india,
-            "top_companies_global": target.top_companies_global,
-            "certifications": target.certifications,
-            "market_demand": target.market_demand.value,
-            "growth_potential": target.growth_potential,
-        }
-
-        roadmap = [
-            {
-                "step": s.step,
-                "title": s.title,
-                "description": s.description,
-                "duration": s.duration,
-            }
-            for s in target.roadmap
-        ]
-
-        next_steps = []
-        if target.recommended_subjects:
-            next_steps.append(
-                f"Focus on: {', '.join(target.recommended_subjects[:3])}"
-            )
-        if target.recommended_electives:
-            next_steps.append(
-                f"Electives: {', '.join(target.recommended_electives[:3])}"
-            )
-        if target.certifications:
-            next_steps.append(f"Certify: {target.certifications[0]}")
-
-        body: Dict[str, Any] = {
-            "career": career_obj,
-            "roadmap": roadmap,
-            "next_steps": next_steps,
-        }
-
-        if llm_advice:
-            body["personalized_advice"] = llm_advice
-
-        if stu:
-            gap = self._gap(target, stu)
-            if gap:
-                body["gap_analysis"] = gap
-
+        """Handle syllabus queries."""
+        
+        # First check built-in concepts
+        concept_response = self._get_concept_from_builtin(query)
+        if concept_response:
+            return concept_response
+        
+        # Try repository if available
+        if self.subject_repo:
+            try:
+                topic_data = await self.subject_repo.find_topic_by_name(query)
+                if topic_data:
+                    return self._format_topic_response(topic_data)
+                
+                topics = await self.subject_repo.search_topics(query, limit=5)
+                if topics:
+                    return self._format_topic_response(topics[0])
+            except Exception as e:
+                logger.warning(f"Subject repo error: {e}")
+        
+        # Not found response
         return {
-            "type": ResponseType.CAREER_GUIDANCE.value,
-            "intent": IntentType.CAREER_QUERY.value,
-            "content": body,
-            "confidence": "High",
-        }
-
-    def _gap(self, career, stu: Dict) -> Optional[Dict]:
-        req = [s.lower() for s in career.required_skills]
-        have = [s.lower() for s in stu.get("skills", [])]
-        match = [s for s in req if s in have]
-        miss = [s for s in req if s not in have]
-        if not req:
-            return None
-        return {
-            "matching_skills": match,
-            "missing_skills": miss,
-            "skill_match_pct": round(len(match) / max(len(req), 1) * 100),
-            "cgpa_meets": (stu.get("cgpa", 0) >= career.min_cgpa_recommended),
-            "recommended_cgpa": career.min_cgpa_recommended,
-            "your_cgpa": stu.get("cgpa", 0),
-        }
-
-    async def _llm_career(self, query, career, stu) -> Optional[str]:
-        if not self.llm:
-            return None
-        try:
-            stu_str = ""
-            if stu:
-                stu_str = (
-                    f"\nStudent context — CGPA: {stu.get('cgpa', 'N/A')}, "
-                    f"Semester: {stu.get('semester', 'N/A')}, "
-                    f"Interests: {', '.join(stu.get('interests', []))}, "
-                    f"Strong subjects: {', '.join(stu.get('strong_subjects', [])[:3])}, "
-                    f"Weak subjects: {', '.join(stu.get('weak_subjects', [])[:3])}"
-                )
-
-            resp = await self.llm.chat.completions.create(
-                model=settings.LLM_MODEL,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": (
-                            "You are a career counselor at FCRIT Mumbai (IT department). "
-                            "Give 3-4 brief, actionable, personalized sentences. "
-                            "Focus on Indian job market. Be encouraging but realistic. "
-                            "Don't repeat info already shown — add NEW insights."
-                        ),
-                    },
-                    {
-                        "role": "user",
-                        "content": (
-                            f"Student asked: '{query}'\n"
-                            f"Career: {career.title}\n"
-                            f"Key skills needed: {', '.join(career.required_skills[:6])}\n"
-                            f"Market demand: {career.market_demand.value}\n"
-                            f"Entry salary: {career.salary_range.entry_level}"
-                            f"{stu_str}\n\n"
-                            f"Give personalized advice for this student."
-                        ),
-                    },
-                ],
-                temperature=0.3,
-                max_tokens=300,
-            )
-            return resp.choices[0].message.content.strip()
-        except Exception as e:
-            logger.warning(f"LLM career advice failed: {e}")
-            return None
-
-    # ════════════════  PERFORMANCE  ═══════════════════════
-
-    async def _performance(
-        self, query: str, ctx: Dict, stu: Optional[Dict]
-    ) -> Dict[str, Any]:
-        if not stu:
-            return {
-                "type": ResponseType.TEXT.value,
-                "intent": IntentType.PERFORMANCE_QUERY.value,
-                "content": {
-                    "message": (
-                        "To provide your performance analysis, I need your academic data.\n\n"
-                        "Please ensure you have:\n"
-                        "1. Completed your academic profile\n"
-                        "2. Entered semester-wise grades\n"
-                        "3. Updated current semester info\n\n"
-                        "Once done, ask me again and I'll show your detailed analysis!"
-                    ),
-                    "actions": [
-                        "Go to Academic Data Entry",
-                        "Add your grades",
-                        "Come back and ask again",
-                    ],
-                },
-                "confidence": "High",
-            }
-
-        a = self._analyse(stu)
-        llm_ins = await self._llm_perf(stu, a)
-
-        body: Dict[str, Any] = {
-            "profile": {
-                "name": stu.get("name", "Student"),
-                "branch": stu.get("branch", "IT"),
-                "semester": stu.get("semester", "N/A"),
-                "cgpa": stu.get("cgpa", 0),
-            },
-            "current_cgpa": stu.get("cgpa", 0),
-            "latest_sgpa": stu.get("latest_sgpa", 0),
-            "sgpa_trend": stu.get("sgpa_trend", []),
-            "trend_direction": a["trend"],
-            "subject_analysis": a["breakdown"],
-            "weak_subjects": a["weak"],
-            "strong_subjects": a["strong"],
-            "insights": a["insights"],
-            "recommendations": a["suggestions"],
-        }
-        if llm_ins:
-            body["ai_insights"] = llm_ins
-
-        return {
-            "type": ResponseType.PERFORMANCE_ANALYSIS.value,
-            "intent": IntentType.PERFORMANCE_QUERY.value,
-            "content": body,
-            "confidence": "High",
-        }
-
-    def _analyse(self, d: Dict) -> Dict:
-        subjects = d.get("subjects", [])
-        weak, strong, bd = [], [], []
-        for s in subjects:
-            nm = s.get("name", s.get("subject_name", "?"))
-            sc = s.get("score", s.get("marks", 0))
-            st = "weak" if sc < 50 else ("strong" if sc >= 75 else "average")
-            bd.append({"subject": nm, "score": sc, "status": st})
-            if st == "weak":
-                weak.append(nm)
-            elif st == "strong":
-                strong.append(nm)
-
-        trend_list = d.get("sgpa_trend", [])
-        trend = "stable"
-        if len(trend_list) >= 2:
-            cur = (
-                trend_list[-1].get("sgpa", 0)
-                if isinstance(trend_list[-1], dict)
-                else trend_list[-1]
-            )
-            prev = (
-                trend_list[-2].get("sgpa", 0)
-                if isinstance(trend_list[-2], dict)
-                else trend_list[-2]
-            )
-            trend = (
-                "improving"
-                if cur > prev + 0.3
-                else ("declining" if cur < prev - 0.3 else "stable")
-            )
-
-        insights = []
-        if trend == "improving":
-            insights.append("📈 Your grades are improving — great work!")
-        elif trend == "declining":
-            insights.append(
-                "⚠️ Performance is declining — consider seeking help."
-            )
-        if len(weak) > 2:
-            insights.append(f"📚 Focus needed on: {', '.join(weak[:3])}")
-        if strong:
-            insights.append(f"💪 Strong in: {', '.join(strong[:3])}")
-        if not insights:
-            insights.append("📊 Performance is consistent — keep going!")
-
-        sug = (
-            [f"Strengthen {w}" for w in weak[:3]]
-            or ["Maintain current performance"]
-        )
-
-        return {
-            "breakdown": bd,
-            "weak": weak,
-            "strong": strong,
-            "trend": trend,
-            "insights": insights,
-            "suggestions": sug,
-        }
-
-    async def _llm_perf(self, stu, a) -> Optional[str]:
-        if not self.llm:
-            return None
-        try:
-            resp = await self.llm.chat.completions.create(
-                model=settings.LLM_MODEL,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": (
-                            "You are an academic advisor at FCRIT Mumbai. "
-                            "Give 2-3 specific, actionable study tips. "
-                            "Be encouraging. Keep it brief."
-                        ),
-                    },
-                    {
-                        "role": "user",
-                        "content": (
-                            f"Student: CGPA {stu.get('cgpa', '?')}, "
-                            f"Semester {stu.get('semester', '?')}\n"
-                            f"Weak subjects: {a['weak']}\n"
-                            f"Strong subjects: {a['strong']}\n"
-                            f"Trend: {a['trend']}\n"
-                            f"Give brief study advice."
-                        ),
-                    },
-                ],
-                temperature=0.3,
-                max_tokens=250,
-            )
-            return resp.choices[0].message.content.strip()
-        except Exception as e:
-            logger.warning(f"LLM perf insights failed: {e}")
-            return None
-
-    # ════════════════  ELECTIVE  ══════════════════════════
-
-    async def _elective(
-        self, query: str, ctx: Dict, stu: Optional[Dict]
-    ) -> Dict[str, Any]:
-        from app.models.elective import Elective
-
-        electives = await Elective.find(Elective.is_available == True).to_list()
-        if not electives:
-            return {
-                "type": ResponseType.TEXT.value,
-                "intent": IntentType.ELECTIVE_QUERY.value,
-                "content": {
-                    "message": (
-                        "Check the AI Recommendations section in your dashboard "
-                        "for personalized elective suggestions based on your "
-                        "interests and career goals."
-                    ),
-                },
-                "confidence": "Medium",
-            }
-
-        interests = stu.get("interests", []) if stu else []
-        sem = stu.get("semester", 5) if stu else 5
-        if isinstance(sem, str):
-            sem = int(sem) if sem.isdigit() else 5
-
-        # Also extract interests from query
-        query_interests = []
-        interest_keywords = {
-            "ml": "Machine Learning", "machine learning": "Machine Learning",
-            "ai": "AI", "data": "Data Science", "cloud": "Cloud Computing",
-            "security": "Cybersecurity", "web": "Web Development",
-            "mobile": "Mobile Development", "iot": "IoT",
-            "blockchain": "Blockchain",
-        }
-        ql = query.lower()
-        for kw, interest in interest_keywords.items():
-            if kw in ql:
-                query_interests.append(interest)
-
-        all_interests = list(set(interests + query_interests))
-
-        scored = []
-        for e in electives:
-            sc, reasons = 0, []
-            if e.semester <= sem:
-                sc += 10
-                reasons.append("Available for your semester")
-
-            for i in all_interests:
-                il = i.lower()
-                skill_match = any(
-                    il in s.lower() for s in e.skills_covered
-                )
-                career_match = any(
-                    il in c.lower() for c in e.career_paths
-                )
-                name_match = il in e.name.lower()
-
-                if skill_match or career_match or name_match:
-                    sc += 20
-                    reasons.append(f"Matches interest: {i}")
-
-            if e.career_paths:
-                sc += 5
-                reasons.append(f"Careers: {', '.join(e.career_paths[:2])}")
-
-            scored.append(
-                {
-                    "code": e.code,
-                    "name": e.name,
-                    "category": e.category.value,
-                    "credits": e.credits,
-                    "description": e.description,
-                    "skills": e.skills_covered[:5],
-                    "career_paths": e.career_paths[:3],
-                    "difficulty": e.difficulty_level.value,
-                    "score": sc,
-                    "reasons": reasons,
-                }
-            )
-
-        scored.sort(key=lambda x: x["score"], reverse=True)
-        return {
-            "type": ResponseType.ELECTIVE_RECOMMENDATION.value,
-            "intent": IntentType.ELECTIVE_QUERY.value,
+            "type": "text",
+            "intent": "SYLLABUS_QUERY",
             "content": {
-                "recommendations": scored[:5],
-                "based_on": {
-                    "interests": all_interests,
-                    "semester": sem,
-                },
-                "advice": (
-                    "Choose electives that align with your career goals. "
-                    "Visit the Recommendations dashboard for detailed AI-powered suggestions."
-                ),
-            },
-            "confidence": "High" if all_interests else "Medium",
-        }
-
-    # ════════════════  STUDY PLAN  ════════════════════════
-
-    async def _study_plan(
-        self, query: str, ctx: Dict, stu: Optional[Dict]
-    ) -> Dict[str, Any]:
-        if not stu:
-            return {
-                "type": ResponseType.TEXT.value,
-                "intent": IntentType.STUDY_PLAN_QUERY.value,
-                "content": {
-                    "message": (
-                        "I need your academic data to create a personalized study plan.\n\n"
-                        "Please:\n"
-                        "1. Complete your Academic Data Entry\n"
-                        "2. Add semester grades\n"
-                        "3. Come back and ask again!\n\n"
-                        "I'll create a plan focusing on your weak areas."
-                    ),
-                },
-                "confidence": "Medium",
-            }
-
-        subjects = stu.get("subjects", [])
-        weak = stu.get("weak_subjects", [])
-
-        schedule = []
-        for s in subjects:
-            nm = s.get("name", s.get("subject_name", "Subject"))
-            sc = s.get("score", 0)
-            pri = "high" if nm in weak or sc < 50 else "normal"
-            schedule.append(
-                {
-                    "subject": nm,
-                    "priority": pri,
-                    "suggested_hours": 2.5 if pri == "high" else 1.5,
-                }
-            )
-        schedule.sort(key=lambda x: 0 if x["priority"] == "high" else 1)
-
-        goals = [
-            "Complete all pending assignments",
-            "Review weak subjects daily for at least 1 hour",
-            "Solve previous year question papers (2 per week)",
-            "Attend all lectures & labs without fail",
-            "Practice coding on LeetCode/GFG for 1 hour daily",
-        ]
-        recs = (
-            [f"Prioritize {w}" for w in weak[:3]]
-            or ["Balanced study across all subjects"]
-        )
-
-        tips = await self._llm_tips(stu, weak)
-        total_hours = round(sum(s["suggested_hours"] for s in schedule), 1)
-
-        body: Dict[str, Any] = {
-            "semester": stu.get("semester", "current"),
-            "daily_schedule": schedule,
-            "weekly_goals": goals,
-            "focus_areas": weak[:5],
-            "recommendations": recs,
-            "total_daily_hours": total_hours,
-        }
-        if tips:
-            body["ai_study_tips"] = tips
-
-        return {
-            "type": ResponseType.STUDY_PLAN.value,
-            "intent": IntentType.STUDY_PLAN_QUERY.value,
-            "content": body,
-            "confidence": "High" if subjects else "Medium",
-        }
-
-    async def _llm_tips(self, stu, weak) -> Optional[str]:
-        if not self.llm or not weak:
-            return None
-        try:
-            resp = await self.llm.chat.completions.create(
-                model=settings.LLM_MODEL,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": (
-                            "Give 3 brief, specific study tips for an engineering student. "
-                            "Be practical and encouraging."
-                        ),
-                    },
-                    {
-                        "role": "user",
-                        "content": (
-                            f"Weak subjects: {', '.join(weak)}\n"
-                            f"Semester: {stu.get('semester', '?')}\n"
-                            f"CGPA: {stu.get('cgpa', '?')}\n"
-                            f"Give 3 study tips."
-                        ),
-                    },
-                ],
-                temperature=0.3,
-                max_tokens=200,
-            )
-            return resp.choices[0].message.content.strip()
-        except Exception:
-            return None
-
-    # ════════════════  CLARIFICATION / GENERIC  ═══════════
-
-    async def _clarification(self, q, c, s) -> Dict:
-        return {
-            "type": ResponseType.TEXT.value,
-            "intent": IntentType.CLARIFICATION.value,
-            "content": {
-                "message": "Could you be more specific? I can help with:",
-                "options": [
-                    "📚 Syllabus & concept explanations",
-                    "👨‍🏫 Faculty information & mentors",
-                    "📊 Performance analysis & insights",
-                    "📖 Elective recommendations",
-                    "💼 Career guidance & roadmaps",
-                    "📅 Personalized study plans",
-                ],
+                "message": f"I couldn't find specific information about '{query}' in my database.",
                 "suggestions": [
-                    "How to become a data scientist?",
-                    "Show my performance analysis",
-                    "Which electives for ML?",
-                    "Create a study plan",
+                    "Try: 'What is deadlock?'",
+                    "Try: 'Explain normalization'",
+                    "Try: 'Define mutex'",
+                    "Try: 'What is semaphore?'"
                 ],
+                "hint": "Ask about specific CS concepts or topics."
             },
-            "confidence": "High",
+            "confidence": "Low"
         }
 
-    async def _generic(self, q, c, s) -> Dict:
+    def _get_concept_from_builtin(self, query: str) -> Optional[Dict[str, Any]]:
+        """Get concept explanation from built-in definitions."""
+        query_lower = query.lower()
+        
+        for keyword, concept in CONCEPT_DEFINITIONS.items():
+            if keyword in query_lower:
+                return {
+                    "type": "concept_explanation",
+                    "intent": "SYLLABUS_QUERY",
+                    "content": {
+                        "subject": concept["subject"],
+                        "topic": concept["topic"],
+                        "definition": concept["definition"],
+                        "explanation": concept.get("explanation", ""),
+                        "key_points": concept.get("key_points", []),
+                        "examples": concept.get("examples", []),
+                        "exam_relevance": f"Frequency: {concept.get('exam_frequency', 'medium')}, Weightage: {concept.get('exam_weightage', 'N/A')}",
+                    },
+                    "confidence": "High"
+                }
+        
+        return None
+
+    def _format_topic_response(self, topic_data: Dict) -> Dict[str, Any]:
+        """Format topic data into response."""
+        topic_info = topic_data.get('topic', {})
         return {
-            "type": ResponseType.TEXT.value,
+            "type": "concept_explanation",
+            "intent": "SYLLABUS_QUERY",
+            "content": {
+                "subject": topic_data.get('subject_name', 'Unknown'),
+                "topic": topic_info.get('name', ''),
+                "definition": topic_info.get('definition', ''),
+                "explanation": topic_info.get('explanation', ''),
+                "key_points": topic_info.get('key_points', []),
+                "examples": topic_info.get('examples', []),
+                "exam_relevance": f"Frequency: {topic_info.get('exam_frequency', 'medium')}",
+            },
+            "confidence": "High"
+        }
+
+    # ══════════════════════════════════════════════════════
+    # FACULTY HANDLER
+    # ══════════════════════════════════════════════════════
+
+    async def _handle_faculty(
+        self,
+        query: str,
+        context: Dict[str, Any],
+        student_data: Optional[Dict] = None
+    ) -> Dict[str, Any]:
+        """Handle faculty queries."""
+        
+        query_lower = query.lower()
+        
+        # Extract subject from "who teaches X"
+        match = re.search(r'who\s+teaches\s+(.+?)[\?]?$', query_lower)
+        if match:
+            subject = _normalize_subject(match.group(1).strip())
+            
+            if self.faculty_repo:
+                try:
+                    faculty_list = await self.faculty_repo.find_by_subject(subject, limit=5)
+                    if faculty_list:
+                        return {
+                            "type": "faculty_list",
+                            "intent": "FACULTY_QUERY",
+                            "content": {
+                                "subject": subject,
+                                "faculty": [
+                                    {
+                                        "name": getattr(f, 'name', 'Unknown'),
+                                        "designation": getattr(f, 'designation', ''),
+                                        "department": getattr(f, 'department', ''),
+                                        "email": getattr(f, 'email', ''),
+                                    }
+                                    for f in faculty_list
+                                ],
+                                "count": len(faculty_list),
+                                "message": f"Found {len(faculty_list)} faculty member(s) teaching {subject}"
+                            },
+                            "confidence": "High"
+                        }
+                except Exception as e:
+                    logger.warning(f"Faculty search error: {e}")
+            
+            return {
+                "type": "text",
+                "intent": "FACULTY_QUERY",
+                "content": {
+                    "message": f"I couldn't find faculty information for '{subject}'.",
+                    "suggestions": [
+                        "Please check the Faculty section in your dashboard",
+                        "Or ask: 'List all faculty in CSE department'"
+                    ]
+                },
+                "confidence": "Low"
+            }
+        
+        return {
+            "type": "text",
+            "intent": "FACULTY_QUERY",
+            "content": {
+                "message": "I can help you find faculty information. Try:",
+                "suggestions": [
+                    "'Who teaches Operating Systems?'",
+                    "'Who teaches DBMS?'",
+                    "'List faculty in CSE department'",
+                    "'Recommend a mentor for ML project'"
+                ]
+            },
+            "confidence": "Medium"
+        }
+
+    # ══════════════════════════════════════════════════════
+    # CAREER HANDLER
+    # ══════════════════════════════════════════════════════
+
+    async def _handle_career(
+        self,
+        query: str,
+        context: Dict[str, Any],
+        student_data: Optional[Dict] = None
+    ) -> Dict[str, Any]:
+        """Handle career queries."""
+        
+        career_name = _extract_career_name(query)
+        
+        # Check built-in definitions first
+        if career_name and career_name in CAREER_DEFINITIONS:
+            career = CAREER_DEFINITIONS[career_name]
+            return {
+                "type": "career_guidance",
+                "intent": "CAREER_QUERY",
+                "content": {
+                    "career": {
+                        "title": career["title"],
+                        "description": career["description"],
+                        "required_skills": career["required_skills"],
+                        "recommended_subjects": career["recommended_subjects"],
+                        "market_demand": career["market_demand"],
+                        "salary_range": career["salary_range"],
+                    },
+                    "next_steps": career["next_steps"],
+                },
+                "confidence": "High"
+            }
+        
+        # Try repository
+        if career_name and self.career_repo:
+            try:
+                career = await self.career_repo.find_by_title(career_name)
+                if career:
+                    market_demand = getattr(career, 'market_demand', 'Medium')
+                    if hasattr(market_demand, 'value'):
+                        market_demand = market_demand.value
+                    
+                    return {
+                        "type": "career_guidance",
+                        "intent": "CAREER_QUERY",
+                        "content": {
+                            "career": {
+                                "title": getattr(career, 'title', career_name),
+                                "description": getattr(career, 'description', ''),
+                                "required_skills": getattr(career, 'required_skills', []),
+                                "recommended_subjects": getattr(career, 'recommended_subjects', []),
+                                "market_demand": str(market_demand),
+                            },
+                        },
+                        "confidence": "High"
+                    }
+            except Exception as e:
+                logger.warning(f"Career lookup failed: {e}")
+        
+        # Default career list
+        return {
+            "type": "career_list",
+            "intent": "CAREER_QUERY",
+            "content": {
+                "message": "Here are popular career paths in tech:",
+                "careers": [
+                    {"title": "Software Developer", "demand": "Very High", "salary": "₹6-25 LPA"},
+                    {"title": "Data Scientist", "demand": "Very High", "salary": "₹8-30 LPA"},
+                    {"title": "ML Engineer", "demand": "Very High", "salary": "₹10-35 LPA"},
+                    {"title": "DevOps Engineer", "demand": "Very High", "salary": "₹8-28 LPA"},
+                    {"title": "Full Stack Developer", "demand": "High", "salary": "₹5-22 LPA"},
+                ],
+                "hint": "Ask about a specific career for detailed guidance, e.g., 'How to become a data scientist?'"
+            },
+            "confidence": "Medium"
+        }
+
+    # ══════════════════════════════════════════════════════
+    # OTHER HANDLERS
+    # ══════════════════════════════════════════════════════
+
+    async def _handle_performance(
+        self,
+        query: str,
+        context: Dict[str, Any],
+        student_data: Optional[Dict] = None
+    ) -> Dict[str, Any]:
+        """Handle performance queries."""
+        
+        if not student_data:
+            return {
+                "type": "text",
+                "intent": "PERFORMANCE_QUERY",
+                "content": {
+                    "message": "Please complete your academic profile to view performance analysis.",
+                    "action": "Go to Profile → Academic Data to add your semester results.",
+                },
+                "confidence": "High"
+            }
+        
+        return {
+            "type": "performance_analysis",
+            "intent": "PERFORMANCE_QUERY",
+            "content": {
+                "overall_performance": {
+                    "cgpa": student_data.get('cgpa'),
+                    "semester": student_data.get('semester'),
+                    "latest_sgpa": student_data.get('latest_sgpa'),
+                },
+                "weak_areas": student_data.get('weak_subjects', []),
+                "strong_areas": student_data.get('strong_subjects', []),
+                "message": f"Your CGPA is {student_data.get('cgpa', 'N/A')}",
+            },
+            "confidence": "High"
+        }
+
+    async def _handle_elective(
+        self,
+        query: str,
+        context: Dict[str, Any],
+        student_data: Optional[Dict] = None
+    ) -> Dict[str, Any]:
+        """Handle elective queries."""
+        
+        recommendations = [
+            {"name": "Machine Learning", "reason": "High demand in AI/ML industry", "career_paths": ["Data Scientist", "ML Engineer"]},
+            {"name": "Cloud Computing", "reason": "Essential for modern software development", "career_paths": ["DevOps Engineer", "Cloud Architect"]},
+            {"name": "Cybersecurity", "reason": "Growing field with excellent opportunities", "career_paths": ["Security Analyst", "Ethical Hacker"]},
+            {"name": "Data Science", "reason": "Combines stats, programming, and domain knowledge", "career_paths": ["Data Scientist", "Data Analyst"]},
+        ]
+        
+        return {
+            "type": "elective_recommendation",
+            "intent": "ELECTIVE_QUERY",
+            "content": {
+                "message": "Here are recommended electives based on industry trends:",
+                "recommendations": recommendations,
+                "advice": "Choose electives that align with your career goals and interests."
+            },
+            "confidence": "Medium"
+        }
+
+    async def _handle_study_plan(
+        self,
+        query: str,
+        context: Dict[str, Any],
+        student_data: Optional[Dict] = None
+    ) -> Dict[str, Any]:
+        """Handle study plan queries."""
+        
+        if not student_data:
+            return {
+                "type": "text",
+                "intent": "STUDY_PLAN_QUERY",
+                "content": {
+                    "message": "Complete your profile for a personalized study plan.",
+                    "general_tips": [
+                        "📅 Create a daily study schedule",
+                        "📚 Focus on understanding concepts, not memorizing",
+                        "✍️ Practice previous year questions",
+                        "🔄 Regular revision is key",
+                        "💤 Get adequate sleep before exams"
+                    ]
+                },
+                "confidence": "Medium"
+            }
+        
+        weak_areas = student_data.get('weak_subjects', [])
+        
+        return {
+            "type": "study_plan",
+            "intent": "STUDY_PLAN_QUERY",
+            "content": {
+                "focus_areas": weak_areas[:5] if weak_areas else ["All subjects"],
+                "daily_schedule": [
+                    {"subject": area, "priority": "high", "suggested_hours": 2}
+                    for area in weak_areas[:3]
+                ] if weak_areas else [],
+                "weekly_goals": [
+                    "Complete all assignments on time",
+                    "Review weak subjects daily",
+                    "Practice previous year questions",
+                    "Attend all classes",
+                ],
+                "exam_tips": [
+                    "Start preparation 3 weeks before exams",
+                    "Allocate more time to weak subjects",
+                    "Practice numerical problems daily",
+                ]
+            },
+            "confidence": "Medium"
+        }
+
+    async def _handle_clarification(
+        self,
+        query: str,
+        context: Dict[str, Any],
+        student_data: Optional[Dict] = None
+    ) -> Dict[str, Any]:
+        """Handle clarification."""
+        return {
+            "type": "text",
+            "intent": "CLARIFICATION",
+            "content": {
+                "message": "I'd be happy to help! Could you please provide more details?",
+                "suggestions": [
+                    "Try: 'What is deadlock in OS?'",
+                    "Or: 'Who teaches Machine Learning?'",
+                    "Or: 'How to become a data scientist?'",
+                    "Or: 'Explain normalization in DBMS'"
+                ]
+            },
+            "confidence": "High"
+        }
+
+    async def _handle_generic(
+        self,
+        query: str,
+        context: Dict[str, Any],
+        student_data: Optional[Dict] = None
+    ) -> Dict[str, Any]:
+        """Handle generic/greeting queries."""
+        
+        name = ""
+        if student_data and student_data.get('name'):
+            name = f" {student_data['name']}"
+        
+        return {
+            "type": "text",
             "intent": "GENERAL",
             "content": {
-                "message": (
-                    "I'm your Academic Guidance Assistant! I can help with:\n\n"
-                    "📚 **Syllabus** — Concept explanations\n"
-                    "👨‍🏫 **Faculty** — Mentor recommendations\n"
-                    "📊 **Performance** — Grade analysis & insights\n"
-                    "📖 **Electives** — Smart course selection\n"
-                    "💼 **Career** — Detailed career roadmaps\n"
-                    "📅 **Study Plan** — Personalized schedules\n\n"
-                    "What would you like to know?"
-                ),
-                "suggestions": [
-                    "How to become a data scientist?",
-                    "Show my performance analysis",
-                    "Which electives should I choose?",
-                    "Create a study plan for me",
-                    "Career in cybersecurity",
-                ],
+                "message": f"Hello{name}! 👋 I'm your Academic Advisor Assistant.\n\n"
+                          "I can help you with:\n\n"
+                          "📚 **Syllabus & Concepts**\n"
+                          "   'What is deadlock?', 'Explain normalization'\n\n"
+                          "👨‍🏫 **Faculty Information**\n"
+                          "   'Who teaches OS?', 'Who teaches ML?'\n\n"
+                          "📊 **Academic Performance**\n"
+                          "   'Show my grades', 'My weak subjects'\n\n"
+                          "💼 **Career Guidance**\n"
+                          "   'How to become a data scientist?'\n\n"
+                          "📖 **Electives & Study Plans**\n"
+                          "   'Recommend electives', 'Study plan for exams'\n\n"
+                          "What would you like to know?",
             },
-            "confidence": "High",
+            "confidence": "High"
         }
 
-    # ── Helpers ──────────────────────────────────────────
-
-    def _no_data(self, intent: IntentType) -> Dict:
+    def _handle_out_of_scope(self) -> Dict[str, Any]:
+        """Handle out-of-scope queries."""
         return {
-            "type": ResponseType.TEXT.value,
-            "intent": intent.value,
+            "type": "text",
+            "intent": "OUT_OF_SCOPE",
             "content": {
-                "message": "Information not available in academic database."
+                "message": "I'm an academic advisor and can only help with academic-related queries. 📚",
+                "scope": [
+                    "📚 Syllabus and course content",
+                    "👨‍🏫 Faculty information",
+                    "📊 Academic performance analysis",
+                    "💼 Career guidance in tech",
+                    "📖 Elective recommendations",
+                    "📅 Study planning"
+                ],
+                "hint": "Please ask me something related to your academics!"
             },
-            "confidence": "Low",
+            "confidence": "High"
         }
 
-    def _error(self) -> Dict:
+    def _create_error_response(self, error_msg: str = "") -> Dict[str, Any]:
+        """Create error response."""
         return {
-            "type": ResponseType.ERROR.value,
+            "type": "error",
             "intent": "ERROR",
             "content": {
-                "message": "An error occurred. Please try again."
+                "message": "I encountered an error processing your request. Please try again.",
+                "error": error_msg if error_msg else "Unknown error",
             },
-            "confidence": "Low",
+            "confidence": "Low"
         }
