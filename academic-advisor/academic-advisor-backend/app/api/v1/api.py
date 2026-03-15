@@ -1,7 +1,7 @@
-# academic-advisor-backend/app/api/v1/api.py
+# app/api/v1/api.py
 """
 API v1 Router - Aggregates all endpoint routers
-FIXED: Catches ALL exceptions (not just ImportError) and logs them properly
+FIXED: Uses MongoDB-based student analysis endpoints (same pattern as admin)
 """
 
 from fastapi import APIRouter
@@ -31,7 +31,11 @@ api_router.include_router(resources_router, prefix="/resources", tags=["Resource
 from app.api.v1.messages import router as messages_router
 api_router.include_router(messages_router, prefix="/messages", tags=["Messages"])
 
-from app.api.v1.student_analysis import router as student_analysis_router
+# ──────────────────────────────────────────────────────────────
+# CHANGED: Use the MongoDB/Beanie endpoints.student_analysis
+# instead of the Firebase-based app.api.v1.student_analysis
+# ──────────────────────────────────────────────────────────────
+from app.api.v1.endpoints.student_analysis import router as student_analysis_router
 api_router.include_router(student_analysis_router, prefix="/student-analysis", tags=["Student Analysis"])
 
 # ==================== ENDPOINT ROUTERS ====================
@@ -72,10 +76,9 @@ api_router.include_router(chatbot_router, prefix="/chatbot", tags=["Chatbot"])
 from app.api.v1.admin import router as admin_router
 api_router.include_router(admin_router, prefix="/admin", tags=["Admin"])
 
-# ==================== OPTIONAL ROUTERS (catch ALL exceptions) ====================
+# ==================== OPTIONAL ROUTERS ====================
 
 def _safe_include(module_path: str, attr: str, prefix: str, tags: list):
-    """Safely import and include a router, logging any error."""
     try:
         import importlib
         mod = importlib.import_module(module_path)
@@ -84,7 +87,6 @@ def _safe_include(module_path: str, attr: str, prefix: str, tags: list):
         logger.info(f"✅ Router mounted: {prefix}")
     except Exception as e:
         logger.error(f"❌ Failed to mount {prefix}: {type(e).__name__}: {e}", exc_info=True)
-
 
 _safe_include("app.api.v1.endpoints.ml_insights", "router", "/ml-insights", ["ML Insights"])
 _safe_include("app.api.v1.endpoints.faculty_profile", "router", "/faculty-profile", ["Faculty Profile"])
