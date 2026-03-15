@@ -1,0 +1,39 @@
+{
+  "synced": [
+    {
+      "name": "Dr. Rajesh Kumar",
+      "email": "rajesh.kumar@fcrit.ac.in",
+      "uid": "yZqludDZiobRnLUwN7Y8tMHK4yq1",
+      "old_id": "faculty_001"
+    },
+    {
+      "name": "Dr. Priya Sharma",
+      "email": "priya.sharma@fcrit.ac.in",
+      "uid": "aIR1Kgry9VcM2uOmEQu1doKAM7n2",
+      "old_id": "faculty_002"
+    },
+    {
+      "name": "Dr. Amit Verma",
+      "email": "amit.verma@fcrit.ac.in",
+      "uid": "LZmSBpC1oTQbMwxtFSzBEbARlnB2",
+      "old_id": "faculty_003"
+    },
+    {
+      "name": "Dr. Sneha Patel",
+      "email": "sneha.patel@fcrit.ac.in",
+      "uid": "ta7458PS7ddcJUYJPIDUCs9VbE43",
+      "old_id": "faculty_004"
+    },
+    {
+      "name": "Dr. Vikram Singh",
+      "email": "vikram.singh@fcrit.ac.in",
+      "uid": "QbQTk0UA9RNSTAbdDMvBVO0aEeO2",
+      "old_id": "faculty_005"
+    }
+  ],
+  "already_synced": [],
+  "created": [],
+  "skipped": [],
+  "errors": [],
+  "references_updated": []
+}

@@ -1,0 +1,105 @@
+{
+  "synced": [],
+  "already_synced": [
+    {
+      "name": "Dr. Rajesh Kumar",
+      "email": "rajesh.kumar@fcrit.ac.in",
+      "uid": "yZqludDZiobRnLUwN7Y8tMHK4yq1"
+    },
+    {
+      "name": "Dr. Priya Sharma",
+      "email": "priya.sharma@fcrit.ac.in",
+      "uid": "aIR1Kgry9VcM2uOmEQu1doKAM7n2"
+    },
+    {
+      "name": "Dr. Amit Verma",
+      "email": "amit.verma@fcrit.ac.in",
+      "uid": "LZmSBpC1oTQbMwxtFSzBEbARlnB2"
+    },
+    {
+      "name": "Dr. Sneha Patel",
+      "email": "sneha.patel@fcrit.ac.in",
+      "uid": "ta7458PS7ddcJUYJPIDUCs9VbE43"
+    },
+    {
+      "name": "Dr. Vikram Singh",
+      "email": "vikram.singh@fcrit.ac.in",
+      "uid": "QbQTk0UA9RNSTAbdDMvBVO0aEeO2"
+    }
+  ],
+  "created": [
+    {
+      "name": "Dr. Meera Iyer",
+      "email": "meera.iyer@fcrit.ac.in",
+      "uid": "sl3WPINgC0MfnXpZXtOAQiAQ4Jh2",
+      "old_id": "faculty_new_001",
+      "password": "Faculty@FCRIT2024"
+    },
+    {
+      "name": "Dr. Sanjay Nair",
+      "email": "sanjay.nair@fcrit.ac.in",
+      "uid": "uIrnUe0KfKX0VShIq83hGMsTJe63",
+      "old_id": "faculty_new_002",
+      "password": "Faculty@FCRIT2024"
+    },
+    {
+      "name": "Dr. Kavita Joshi",
+      "email": "kavita.joshi@fcrit.ac.in",
+      "uid": "IDGH8EPrXcNzGWlgrxWUewqe2ff2",
+      "old_id": "faculty_new_003",
+      "password": "Faculty@FCRIT2024"
+    },
+    {
+      "name": "Dr. Arjun Deshmukh",
+      "email": "arjun.deshmukh@fcrit.ac.in",
+      "uid": "XXQrlyaPtkQEf30nkrALgYGZdQD2",
+      "old_id": "faculty_new_004",
+      "password": "Faculty@FCRIT2024"
+    },
+    {
+      "name": "Dr. Neha Malhotra",
+      "email": "neha.malhotra@fcrit.ac.in",
+      "uid": "it9LjrEhmWQtK4jenhIDRuNBeIs1",
+      "old_id": "faculty_new_005",
+      "password": "Faculty@FCRIT2024"
+    },
+    {
+      "name": "Dr. Rahul Bose",
+      "email": "rahul.bose@fcrit.ac.in",
+      "uid": "AzLvtny8ztUS2YPMbOqIQMnHlFJ3",
+      "old_id": "faculty_new_006",
+      "password": "Faculty@FCRIT2024"
+    },
+    {
+      "name": "Dr. Anita Kulkarni",
+      "email": "anita.kulkarni@fcrit.ac.in",
+      "uid": "XvBZG6bmpjRw5zdh7RUJZw5YAtq2",
+      "old_id": "faculty_new_007",
+      "password": "Faculty@FCRIT2024"
+    },
+    {
+      "name": "Dr. Suresh Menon",
+      "email": "suresh.menon@fcrit.ac.in",
+      "uid": "0rJYQm8hknRAhVABoPRpbwFDzBc2",
+      "old_id": "faculty_new_008",
+      "password": "Faculty@FCRIT2024"
+    },
+    {
+      "name": "Prof. Deepa Krishnan",
+      "email": "deepa.krishnan@fcrit.ac.in",
+      "uid": "CmEmUVFYeFXm4kRXzUZ9x8LDn8i2",
+      "old_id": "faculty_new_009",
+      "password": "Faculty@FCRIT2024"
+    },
+    {
+      "name": "Prof. Manoj Pillai",
+      "email": "manoj.pillai@fcrit.ac.in",
+      "uid": "KwjHA51fMCMSNULDjuDW2M7fgfM2",
+      "old_id": "faculty_new_010",
+      "password": "Faculty@FCRIT2024"
+    }
+  ],
+  "skipped": [],
+  "errors": [],
+  "references_updated": []
+}

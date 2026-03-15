@@ -101,19 +101,37 @@ class ClearSessionRequest(BaseModel):
 # ══════════════════════════════════════════════════════════
 
 def _get_user_id(req: Request, current_user=None) -> str:
-    """Extract user ID from request or current user."""
+    """Extract REAL Firebase UID from the auth token."""
+    # 1. From dependency injection
     if current_user and hasattr(current_user, 'uid'):
         return current_user.uid
+
+    # 2. From request state (set by auth middleware)
     if hasattr(req.state, "user") and req.state.user:
-        return req.state.user.get("uid", "anonymous")
+        uid = req.state.user.get("uid")
+        if uid:
+            return uid
+
+    # 3. From X-User-Id header
     user_id = req.headers.get("X-User-Id")
     if user_id:
         return user_id
+
+    # 4. Decode Firebase token directly
     auth_header = req.headers.get("Authorization", "")
     if auth_header.startswith("Bearer "):
-        return f"user_{hash(auth_header) % 100000}"
-    return "anonymous"
+        token = auth_header[7:]
+        try:
+            from firebase_admin import auth as fb_auth
+            decoded = fb_auth.verify_id_token(token, check_revoked=False)
+            uid = decoded.get("uid")
+            if uid:
+                logger.info(f"✅ Decoded Firebase UID: {uid[:12]}...")
+                return uid
+        except Exception as e:
+            logger.warning(f"Firebase token decode failed: {e}")
 
+    return "anonymous"
 
 def _get_user_type(current_user=None) -> str:
     """Determine user type."""

@@ -26,7 +26,9 @@ class IntentType(str, Enum):
     CLARIFICATION = "CLARIFICATION"
     OUT_OF_SCOPE = "OUT_OF_SCOPE"
     GENERAL = "GENERAL"
-
+    MENTOR_QUERY = "MENTOR_QUERY"           # ← ADD THIS
+    GREETING = "GREETING"           # ← ADD THIS
+    RESOURCE_QUERY = "RESOURCE_QUERY"  
 
 class ResponseType(str, Enum):
     TEXT = "text"
@@ -43,7 +45,7 @@ class ResponseType(str, Enum):
     COMPARISON_TABLE = "comparison_table"
     TOPIC_LIST = "topic_list"
     ERROR = "error"
-
+    MENTOR_RECOMMENDATION = "mentor_recommendation"    # ← ADD THIS
 
 class ConfidenceLevel(str, Enum):
     HIGH = "High"

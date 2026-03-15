@@ -64,7 +64,7 @@ class Subject(FlexibleDocument):
     # Made optional for compatibility with existing data
     department: Optional[Union[Link[Department], str, Dict]] = None
     semester: Optional[int] = 0
-    credits: Optional[int] = 0
+    credits: Optional[float] = 0
     subject_type: Optional[str] = "core"  # Made optional with default
     
     category: Optional[str] = None

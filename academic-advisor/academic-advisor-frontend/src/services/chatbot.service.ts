@@ -1,16 +1,20 @@
-// academic-advisor-frontend/src/services/chatbot.service.ts
+// src/services/chatbot.service.ts
+// Updated with better error handling for profile endpoint
 
 import { auth } from './firebase.config';
-import type { ChatMessage, ChatResponseContent, ChatFeedback } from '../types/chatbot.types';
+import type { 
+  ChatMessage, 
+  ChatResponseContent, 
+  ChatFeedback,
+  SentimentData,
+  AdvisorSuggestion 
+} from '../types/chatbot.types';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
-// ══════════════════════════════════════════════════════════
-// OUT-OF-SCOPE DETECTION
-// ══════════════════════════════════════════════════════════
-
+// Out-of-scope patterns
 const OUT_OF_SCOPE_PATTERNS = [
-  /\b(movie|film|actor|actress|bollywood|hollywood|netflix|show|series)\b/i,
+  /\b(movie|film|actor|actress|bollywood|hollywood|netflix|series)\b/i,
   /\b(cricket|football|soccer|basketball|ipl|fifa|sports|match|player)\b/i,
   /\b(politics|election|vote|government|minister|party|congress|bjp)\b/i,
   /\b(weather|recipe|cook|food|restaurant|hotel|travel|vacation)\b/i,
@@ -23,17 +27,101 @@ function isOutOfScope(msg: string): boolean {
   return OUT_OF_SCOPE_PATTERNS.some(p => p.test(msg));
 }
 
-// ══════════════════════════════════════════════════════════
-// CHATBOT SERVICE CLASS
-// ══════════════════════════════════════════════════════════
-
 class ChatbotService {
   private sessionToken: string | null = null;
   private conversationHistory: ChatMessage[] = [];
   private isBackendAvailable = true;
+  private lastSentiment: SentimentData | null = null;
+  private studentContextCache: Record<string, unknown> | null = null;
+  private studentContextCacheTime = 0;
 
   constructor() {
     this.restoreSession();
+  }
+
+  // ──────────────────────────────────────────────────────
+  // Auto-fetch student context from API (with graceful fallback)
+  // ──────────────────────────────────────────────────────
+
+  private async getStudentContext(): Promise<Record<string, unknown> | undefined> {
+    try {
+      const user = auth.currentUser;
+      if (!user) return undefined;
+
+      // Check in-memory cache (5 min TTL)
+      const now = Date.now();
+      if (this.studentContextCache && (now - this.studentContextCacheTime) < 300000) {
+        return this.studentContextCache;
+      }
+
+      // Check localStorage cache
+      const cached = localStorage.getItem('chatbot_student_ctx');
+      if (cached) {
+        try {
+          const parsed = JSON.parse(cached);
+          if (now - (parsed._ts || 0) < 300000) {
+            this.studentContextCache = parsed;
+            this.studentContextCacheTime = now;
+            return parsed;
+          }
+        } catch { /* ignore */ }
+      }
+
+      const token = await user.getIdToken();
+
+      // Try student profile API
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/v1/students/me/profile`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+
+        if (res.ok) {
+          const d = await res.json();
+          const ctx: Record<string, unknown> = {
+            name: d.name || user.displayName || '',
+            email: d.email || user.email || '',
+            branch: d.branch || 'IT',
+            semester: d.current_semester || d.semester,
+            cgpa: d.cgpa,
+            latest_sgpa: d.latest_sgpa,
+            roll_number: d.roll_number,
+            skills: d.skills || [],
+            interests: d.interests || [],
+            career_goals: d.career_goals || [],
+            strong_subjects: d.strong_subjects || [],
+            weak_subjects: d.weak_subjects || [],
+            subjects: d.subjects || [],
+            sgpa_trend: d.sgpa_trend || [],
+            performance_summary: d.performance_summary,
+            _ts: now,
+            _partial: d._partial || false,
+          };
+          
+          this.studentContextCache = ctx;
+          this.studentContextCacheTime = now;
+          localStorage.setItem('chatbot_student_ctx', JSON.stringify(ctx));
+          return ctx;
+        }
+      } catch (profileError) {
+        console.warn('Profile fetch failed (this is OK):', profileError);
+      }
+
+      // Fallback: basic Firebase info
+      const fallbackCtx = {
+        name: user.displayName || user.email?.split('@')[0] || '',
+        email: user.email || '',
+        _ts: now,
+        _partial: true,
+      };
+      
+      this.studentContextCache = fallbackCtx;
+      this.studentContextCacheTime = now;
+      return fallbackCtx;
+      
+    } catch (error) {
+      console.warn('getStudentContext error:', error);
+      return undefined;
+    }
   }
 
   // ──────────────────────────────────────────────────────
@@ -54,20 +142,26 @@ class ChatbotService {
     if (this.isBackendAvailable) {
       try {
         const token = await this.getAuthToken();
-        
+
+        // Auto-fetch student data if not provided
+        let resolvedStudentData = studentData;
+        if (includeStudentData && !resolvedStudentData) {
+          resolvedStudentData = await this.getStudentContext();
+        }
+
         const requestBody: Record<string, unknown> = {
           message: message.trim(),
           session_token: this.sessionToken,
           include_student_data: includeStudentData,
         };
-        
-        if (includeStudentData && studentData) {
-          requestBody.student_data = studentData;
+
+        if (resolvedStudentData) {
+          requestBody.student_data = resolvedStudentData;
         }
 
         console.log('📤 Sending to chatbot:', {
           message: message.trim().substring(0, 50) + '...',
-          hasStudentData: !!studentData,
+          hasStudentData: !!resolvedStudentData,
           hasSessionToken: !!this.sessionToken,
         });
 
@@ -81,11 +175,16 @@ class ChatbotService {
         });
 
         if (response.ok) {
-          const data = await response.json();
-          console.log('📥 JSON response:', {
+          const data = await response.json() as ChatResponseContent;
+          
+          console.log('📥 Response:', {
             type: data.type,
             intent: data.intent,
             confidence: data.confidence,
+            sentiment: data.sentiment?.mood,
+            hasAdvisorSuggestion: !!data.advisor_suggestion,
+            fromCache: data.from_cache,
+            llmEnhanced: data.llm_enhanced,
           });
           
           // Update session token
@@ -94,11 +193,20 @@ class ChatbotService {
             this.saveSession();
           }
           
-          return data as ChatResponseContent;
+          // Store sentiment for context
+          if (data.sentiment) {
+            this.lastSentiment = data.sentiment;
+          }
+          
+          return data;
         }
 
-        console.warn(`Backend returned ${response.status}, switching to offline`);
-        this.isBackendAvailable = false;
+        console.warn(`Backend returned ${response.status}`);
+        
+        // Only switch to offline mode for server errors, not auth errors
+        if (response.status >= 500) {
+          this.isBackendAvailable = false;
+        }
         
       } catch (err) {
         console.warn('Backend unreachable:', err);
@@ -108,6 +216,14 @@ class ChatbotService {
 
     // Offline fallback
     return this.offlineResponse(message);
+  }
+
+  // ──────────────────────────────────────────────────────
+  // Sentiment Helpers
+  // ──────────────────────────────────────────────────────
+
+  getLastSentiment(): SentimentData | null {
+    return this.lastSentiment;
   }
 
   // ──────────────────────────────────────────────────────
@@ -172,6 +288,7 @@ class ChatbotService {
     if (this.conversationHistory.length > 50) {
       this.conversationHistory = this.conversationHistory.slice(-50);
     }
+    this.saveSession();
   }
 
   // ──────────────────────────────────────────────────────
@@ -196,7 +313,10 @@ class ChatbotService {
     }
     this.sessionToken = null;
     this.conversationHistory = [];
+    this.lastSentiment = null;
+    this.studentContextCache = null;
     localStorage.removeItem('chatbot_session');
+    localStorage.removeItem('chatbot_student_ctx');
     this.isBackendAvailable = true;
   }
 
@@ -281,12 +401,17 @@ class ChatbotService {
       type: 'text',
       intent: 'OUT_OF_SCOPE',
       content: {
-        message: "I'm an academic advisor and can only help with academic-related queries.",
+        message: "I'm an academic advisor and can only help with academic-related queries. 📚",
         scope: [
           '📚 Syllabus and course content',
           '👨‍🏫 Faculty information',
           '📊 Academic performance',
           '💼 Career guidance in tech',
+        ],
+        suggestions: [
+          'Explain deadlock in OS',
+          'Career path for data science',
+          'Show my performance analysis'
         ],
       },
       confidence: 'High',
@@ -308,15 +433,16 @@ class ChatbotService {
           '💼 Career guidance\n' +
           '📅 Study plans\n\n' +
           'Please check your connection and try again.',
+        advisor_suggestion: {
+          message: '💡 For immediate help, contact your faculty advisor directly.',
+          action: 'Visit department office',
+          reason: 'offline',
+        },
       },
       confidence: 'Low',
     };
   }
 }
-
-// ══════════════════════════════════════════════════════════
-// EXPORT
-// ══════════════════════════════════════════════════════════
 
 export const chatbotService = new ChatbotService();
 export type { ChatMessage, ChatResponseContent };

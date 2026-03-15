@@ -1,0 +1,52 @@
+{
+  "synced": [],
+  "already_synced": [
+    {
+      "name": "Dr. Rajesh Kumar",
+      "email": "rajesh.kumar@fcrit.ac.in",
+      "uid": "yZqludDZiobRnLUwN7Y8tMHK4yq1"
+    },
+    {
+      "name": "Dr. Priya Sharma",
+      "email": "priya.sharma@fcrit.ac.in",
+      "uid": "aIR1Kgry9VcM2uOmEQu1doKAM7n2"
+    },
+    {
+      "name": "Dr. Amit Verma",
+      "email": "amit.verma@fcrit.ac.in",
+      "uid": "LZmSBpC1oTQbMwxtFSzBEbARlnB2"
+    },
+    {
+      "name": "Dr. Sneha Patel",
+      "email": "sneha.patel@fcrit.ac.in",
+      "uid": "ta7458PS7ddcJUYJPIDUCs9VbE43"
+    },
+    {
+      "name": "Dr. Vikram Singh",
+      "email": "vikram.singh@fcrit.ac.in",
+      "uid": "QbQTk0UA9RNSTAbdDMvBVO0aEeO2"
+    },
+    {
+      "name": "Anna Shelby",
+      "email": "academicadvisor642@gmail.com",
+      "uid": "W7LunS0pb3ZRAJM1hkR7C4bcZAu1"
+    },
+    {
+      "name": "Priya Sharma",
+      "email": "priya.sharma@fcrit.ac.in",
+      "uid": "aIR1Kgry9VcM2uOmEQu1doKAM7n2"
+    }
+  ],
+  "created": [
+    {
+      "name": "Cloud Computing Services",
+      "email": "cloud.computing.services@fcrit.ac.in",
+      "uid": "nmBdxmOF1TXDIAkilillz2Z63Fo2",
+      "old_id": "fac_cloud_computing_services",
+      "password": "Faculty@FCRIT2024"
+    }
+  ],
+  "skipped": [],
+  "errors": [],
+  "references_updated": []
+}

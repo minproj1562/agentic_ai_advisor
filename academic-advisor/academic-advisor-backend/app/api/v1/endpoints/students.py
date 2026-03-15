@@ -27,6 +27,128 @@ class PerformanceResponse(BaseModel):
     careerGoals: List[str]
     skillsMatrix: dict
 
+# Add this endpoint BEFORE the other routes (at the top after imports)
+# This handles /students/me/profile which the frontend calls
+
+@router.get("/me/profile")
+async def get_my_profile(
+    current_user: FirebaseUser = Depends(get_current_user)
+):
+    """
+    Get current student's profile for chatbot context.
+    Returns basic info even if full profile doesn't exist.
+    """
+    try:
+        student_id = current_user.uid
+        logger.info(f"📱 Profile request for: {student_id[:12]}...")
+        
+        # Try to get full profile
+        profile = await StudentProfile.find_one({"user_id": student_id})
+        
+        if profile:
+            # Get latest semester data
+            latest_semester = profile.semester_records[-1] if profile.semester_records else None
+            
+            # Calculate strong/weak subjects
+            strong_subjects = []
+            weak_subjects = []
+            subjects = []
+            
+            if latest_semester:
+                for s in latest_semester.subjects:
+                    subj_data = {
+                        "code": s.subject_code,
+                        "name": s.subject_name,
+                        "score": s.total_marks,
+                        "grade": s.grade,
+                        "credits": s.credits,
+                    }
+                    subjects.append(subj_data)
+                    
+                    if s.total_marks >= 75:
+                        strong_subjects.append(s.subject_name)
+                    elif s.total_marks < 50:
+                        weak_subjects.append(s.subject_name)
+            
+            return {
+                "user_id": student_id,
+                "name": profile.name if hasattr(profile, 'name') else current_user.email.split('@')[0] if current_user.email else "Student",
+                "email": current_user.email,
+                "branch": profile.branch or "IT",
+                "current_semester": profile.current_semester,
+                "semester": profile.current_semester,
+                "cgpa": profile.cgpa,
+                "latest_sgpa": latest_semester.sgpa if latest_semester else None,
+                "roll_number": profile.roll_number,
+                "admission_year": profile.admission_year,
+                "total_credits_earned": profile.total_credits_earned,
+                "total_credits_required": profile.total_credits_required,
+                "interests": profile.interests or [],
+                "career_goals": profile.career_goals or [],
+                "skills": getattr(profile, 'skills', []) or [],
+                "strong_subjects": strong_subjects,
+                "weak_subjects": weak_subjects,
+                "subjects": subjects,
+                "sgpa_trend": [
+                    {"semester": i + 1, "sgpa": sem.sgpa}
+                    for i, sem in enumerate(profile.semester_records or [])
+                ],
+                "performance_summary": {
+                    "trend": "improving" if len(profile.semester_records or []) > 1 and 
+                             profile.semester_records[-1].sgpa > profile.semester_records[-2].sgpa 
+                             else "stable"
+                },
+                "_source": "database",
+            }
+        
+        # Fallback: Return basic info from Firebase user
+        # This ensures we NEVER return 404
+        name = "Student"
+        if current_user.email:
+            name = current_user.email.split('@')[0].replace('.', ' ').title()
+        
+        return {
+            "user_id": student_id,
+            "name": name,
+            "email": current_user.email,
+            "branch": "IT",
+            "current_semester": None,
+            "semester": None,
+            "cgpa": None,
+            "latest_sgpa": None,
+            "roll_number": None,
+            "interests": [],
+            "career_goals": [],
+            "skills": [],
+            "strong_subjects": [],
+            "weak_subjects": [],
+            "subjects": [],
+            "sgpa_trend": [],
+            "_source": "firebase_basic",
+            "_partial": True,  # Flag indicating incomplete data
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching profile: {e}", exc_info=True)
+        # Still return something useful, never 500
+        return {
+            "user_id": current_user.uid if current_user else "unknown",
+            "name": "Student",
+            "email": current_user.email if current_user else None,
+            "branch": "IT",
+            "current_semester": None,
+            "cgpa": None,
+            "interests": [],
+            "strong_subjects": [],
+            "weak_subjects": [],
+            "subjects": [],
+            "_source": "fallback",
+            "_partial": True,
+            "_error": str(e),
+        }
+
 
 @router.get("/{student_id}/performance", response_model=PerformanceResponse)
 async def get_student_performance(
