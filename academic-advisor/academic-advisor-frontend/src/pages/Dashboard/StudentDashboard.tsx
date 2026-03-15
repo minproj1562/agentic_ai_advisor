@@ -2791,7 +2791,7 @@ const StudentDashboardContent: React.FC = () => {
                 </motion.div>
               )}
 
-              {/* ==================== RESOURCES TAB ==================== */}
+              {/* ==================== RESOURCES TAB ===================== */}
               {activeTab === 'resources' && (
                 <motion.div
                   key="resources"
