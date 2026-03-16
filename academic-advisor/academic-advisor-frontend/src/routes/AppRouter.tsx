@@ -138,15 +138,11 @@ const AppRouter: React.FC = () => {
   } 
 />
 
-{/* Faculty Profile Edit - Uses same component with editMode */}
-<Route 
-  path="/faculty/profile-edit" 
-  element={
-    <ProtectedRoute>
-      <FacultyProfileEdit />
-    </ProtectedRoute>
-  } 
-/>
+<Route path="/faculty/profile-edit" element={
+  <ProtectedRoute>
+    <FacultyProfileEdit />
+  </ProtectedRoute>
+} />
 <Route
   path="/student/dashboard/*"
   element={

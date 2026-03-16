@@ -243,9 +243,17 @@ const FacultyProfileEdit: React.FC = () => {
     };
   };
 
-  const { control, handleSubmit, watch, formState: { errors, isDirty } } = useForm<ProfileFormData>({
+  const { control, handleSubmit, watch, reset, formState: { errors, isDirty } } = useForm<ProfileFormData>({
     defaultValues: getDefaultValues(),
   });
+
+  // ── FIX: Reset form when profile data loads from API ──
+  useEffect(() => {
+    if (profileData && !isLoading) {
+      const freshValues = getDefaultValues();
+      reset(freshValues);
+    }
+  }, [profileData, isLoading]);
 
   // Field arrays for dynamic lists
   const { fields: degreeFields, append: appendDegree, remove: removeDegree } = useFieldArray({
@@ -261,7 +269,21 @@ const FacultyProfileEdit: React.FC = () => {
   // Update mutation
   const updateMutation = useMutation({
     mutationFn: async (data: ProfileFormData) => {
-      const response = await apiClient.put('/faculty-profile/update', data);
+      // Transform available_slots to match backend schema
+      const payload = {
+        ...data,
+        available_slots: data.available_slots?.map(slot => ({
+          day: slot.day,
+          start_time: slot.start_time,
+          end_time: slot.end_time,
+          venue: slot.venue || profileData?.uniform_profile?.availability?.office_location || '',
+        })),
+        // Ensure null values are sent as null, not undefined
+        graduation_year: data.graduation_year || null,
+        joining_year: data.joining_year || null,
+        h_index: data.h_index || null,
+      };
+      const response = await apiClient.put('/faculty-profile/update', payload);
       return response.data;
     },
     onSuccess: () => {
