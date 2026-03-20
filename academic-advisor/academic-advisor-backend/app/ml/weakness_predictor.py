@@ -1,756 +1,351 @@
-# app/ml/weakness_predictor.py
+# academic-advisor/academic-advisor-backend/app/ml/weakness_predictor.py
 """
-Enhanced Weakness Predictor with ML capabilities
-Integrates with interests, electives, and academic performance
+Weakness Detector — Trained ML Model
+======================================
+Classifies academic weakness severity per subject using trained LightGBM/XGBoost.
+Falls back to rule-based logic if no trained model is available.
 """
 
-from typing import List, Dict, Any, Tuple, Optional
+import os
+import json
 import logging
 import numpy as np
-from datetime import datetime
-
-from app.models.weakness import (
-    WeaknessArea,
-    SeverityLevel,
-    AnalysisBasis
-)
+import joblib
+from typing import Dict, List, Any, Optional, Tuple
+from collections import defaultdict
 
 logger = logging.getLogger(__name__)
 
+MODEL_DIR = os.path.join(os.path.dirname(__file__), "saved")
 
-class WeaknessAnalyzer:
-    """
-    ML-powered weakness analysis engine.
-    Combines rule-based logic with statistical analysis.
-    """
-    
+FEATURE_COLUMNS = [
+    "subject_score", "attendance", "assignment_score", "quiz_average",
+    "lab_performance", "previous_related_score", "study_hours",
+    "difficulty_factor", "cgpa", "credits", "is_practical",
+    "class_avg_score", "score_vs_class_avg", "trend_indicator", "semester",
+]
+
+SEVERITY_NAMES = {0: "none", 1: "low", 2: "medium", 3: "high", 4: "critical"}
+SEVERITY_ORDER = {"none": 0, "low": 1, "medium": 2, "high": 3, "critical": 4}
+
+# Subject difficulty lookup (used when difficulty_factor not provided)
+SUBJECT_DIFFICULTY = {
+    "Engineering Mathematics-III": 0.82, "Engineering Mathematics-IV": 0.78,
+    "Data Structures and Algorithms": 0.68, "Database Management Systems": 0.58,
+    "Digital Logic & Design": 0.65, "Operating Systems": 0.72,
+    "Computer Networks": 0.67, "Software Engineering": 0.50,
+    "Microcontroller & Embedded Systems": 0.75, "Python": 0.38,
+    "C++": 0.52, "Java": 0.55,
+    "Automata Theory": 0.85, "Design & Analysis of Algorithms": 0.78,
+    "Artificial Intelligence": 0.70, "Cryptography & Network Security": 0.80,
+    "Full Stack Development": 0.48, "IoT": 0.60,
+}
+
+_DEFAULTS = {
+    "subject_score": 50, "attendance": 70, "assignment_score": 60,
+    "quiz_average": 50, "lab_performance": 55, "previous_related_score": 55,
+    "study_hours": 3, "difficulty_factor": 0.65, "cgpa": 6.0,
+    "credits": 3, "is_practical": 0, "class_avg_score": 55,
+    "score_vs_class_avg": 0, "trend_indicator": 0, "semester": 4,
+}
+
+
+class WeaknessDetector:
+    """ML-powered weakness severity classifier."""
+
     def __init__(self):
-        self.logger = logger
-        
-        # Thresholds for weakness detection
-        self.weakness_thresholds = {
-            'critical': 40,
-            'high': 55,
-            'medium': 65,
-            'low': 75
-        }
-        
-        # Subject difficulty weights (higher = harder)
-        self.subject_difficulty = {
-            'Mathematics': 0.9,
-            'Linear Algebra': 0.85,
-            'Calculus': 0.85,
-            'Statistics': 0.8,
-            'Probability': 0.8,
-            'Data Structures': 0.75,
-            'Algorithms': 0.8,
-            'Operating System': 0.7,
-            'Database Management': 0.65,
-            'Computer Networks': 0.7,
-            'Python': 0.5,
-            'Java': 0.6,
-            'C Programming': 0.6,
-            'Web Development': 0.55,
-            'Machine Learning': 0.85,
-            'Artificial Intelligence': 0.85,
-            'Cryptography': 0.8,
-            'Distributed Systems': 0.75
-        }
-        
-        # Interest to subject relevance mapping with weights
-        self.interest_subject_weights = {
-            'Machine Learning': {
-                'Mathematics': 1.0,
-                'Statistics': 0.95,
-                'Python': 0.9,
-                'Linear Algebra': 0.85,
-                'Calculus': 0.7,
-                'Data Structures': 0.75
-            },
-            'Data Science': {
-                'Statistics': 1.0,
-                'Python': 0.95,
-                'Database Management': 0.85,
-                'Mathematics': 0.8
-            },
-            'Web Development': {
-                'JavaScript': 0.95,
-                'Database Management': 0.8,
-                'Python': 0.7,
-                'HTML/CSS': 0.9
-            },
-            'Cloud Computing': {
-                'Operating System': 0.9,
-                'Computer Networks': 0.95,
-                'Linux': 0.85,
-                'Database Management': 0.7
-            },
-            'Cybersecurity': {
-                'Computer Networks': 1.0,
-                'Operating System': 0.9,
-                'Cryptography': 0.95,
-                'Linux': 0.8
-            }
+        self.severity_model = None
+        self.intervention_model = None
+        self.scaler = None
+        self.is_trained = False
+        self.model_name = "unknown"
+        self.feature_importance: Dict[str, float] = {}
+        self._load()
+
+    def _load(self):
+        sev_path = os.path.join(MODEL_DIR, "weakness_severity_model.joblib")
+        int_path = os.path.join(MODEL_DIR, "weakness_intervention_model.joblib")
+        scaler_path = os.path.join(MODEL_DIR, "weakness_scaler.joblib")
+        report_path = os.path.join(MODEL_DIR, "weakness_training_report.json")
+        try:
+            if os.path.exists(sev_path) and os.path.exists(scaler_path):
+                self.severity_model = joblib.load(sev_path)
+                self.scaler = joblib.load(scaler_path)
+                if os.path.exists(int_path):
+                    self.intervention_model = joblib.load(int_path)
+                self.is_trained = True
+                if os.path.exists(report_path):
+                    with open(report_path) as f:
+                        report = json.load(f)
+                    self.model_name = report.get("severity_best_model", "unknown")
+                    self.feature_importance = report.get("feature_importance", {})
+                logger.info(f"✅ WeaknessDetector loaded ({self.model_name})")
+            else:
+                logger.warning("⚠️ Weakness model files not found. Using rule-based fallback.")
+        except Exception as e:
+            logger.error(f"Failed to load weakness model: {e}")
+
+    # ── Feature extraction ──────────────────────────────────────
+
+    def extract_features(self, data: Dict[str, Any]) -> np.ndarray:
+        features = []
+        for col in FEATURE_COLUMNS:
+            val = data.get(col, _DEFAULTS.get(col, 0))
+            features.append(float(val))
+        return np.array(features, dtype=np.float32)
+
+    @staticmethod
+    def build_subject_features(
+        subject_name: str,
+        score: float,
+        student_data: Dict[str, Any],
+        attendance: float = 75,
+        assignment_score: float = 65,
+        quiz_average: float = 55,
+        lab_performance: float = 60,
+        previous_score: float = 55,
+        class_avg: float = 55,
+        trend: int = 0,
+    ) -> Dict[str, Any]:
+        """Build a feature dict for a single subject from available data."""
+        difficulty = SUBJECT_DIFFICULTY.get(subject_name, 0.65)
+        is_practical = 1 if "lab" in subject_name.lower() or "programming" in subject_name.lower() else 0
+        cgpa = student_data.get("cgpa", student_data.get("overall_cgpa", 6.0))
+        semester = student_data.get("current_semester", student_data.get("semester", 4))
+
+        return {
+            "subject_score": score,
+            "attendance": attendance,
+            "assignment_score": assignment_score,
+            "quiz_average": quiz_average,
+            "lab_performance": lab_performance,
+            "previous_related_score": previous_score,
+            "study_hours": student_data.get("study_hours", 3),
+            "difficulty_factor": difficulty,
+            "cgpa": cgpa,
+            "credits": 4 if not is_practical else 1,
+            "is_practical": is_practical,
+            "class_avg_score": class_avg,
+            "score_vs_class_avg": score - class_avg,
+            "trend_indicator": trend,
+            "semester": semester,
         }
 
-    def analyze_topic_weakness(
-        self, 
-        topic_scores: Dict[str, float], 
-        overall_score: float,
-        exam_weights: Dict[str, float]
+    # ── Detection ───────────────────────────────────────────────
+
+    def detect(self, subject_features: Dict[str, Any]) -> Dict[str, Any]:
+        """Detect weakness for a single subject."""
+        features = self.extract_features(subject_features)
+        score = subject_features.get("subject_score", 50)
+        subject_name = subject_features.get("subject_name", "Unknown")
+
+        if self.is_trained and self.severity_model is not None:
+            feat_scaled = self.scaler.transform([features])
+            severity_int = int(self.severity_model.predict(feat_scaled)[0])
+            severity = SEVERITY_NAMES.get(severity_int, "medium")
+
+            # Get probability for confidence
+            if hasattr(self.severity_model, "predict_proba"):
+                proba = self.severity_model.predict_proba(feat_scaled)[0]
+                confidence = float(max(proba))
+            else:
+                confidence = 0.75
+
+            # Intervention prediction
+            needs_intervention = False
+            if self.intervention_model is not None:
+                needs_intervention = bool(self.intervention_model.predict(feat_scaled)[0])
+            else:
+                needs_intervention = severity_int >= 3
+        else:
+            severity, severity_int, confidence = self._rule_based_severity(subject_features)
+            needs_intervention = severity_int >= 3
+
+        # Generate suggestions
+        weak_topics = self._identify_weak_topics(subject_name, score)
+        suggestions = self._generate_suggestions(subject_name, severity, weak_topics)
+
+        return {
+            "subject": subject_name,
+            "severity": severity,
+            "severity_level": severity_int,
+            "score": score,
+            "gap": round(max(0, 60 - score), 1),
+            "confidence": round(confidence, 2),
+            "needs_intervention": needs_intervention,
+            "weak_topics": weak_topics,
+            "suggestions": suggestions,
+            "model_used": self.model_name if self.is_trained else "rule_based",
+            "factors": {
+                "low_score": score < 50,
+                "poor_attendance": subject_features.get("attendance", 75) < 65,
+                "incomplete_assignments": subject_features.get("assignment_score", 65) < 50,
+                "low_quiz_avg": subject_features.get("quiz_average", 55) < 45,
+            },
+        }
+
+    def detect_all_subjects(
+        self,
+        student_data: Dict[str, Any],
+        subjects: List[Dict[str, Any]],
     ) -> List[Dict[str, Any]]:
         """
-        Analyze topic-level weaknesses for a subject.
+        Detect weaknesses across all subjects for a student.
         
         Args:
-            topic_scores: Dictionary of topic names to scores
-            overall_score: Overall subject score
-            exam_weights: Weight of each topic in exam
-            
-        Returns:
-            List of weakness dictionaries
+            student_data: student-level info (cgpa, semester, etc.)
+            subjects: list of dicts with at least {name, score} per subject
         """
         weaknesses = []
-        
-        for topic, score in topic_scores.items():
-            weight = exam_weights.get(topic, 0.1)
-            weighted_score = score * weight
+
+        for subj in subjects:
+            name = subj.get("subject_name", subj.get("name", "Unknown"))
+            score = subj.get("total_marks", subj.get("score", 50))
             
-            # Calculate weakness level
-            if weighted_score < self.weakness_thresholds['critical']:
-                level = 'critical'
-            elif weighted_score < self.weakness_thresholds['high']:
-                level = 'high'
-            elif weighted_score < self.weakness_thresholds['medium']:
-                level = 'medium'
-            elif weighted_score < self.weakness_thresholds['low']:
-                level = 'low'
-            else:
-                continue  # Not a weakness
-            
-            weakness = {
-                'topic_name': topic,
-                'score': score,
-                'weight': weight,
-                'weighted_score': weighted_score,
-                'weakness_level': level,
-                'improvement_suggestions': self._generate_suggestions(topic, level),
-                'recommended_resources': self._suggest_resources(topic, level),
-                'practice_exercises': self._generate_practice_exercises(topic, level),
-                'estimated_hours': self._estimate_study_hours(score, weight)
-            }
-            weaknesses.append(weakness)
-        
-        # Sort by severity (critical first)
-        severity_order = {'critical': 0, 'high': 1, 'medium': 2, 'low': 3}
-        weaknesses.sort(key=lambda x: severity_order.get(x['weakness_level'], 4))
-        
+            feat = self.build_subject_features(
+                subject_name=name,
+                score=score,
+                student_data=student_data,
+                attendance=subj.get("attendance", 75),
+                assignment_score=subj.get("assignment_completion", subj.get("assignments_completed", 65)),
+                quiz_average=float(np.mean(subj.get("quiz_scores", [55]))) if subj.get("quiz_scores") else 55,
+                lab_performance=subj.get("lab_performance", 60),
+                previous_score=subj.get("previous_score", 55),
+                class_avg=subj.get("class_avg", 55),
+                trend={"up": 1, "down": -1, "stable": 0}.get(subj.get("trend", "stable"), 0),
+            )
+            feat["subject_name"] = name
+
+            result = self.detect(feat)
+            if result["severity"] != "none":
+                weaknesses.append(result)
+
+        weaknesses.sort(key=lambda x: (-x["severity_level"], -x["gap"]))
         return weaknesses
 
-    def analyze_interest_gap(
-        self,
-        student_scores: Dict[str, float],
-        interests: List[str]
+    def get_intervention_recommendations(
+        self, weaknesses: List[Dict[str, Any]]
     ) -> List[Dict[str, Any]]:
-        """
-        Analyze gaps between student's interests and their performance
-        in relevant subjects.
-        
-        Args:
-            student_scores: Dictionary of subject names to scores
-            interests: List of student interests
-            
-        Returns:
-            List of gap analysis results
-        """
-        gaps = []
-        
-        for interest in interests:
-            if interest not in self.interest_subject_weights:
-                continue
-            
-            required_subjects = self.interest_subject_weights[interest]
-            interest_gaps = []
-            
-            for subject, importance in required_subjects.items():
-                student_score = self._find_matching_score(student_scores, subject)
-                
-                if student_score is None:
-                    # Subject not taken
-                    interest_gaps.append({
-                        'subject': subject,
-                        'importance': importance,
-                        'current_score': 0,
-                        'target_score': 70,
-                        'gap': 70,
-                        'status': 'not_taken',
-                        'impact': 'high' if importance >= 0.8 else 'medium'
-                    })
-                elif student_score < 60:
-                    # Significant weakness
-                    target = 75 if importance >= 0.8 else 65
-                    interest_gaps.append({
-                        'subject': subject,
-                        'importance': importance,
-                        'current_score': student_score,
-                        'target_score': target,
-                        'gap': target - student_score,
-                        'status': 'weak',
-                        'impact': 'high' if importance >= 0.8 else 'medium'
-                    })
-                elif student_score < 75 and importance >= 0.8:
-                    # Moderate gap in important subject
-                    interest_gaps.append({
-                        'subject': subject,
-                        'importance': importance,
-                        'current_score': student_score,
-                        'target_score': 80,
-                        'gap': 80 - student_score,
-                        'status': 'needs_improvement',
-                        'impact': 'medium'
-                    })
-            
-            if interest_gaps:
-                # Calculate overall readiness for this interest
-                readiness = self._calculate_interest_readiness(
-                    interest_gaps, 
-                    required_subjects
-                )
-                
-                gaps.append({
-                    'interest': interest,
-                    'subject_gaps': interest_gaps,
-                    'total_gaps': len(interest_gaps),
-                    'readiness_score': readiness,
-                    'recommendation': self._get_interest_recommendation(readiness, interest)
-                })
-        
-        return gaps
-
-    def analyze_elective_readiness(
-        self,
-        student_scores: Dict[str, float],
-        elective: str,
-        prerequisites: Dict[str, Tuple[float, str]]
-    ) -> Dict[str, Any]:
-        """
-        Analyze student's readiness for a specific elective.
-        
-        Args:
-            student_scores: Dictionary of subject names to scores
-            elective: Name of the elective
-            prerequisites: Dict of prereq subject to (weight, importance)
-            
-        Returns:
-            Readiness analysis dictionary
-        """
-        gaps = []
-        ready_subjects = []
-        total_weight = 0
-        achieved_weight = 0
-        
-        for prereq, (weight, importance) in prerequisites.items():
-            student_score = self._find_matching_score(student_scores, prereq)
-            threshold = 70 if importance == "Critical" else 60 if importance == "High" else 50
-            
-            total_weight += weight
-            
-            if student_score is None:
-                gaps.append({
-                    'subject': prereq,
-                    'importance': importance,
-                    'weight': weight,
-                    'current_score': 0,
-                    'required_score': threshold,
-                    'gap': threshold,
-                    'status': 'not_taken'
-                })
-            elif student_score < threshold:
-                achieved_weight += (student_score / threshold) * weight
-                gaps.append({
-                    'subject': prereq,
-                    'importance': importance,
-                    'weight': weight,
-                    'current_score': student_score,
-                    'required_score': threshold,
-                    'gap': threshold - student_score,
-                    'status': 'below_threshold'
-                })
-            else:
-                achieved_weight += weight
-                ready_subjects.append({
-                    'subject': prereq,
-                    'score': student_score,
-                    'status': 'ready'
-                })
-        
-        readiness_percentage = (achieved_weight / total_weight * 100) if total_weight > 0 else 0
-        
-        return {
-            'elective': elective,
-            'readiness_percentage': round(readiness_percentage, 1),
-            'is_ready': readiness_percentage >= 70,
-            'gaps': gaps,
-            'ready_subjects': ready_subjects,
-            'recommendation': self._get_elective_recommendation(readiness_percentage, gaps),
-            'estimated_prep_time': self._estimate_prep_time(gaps)
-        }
-
-    def predict_weakness_impact(
-        self,
-        weaknesses: List[Dict[str, Any]],
-        target_cgpa: float,
-        current_cgpa: float
-    ) -> Dict[str, Any]:
-        """
-        Predict the impact of weaknesses on academic goals.
-        
-        Args:
-            weaknesses: List of weakness dictionaries
-            target_cgpa: Student's target CGPA
-            current_cgpa: Current CGPA
-            
-        Returns:
-            Impact prediction dictionary
-        """
-        # Calculate total weakness impact
-        total_impact = 0
-        critical_subjects = []
-        
+        """Generate intervention recommendations from weakness list."""
+        interventions = []
+        severity_counts = defaultdict(int)
         for w in weaknesses:
-            severity_impact = {
-                'critical': 0.4,
-                'high': 0.25,
-                'medium': 0.15,
-                'low': 0.05
-            }
-            
-            level = w.get('weakness_level', w.get('severity', 'medium'))
-            impact = severity_impact.get(level, 0.1)
-            weight = w.get('weight', 0.5)
-            
-            total_impact += impact * weight
-            
-            if level in ['critical', 'high']:
-                critical_subjects.append(w.get('topic_name', w.get('subject', 'Unknown')))
-        
-        # Normalize impact
-        normalized_impact = min(total_impact, 1.0)
-        
-        # Predict CGPA impact
-        cgpa_gap = target_cgpa - current_cgpa
-        predicted_achievement = current_cgpa + (cgpa_gap * (1 - normalized_impact * 0.5))
-        
-        # Calculate probability of reaching target
-        if normalized_impact < 0.2:
-            probability = 0.85
-        elif normalized_impact < 0.4:
-            probability = 0.65
-        elif normalized_impact < 0.6:
-            probability = 0.45
-        else:
-            probability = 0.25
-        
-        return {
-            'current_cgpa': current_cgpa,
-            'target_cgpa': target_cgpa,
-            'predicted_cgpa': round(predicted_achievement, 2),
-            'weakness_impact_score': round(normalized_impact * 100, 1),
-            'probability_of_target': round(probability * 100, 1),
-            'critical_subjects': critical_subjects,
-            'risk_level': 'high' if normalized_impact > 0.5 else 'medium' if normalized_impact > 0.25 else 'low',
-            'recommendation': self._get_impact_recommendation(normalized_impact, critical_subjects)
-        }
+            severity_counts[w["severity"]] += 1
 
-    def generate_ai_analysis(
-        self, 
-        subject: str, 
-        weakness_topics: List[Any],
-        performance_data: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """
-        Generate comprehensive AI-powered analysis.
-        
-        Args:
-            subject: Subject name
-            weakness_topics: List of weak topics
-            performance_data: Student's performance data
-            
-        Returns:
-            AI analysis dictionary
-        """
-        # Handle both dict and object types
-        topics_list = []
-        for topic in weakness_topics:
-            if hasattr(topic, 'dict'):
-                topics_list.append(topic.dict())
-            elif isinstance(topic, dict):
-                topics_list.append(topic)
-            else:
-                topics_list.append({
-                    'topic_name': str(topic),
-                    'weakness_level': 'medium',
-                    'score': 50,
-                    'weight': 0.5
-                })
-        
-        # Calculate severity counts
-        critical_count = sum(1 for t in topics_list if t.get('weakness_level') == 'critical')
-        high_count = sum(1 for t in topics_list if t.get('weakness_level') == 'high')
-        
-        # Calculate overall weakness score
-        total_score = sum(
-            t.get('score', 50) * t.get('weight', 0.5)
-            for t in topics_list
-            if t.get('weakness_level') in ['critical', 'high']
-        )
-        
-        # Generate insights
-        insights = self._generate_insights(subject, topics_list, performance_data)
-        
-        # Create study plan
-        study_plan = self._create_study_plan(topics_list, performance_data)
-        
-        # Predict improvement
-        improvement = self._predict_improvement(topics_list, performance_data)
-        
-        # Get priority order
-        priority_order = self._get_priority_order(topics_list)
-        
-        return {
-            "subject": subject,
-            "overall_weakness_score": round(total_score, 2),
-            "critical_weaknesses": critical_count,
-            "high_weaknesses": high_count,
-            "total_weak_topics": len(topics_list),
-            "insights": insights,
-            "study_plan": study_plan,
-            "predicted_improvement": improvement,
-            "priority_order": priority_order,
-            "confidence": 0.85,
-            "generated_at": datetime.utcnow().isoformat()
-        }
-
-    # ============== Helper Methods ==============
-
-    def _find_matching_score(
-        self, 
-        scores: Dict[str, float], 
-        target: str
-    ) -> Optional[float]:
-        """Find score for a subject using fuzzy matching."""
-        target_lower = target.lower()
-        
-        for subject, score in scores.items():
-            subject_lower = subject.lower()
-            if target_lower in subject_lower or subject_lower in target_lower:
-                if isinstance(score, dict):
-                    return score.get('score', 0)
-                return score
-        
-        return None
-
-    def _calculate_interest_readiness(
-        self,
-        gaps: List[Dict[str, Any]],
-        required_subjects: Dict[str, float]
-    ) -> float:
-        """Calculate overall readiness for an interest area."""
-        if not required_subjects:
-            return 100.0
-        
-        total_weight = sum(required_subjects.values())
-        achieved = 0
-        
-        gap_subjects = {g['subject'].lower(): g for g in gaps}
-        
-        for subject, weight in required_subjects.items():
-            subject_lower = subject.lower()
-            if subject_lower in gap_subjects:
-                gap = gap_subjects[subject_lower]
-                score = gap.get('current_score', 0)
-                target = gap.get('target_score', 70)
-                achieved += (score / target) * weight if target > 0 else 0
-            else:
-                # Subject not in gaps means student is ready
-                achieved += weight
-        
-        return round((achieved / total_weight) * 100, 1) if total_weight > 0 else 0
-
-    def _get_interest_recommendation(self, readiness: float, interest: str) -> str:
-        """Get recommendation based on interest readiness."""
-        if readiness >= 80:
-            return f"Excellent! You're well-prepared to pursue {interest}."
-        elif readiness >= 60:
-            return f"Good foundation for {interest}. Focus on weak areas to excel."
-        elif readiness >= 40:
-            return f"Need significant improvement before pursuing {interest}."
-        else:
-            return f"Consider building foundational skills before focusing on {interest}."
-
-    def _get_elective_recommendation(
-        self, 
-        readiness: float, 
-        gaps: List[Dict[str, Any]]
-    ) -> str:
-        """Get recommendation for elective readiness."""
-        critical_gaps = [g for g in gaps if g.get('importance') == 'Critical']
-        
-        if readiness >= 80:
-            return "You're ready to take this elective."
-        elif readiness >= 60:
-            if critical_gaps:
-                subjects = ", ".join([g['subject'] for g in critical_gaps[:2]])
-                return f"Focus on {subjects} before enrolling."
-            return "Minor preparation needed. You can proceed with extra effort."
-        else:
-            return "Significant preparation required. Consider next semester."
-
-    def _estimate_prep_time(self, gaps: List[Dict[str, Any]]) -> str:
-        """Estimate preparation time for gaps."""
-        total_hours = 0
-        
-        for gap in gaps:
-            gap_size = gap.get('gap', 0)
-            importance = gap.get('importance', 'Medium')
-            
-            base_hours = gap_size * 0.5  # 0.5 hours per percentage point
-            if importance == 'Critical':
-                base_hours *= 1.5
-            
-            total_hours += base_hours
-        
-        if total_hours < 20:
-            return "1-2 weeks"
-        elif total_hours < 50:
-            return "3-4 weeks"
-        elif total_hours < 100:
-            return "6-8 weeks"
-        else:
-            return "2-3 months"
-
-    def _get_impact_recommendation(
-        self, 
-        impact: float, 
-        critical_subjects: List[str]
-    ) -> str:
-        """Get recommendation based on weakness impact."""
-        if impact < 0.2:
-            return "Minor weaknesses. Maintain current study habits with slight adjustments."
-        elif impact < 0.4:
-            subjects = ", ".join(critical_subjects[:2]) if critical_subjects else "weak areas"
-            return f"Moderate impact. Prioritize {subjects} for improvement."
-        else:
-            return "Significant impact on goals. Consider intensive remediation or tutoring."
-
-    def _generate_suggestions(self, topic: str, level: str) -> List[str]:
-        """Generate improvement suggestions."""
-        suggestions = {
-            'critical': [
-                f"Immediate focus required on {topic} fundamentals",
-                "Schedule daily practice sessions (minimum 1 hour)",
-                "Seek help from professor or tutor immediately",
-                "Review all basic concepts before advancing"
-            ],
-            'high': [
-                f"Dedicate extra study time to {topic}",
-                "Practice more problems from this area",
-                "Join study groups for collaborative learning",
-                "Use video tutorials for concept clarity"
-            ],
-            'medium': [
-                f"Regular revision of {topic} concepts",
-                "Solve practice problems weekly",
-                "Focus on understanding, not memorization"
-            ],
-            'low': [
-                "Maintain current effort level",
-                "Focus on advanced applications"
-            ]
-        }
-        return suggestions.get(level, suggestions['medium'])
-
-    def _suggest_resources(self, topic: str, level: str) -> List[Dict[str, str]]:
-        """Suggest learning resources."""
-        resources = []
-        
-        if level in ['critical', 'high']:
-            resources.extend([
-                {"type": "video", "title": f"{topic} Crash Course", "platform": "YouTube"},
-                {"type": "course", "title": f"{topic} Fundamentals", "platform": "Coursera"},
-                {"type": "practice", "title": f"{topic} Problem Set", "platform": "HackerRank"}
-            ])
-        else:
-            resources.extend([
-                {"type": "article", "title": f"Advanced {topic}", "platform": "Medium"},
-                {"type": "practice", "title": f"{topic} Challenges", "platform": "LeetCode"}
-            ])
-        
-        return resources
-
-    def _generate_practice_exercises(self, topic: str, level: str) -> List[str]:
-        """Generate practice exercise suggestions."""
-        exercises = {
-            'critical': [
-                f"Basic {topic} concept questions",
-                "Step-by-step guided problems",
-                "Multiple choice practice tests"
-            ],
-            'high': [
-                f"Intermediate {topic} problems",
-                "Previous exam questions",
-                "Timed practice sets"
-            ],
-            'medium': [
-                f"Advanced {topic} challenges",
-                "Real-world application problems"
-            ],
-            'low': [
-                "Competitive-level problems"
-            ]
-        }
-        return exercises.get(level, exercises['medium'])
-
-    def _estimate_study_hours(self, score: float, weight: float) -> int:
-        """Estimate hours needed to improve."""
-        gap = max(0, 75 - score)
-        base_hours = gap * 0.3  # 0.3 hours per point
-        weighted_hours = base_hours * (1 + weight)
-        return max(5, int(weighted_hours))
-
-    def _generate_insights(
-        self,
-        subject: str,
-        topics: List[Dict[str, Any]],
-        performance_data: Dict[str, Any]
-    ) -> List[str]:
-        """Generate personalized insights."""
-        insights = []
-        
-        critical = [t for t in topics if t.get('weakness_level') == 'critical']
-        high = [t for t in topics if t.get('weakness_level') == 'high']
-        
-        if critical:
-            topics_str = ", ".join([t.get('topic_name', 'topic') for t in critical[:2]])
-            insights.append(
-                f"Critical attention needed in {subject}: {topics_str}. "
-                "Immediate action recommended."
-            )
-        
-        if high:
-            insights.append(
-                f"{len(high)} high-priority areas identified in {subject}. "
-                "Focused improvement can significantly boost performance."
-            )
-        
-        cgpa = performance_data.get('overall_cgpa', performance_data.get('cgpa', 7.0))
-        if cgpa < 7.0:
-            insights.append(
-                "Current CGPA suggests need for consistent improvement. "
-                "Focus on strengthening fundamentals."
-            )
-        elif cgpa > 8.5:
-            insights.append(
-                "Strong academic foundation. Focus on advanced topics "
-                "and practical applications."
-            )
-        
-        if not insights:
-            insights.append(f"Good performance in {subject}. Maintain current effort.")
-        
-        return insights
-
-    def _create_study_plan(
-        self,
-        topics: List[Dict[str, Any]],
-        performance_data: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """Create personalized study plan."""
-        # Sort by priority
-        sorted_topics = sorted(
-            topics,
-            key=lambda x: (
-                0 if x.get('weakness_level') == 'critical' else
-                1 if x.get('weakness_level') == 'high' else
-                2 if x.get('weakness_level') == 'medium' else 3,
-                -x.get('weight', 0.5)
-            )
-        )
-        
-        focus_areas = []
-        for i, topic in enumerate(sorted_topics[:5]):
-            focus_areas.append({
-                "topic": topic.get('topic_name', 'Unknown'),
-                "priority": i + 1,
-                "current_score": topic.get('score', 50),
-                "target_score": min(85, topic.get('score', 50) + 20),
-                "weekly_hours": 3 if topic.get('weakness_level') in ['critical', 'high'] else 2
+        if severity_counts.get("critical", 0) > 0:
+            subjects = [w["subject"] for w in weaknesses if w["severity"] == "critical"]
+            interventions.append({
+                "type": "urgent",
+                "action": "Immediate faculty intervention required",
+                "subjects": subjects,
+                "timeline": "within 48 hours",
+                "priority": 1,
             })
-        
-        return {
-            "duration": "8 weeks",
-            "weekly_commitment": "15-20 hours",
-            "focus_areas": focus_areas,
-            "phases": [
-                {"week": "1-2", "focus": "Fundamental concepts"},
-                {"week": "3-5", "focus": "Practice and application"},
-                {"week": "6-8", "focus": "Advanced problems and revision"}
-            ],
-            "milestones": [
-                {"week": 2, "target": "Complete basics review"},
-                {"week": 4, "target": "Score 60%+ in practice"},
-                {"week": 6, "target": "Score 70%+ in practice"},
-                {"week": 8, "target": "Achieve target proficiency"}
+
+        if severity_counts.get("high", 0) > 0:
+            subjects = [w["subject"] for w in weaknesses if w["severity"] == "high"]
+            interventions.append({
+                "type": "high_priority",
+                "action": "Enroll in remedial/tutoring sessions",
+                "subjects": subjects,
+                "timeline": "within 1 week",
+                "priority": 2,
+            })
+
+        if len(weaknesses) > 3:
+            interventions.append({
+                "type": "comprehensive_review",
+                "action": "Schedule complete academic performance review with advisor",
+                "timeline": "within 2 weeks",
+                "priority": 3,
+            })
+
+        return interventions
+
+    # ── Rule-based fallback ─────────────────────────────────────
+
+    @staticmethod
+    def _rule_based_severity(data: Dict[str, Any]) -> Tuple[str, int, float]:
+        score = data.get("subject_score", 50)
+        attend = data.get("attendance", 75)
+        assign = data.get("assignment_score", 65)
+
+        if score < 30:
+            sev, sev_int, conf = "critical", 4, 0.92
+        elif score < 40:
+            sev, sev_int, conf = "high", 3, 0.85
+        elif score < 50:
+            sev, sev_int, conf = "medium", 2, 0.78 if attend < 60 else 0.72
+        elif score < 60:
+            sev, sev_int, conf = "low", 1, 0.65
+        else:
+            sev, sev_int, conf = "none", 0, 0.80
+
+        # Bump severity for low attendance / assignments
+        if attend < 50 and sev_int < 3:
+            sev_int = min(sev_int + 1, 4)
+            sev = SEVERITY_NAMES[sev_int]
+        if assign < 35 and sev_int < 3:
+            sev_int = min(sev_int + 1, 4)
+            sev = SEVERITY_NAMES[sev_int]
+
+        return sev, sev_int, conf
+
+    # ── Topic identification & suggestions ──────────────────────
+
+    @staticmethod
+    def _identify_weak_topics(subject: str, score: float) -> List[str]:
+        if score >= 65:
+            return []
+        topic_map = {
+            "Engineering Mathematics-III": ["Vector Spaces", "Linear Mapping", "Number Theory"],
+            "Engineering Mathematics-IV": ["Probability", "Statistics", "Complex Integration"],
+            "Data Structures and Algorithms": ["Trees & Graphs", "Hashing", "Dynamic Programming"],
+            "Database Management Systems": ["Normalization", "SQL Queries", "Transaction Management"],
+            "Operating Systems": ["Process Scheduling", "Memory Management", "Deadlocks"],
+            "Computer Networks": ["TCP/IP", "Routing Protocols", "Network Security"],
+            "Software Engineering": ["UML Diagrams", "Testing", "Agile Methodology"],
+            "Microcontroller & Embedded Systems": ["Assembly Language", "Interrupts", "Interfacing"],
+            "Automata Theory": ["Regular Languages", "Context-Free Grammars", "Turing Machines"],
+            "Design & Analysis of Algorithms": ["Divide & Conquer", "Greedy", "NP-Completeness"],
+            "Artificial Intelligence": ["Search Algorithms", "Knowledge Representation", "Neural Networks"],
+            "Cryptography & Network Security": ["Symmetric Encryption", "Public Key", "Hash Functions"],
+            "Digital Logic & Design": ["Boolean Algebra", "Flip-Flops", "Sequential Circuits"],
+        }
+        topics = topic_map.get(subject, ["Core Concepts", "Problem Solving"])
+        return topics[:2] if score < 45 else topics[:1]
+
+    @staticmethod
+    def _generate_suggestions(subject: str, severity: str, weak_topics: List[str]) -> List[str]:
+        suggestions = []
+        if severity == "critical":
+            suggestions = [
+                f"URGENT: Schedule immediate consultation with {subject} faculty",
+                "Attend intensive tutoring sessions (3+ hours daily)",
+                "Review ALL fundamental concepts from scratch",
+                "Complete every available practice problem set",
             ]
-        }
-
-    def _predict_improvement(
-        self,
-        topics: List[Dict[str, Any]],
-        performance_data: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """Predict potential improvement."""
-        current_avg = np.mean([t.get('score', 50) for t in topics]) if topics else 70
-        
-        # Calculate improvement potential
-        improvement_points = 0
-        for topic in topics:
-            score = topic.get('score', 50)
-            weight = topic.get('weight', 0.5)
-            potential = min(85, score + 20) - score
-            improvement_points += potential * weight * 0.6  # 60% achievable
-        
-        predicted_score = min(95, current_avg + improvement_points)
-        
-        return {
-            "current_average": round(current_avg, 1),
-            "predicted_average": round(predicted_score, 1),
-            "improvement_potential": round(predicted_score - current_avg, 1),
-            "confidence": "high" if improvement_points > 10 else "medium",
-            "timeline": "6-8 weeks with consistent effort",
-            "success_probability": 0.75 if improvement_points > 15 else 0.6
-        }
-
-    def _get_priority_order(self, topics: List[Dict[str, Any]]) -> List[str]:
-        """Get topics in priority order."""
-        sorted_topics = sorted(
-            topics,
-            key=lambda x: (
-                0 if x.get('weakness_level') == 'critical' else
-                1 if x.get('weakness_level') == 'high' else
-                2 if x.get('weakness_level') == 'medium' else 3,
-                -x.get('weight', 0.5)
-            )
-        )
-        return [t.get('topic_name', 'Unknown') for t in sorted_topics]
+        elif severity == "high":
+            suggestions = [
+                f"Priority focus on {subject} — dedicate extra study time",
+                "Join or form a study group for collaborative learning",
+                "Solve previous year papers under timed conditions",
+            ]
+        elif severity == "medium":
+            suggestions = [
+                "Regular revision of weak concepts",
+                "Practice problem-solving daily",
+                "Attend all doubt-clearing sessions",
+            ]
+        elif severity == "low":
+            suggestions = [
+                "Maintain consistent practice",
+                "Target advanced problems to strengthen understanding",
+            ]
+        if weak_topics:
+            suggestions.append(f"Focus on: {', '.join(weak_topics)}")
+        return suggestions
 
 
-# Singleton instance
-_weakness_analyzer: Optional[WeaknessAnalyzer] = None
-
-def get_weakness_analyzer() -> WeaknessAnalyzer:
-    """Get singleton instance of WeaknessAnalyzer."""
-    global _weakness_analyzer
-    if _weakness_analyzer is None:
-        _weakness_analyzer = WeaknessAnalyzer()
-    return _weakness_analyzer
+# ── Singleton ───────────────────────────────────────────────────
+weakness_detector = WeaknessDetector()

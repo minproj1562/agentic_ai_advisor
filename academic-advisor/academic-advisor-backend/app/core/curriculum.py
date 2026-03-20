@@ -98,10 +98,12 @@ AUTONOMY_CURRICULUM: Dict[int, List[SubjectDefinition]] = {
         SubjectDefinition(subject_code="MNP4A", subject_name="Mini Project-1A", credits=1, course_type="MNP", internal_max=50, external_max=0, is_practical=True),
     ],
     # ===================== Semesters 5-8 (for all batches) =====================
+    # In AUTONOMY_CURRICULUM, update semester 5:
     5: [
         SubjectDefinition(subject_code="ITPCC509", subject_name="Automata Theory / Theory of Computer Science", credits=4, course_type="PCC", internal_max=20, external_max=80),
         SubjectDefinition(subject_code="ITPCC501", subject_name="Design & Analysis of Algorithms", credits=3, course_type="PCC", internal_max=20, external_max=80),
         SubjectDefinition(subject_code="ITPEC501", subject_name="Program Elective-I", credits=3, course_type="PEC", internal_max=20, external_max=80, is_elective=True, elective_group="PEC1"),
+        # ↑ PEC1 = DWM or CCS for IT
         SubjectDefinition(subject_code="ITLBC506", subject_name="Cloud Computing Laboratory", credits=1, course_type="LBC", internal_max=25, external_max=25, is_practical=True),
         SubjectDefinition(subject_code="ITLBC507", subject_name="Mobile App Development Lab (Flutter)", credits=1, course_type="LBC", internal_max=25, external_max=25, is_practical=True),
         SubjectDefinition(subject_code="MNP5A", subject_name="Mini Project-2A", credits=1, course_type="MNP", internal_max=50, external_max=0, is_practical=True),
@@ -110,6 +112,7 @@ AUTONOMY_CURRICULUM: Dict[int, List[SubjectDefinition]] = {
     6: [
         SubjectDefinition(subject_code="ITPCC611", subject_name="Cryptography & Network Security", credits=4, course_type="PCC", internal_max=20, external_max=80),
         SubjectDefinition(subject_code="ITPEC602", subject_name="Program Elective-II", credits=3, course_type="PEC", internal_max=20, external_max=80, is_elective=True, elective_group="PEC2"),
+        # ↑ PEC2 = ML or WT for IT  (AIML Honours students CANNOT pick ML)
         SubjectDefinition(subject_code="ITLBC608", subject_name="Cryptography Lab", credits=1, course_type="LBC", internal_max=25, external_max=25, is_practical=True),
         SubjectDefinition(subject_code="ITLBC609", subject_name="Data Science Laboratory", credits=1, course_type="LBC", internal_max=25, external_max=25, is_practical=True),
         SubjectDefinition(subject_code="ITSBL603", subject_name="DevOps Laboratory", credits=2, course_type="SBL", internal_max=50, external_max=50, is_practical=True),
@@ -134,50 +137,83 @@ AUTONOMY_CURRICULUM: Dict[int, List[SubjectDefinition]] = {
 }
 
 
-# Elective Options
 ELECTIVE_OPTIONS: Dict[str, List[Dict[str, str]]] = {
+    # ── IT Department ──
+    # Semester 5 Program Elective I (choose 1 from pair)
     "PEC1": [
-        {"code": "ITPEC5012", "name": "Machine Learning"},
-        {"code": "ITPEC5013", "name": "Wireless Technology"},
         {"code": "ITPEC5014", "name": "Data Warehouse and Mining"},
         {"code": "ITPEC5015", "name": "Cloud Computing Services"},
     ],
+    # Semester 6 Program Elective II (choose 1 from pair)
     "PEC2": [
-        {"code": "ITPEC6021", "name": "IT Infrastructure Management"},
-        {"code": "ITPEC6022", "name": "Machine Learning (if not taken in Sem 5)"},
-        {"code": "ITPEC6023", "name": "Wireless Technologies"},
-        {"code": "ITPEC6024", "name": "Big Data Analytics"},
+        {"code": "ITPEC6021", "name": "Machine Learning"},
+        {"code": "ITPEC6022", "name": "Wireless Technology"},
     ],
+    
+    # ── CSE Department ──
+    # Semester 5 PEC-I
+    "CSE_PEC1": [
+        {"code": "CSPEC5011", "name": "Soft Computing"},
+        {"code": "CSPEC5012", "name": "Advanced Database System"},
+        {"code": "CSPEC5013", "name": "Cloud Computing Services"},
+        {"code": "CSPEC5014", "name": "Cyber Security"},
+        {"code": "CSPEC5015", "name": "Computer Graphics"},
+    ],
+    # Semester 6 PEC-II
+    "CSE_PEC2": [
+        {"code": "CSPEC6021", "name": "Machine Learning"},
+        {"code": "CSPEC6022", "name": "Dataware housing & Mining"},
+        {"code": "CSPEC6023", "name": "Wireless Technology"},
+        {"code": "CSPEC6024", "name": "Ethical Hacking"},
+        {"code": "CSPEC6025", "name": "System Programming and Compiler Construction"},
+    ],
+    
+    # Semester 7 PEC-III (both IT and CSE)
     "PEC3": [
-        {"code": "ITPEC7031", "name": "Quantum Computing"},
-        {"code": "ITPEC7032", "name": "Ethical Hacking"},
-        {"code": "ITPEC7033", "name": "Natural Language Processing"},
-        {"code": "ITPEC7034", "name": "Blockchain Technology"},
+        {"code": "ITPEC7031", "name": "Natural Language Processing"},
+        {"code": "ITPEC7032", "name": "Big Data Analytics"},
+        {"code": "ITPEC7033", "name": "Edge Computing"},
+        {"code": "ITPEC7034", "name": "Digital Forensics"},
+        {"code": "ITPEC7035", "name": "Information Retrieval System"},
     ],
+    # Semester 7 PEC-IV
     "PEC4": [
-        {"code": "ITPEC7041", "name": "AR/VR Technologies"},
-        {"code": "ITPEC7042", "name": "Internet of Things"},
-        {"code": "ITPEC7043", "name": "Edge Computing"},
-        {"code": "ITPEC7044", "name": "Software Testing"},
+        {"code": "ITPEC7041", "name": "Foundation Models & Generative AI"},
+        {"code": "ITPEC7042", "name": "Time Series Analysis"},
+        {"code": "ITPEC7043", "name": "Quantum Computing"},
+        {"code": "ITPEC7044", "name": "Secure Software Engineering"},
+        {"code": "ITPEC7045", "name": "Human Computer Interaction"},
     ],
+    # Semester 8 PEC-V
     "PEC5": [
-        {"code": "ITPEC8051", "name": "Deep Learning"},
-        {"code": "ITPEC8052", "name": "Cyber Security"},
-        {"code": "ITPEC8053", "name": "Distributed Systems"},
-        {"code": "ITPEC8054", "name": "Mobile Computing"},
+        {"code": "ITPEC8051", "name": "Responsible & Safe AI Systems"},
+        {"code": "ITPEC8052", "name": "Recommender System"},
+        {"code": "ITPEC8053", "name": "High Performance Computing"},
+        {"code": "ITPEC8054", "name": "Cyber Physical Systems"},
+        {"code": "ITPEC8055", "name": "Blockchain Technology"},
     ],
+    # Open Elective I (Sem 7)
     "OEC1": [
-        {"code": "OEC7011", "name": "Project Management"},
-        {"code": "OEC7012", "name": "Financial Management"},
-        {"code": "OEC7013", "name": "Entrepreneurship Development"},
-        {"code": "OEC7014", "name": "IPR & Patents"},
+        {"code": "OEC7011", "name": "Product Lifecycle Management"},
+        {"code": "OEC7012", "name": "Reliability Engineering"},
+        {"code": "OEC7013", "name": "Management Information System"},
+        {"code": "OEC7014", "name": "Design of Experiments"},
+        {"code": "OEC7015", "name": "Operation Research"},
+        {"code": "OEC7016", "name": "Cyber Security and Laws"},
+        {"code": "OEC7017", "name": "Disaster Management"},
+        {"code": "OEC7018", "name": "Energy Audit and Management"},
     ],
+    # Open Elective II (Sem 8)
     "OEC2": [
-        {"code": "OEC8021", "name": "Green Technology"},
-        {"code": "OEC8022", "name": "Business Analytics"},
-        {"code": "OEC8023", "name": "Supply Chain Management"},
-        {"code": "OEC8024", "name": "Digital Marketing"},
-    ]
+        {"code": "OEC8021", "name": "Project Management"},
+        {"code": "OEC8022", "name": "Finance Management"},
+        {"code": "OEC8023", "name": "Entrepreneurship Development"},
+        {"code": "OEC8024", "name": "Human Resource Management"},
+        {"code": "OEC8025", "name": "Professional Ethics and CSR"},
+        {"code": "OEC8026", "name": "Circular Economy"},
+        {"code": "OEC8027", "name": "IPR and Patenting"},
+        {"code": "OEC8028", "name": "Digital Business Management"},
+    ],
 }
 
 

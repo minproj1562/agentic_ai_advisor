@@ -93,6 +93,9 @@ export const AcademicDataEntry: React.FC = () => {
   const [subjects, setSubjects] = useState<SubjectEntry[]>([]);
   const [selectedSemester, setSelectedSemester] = useState(1);
 
+  // Study hours — per semester, asked at score entry time
+  const [studyHours, setStudyHours] = useState(4);
+
   // View/Edit state
   const [savedScores, setSavedScores] = useState<SavedScore[]>([]);
   const [hasSavedData, setHasSavedData] = useState(false);
@@ -180,6 +183,10 @@ export const AcademicDataEntry: React.FC = () => {
           name: d.name || '', roll_number: d.roll_number || '', branch: d.branch || 'IT',
           admission_year: d.admission_year || new Date().getFullYear(), email: d.email || ''
         });
+        // Load study hours from profile if available
+        if (d.study_hours !== undefined && d.study_hours !== null) {
+          setStudyHours(d.study_hours);
+        }
       } else if (res.status === 404) {
         setProfileExists(false);
         const ad = calcAcademicDetails(profileForm.admission_year);
@@ -231,6 +238,11 @@ export const AcademicDataEntry: React.FC = () => {
           setSavedScores(d.scores);
           setHasSavedData(true);
           setViewMode('view');
+
+          // Load saved study hours for this semester
+          if (d.study_hours !== undefined && d.study_hours !== null) {
+            setStudyHours(d.study_hours);
+          }
 
           // Get SGPA
           const semRes = await fetch(`${BACKEND_URL}/api/v1/academic/semesters`, {
@@ -337,6 +349,7 @@ export const AcademicDataEntry: React.FC = () => {
       const body = {
         semester_number: selectedSemester,
         academic_year: academicYear,
+        study_hours: studyHours,
         subjects: subjects.map(s => {
           const total = s.internal_marks + s.external_marks;
           const max = s.internal_max + s.external_max;
@@ -371,6 +384,24 @@ export const AcademicDataEntry: React.FC = () => {
       } else { const err = await res.json(); toast.error(err.detail || 'Failed'); }
     } catch { toast.error('Error saving'); }
     finally { setLoading(false); }
+  };
+
+  // ==================== Study Hours Helper ====================
+
+  const getStudyHoursLabel = (hours: number): string => {
+    if (hours <= 1) return 'Minimal';
+    if (hours <= 3) return 'Light';
+    if (hours <= 5) return 'Moderate';
+    if (hours <= 8) return 'Dedicated';
+    return 'Intensive';
+  };
+
+  const getStudyHoursColor = (hours: number): string => {
+    if (hours <= 1) return 'text-red-600';
+    if (hours <= 3) return 'text-orange-600';
+    if (hours <= 5) return 'text-blue-600';
+    if (hours <= 8) return 'text-green-600';
+    return 'text-purple-600';
   };
 
   // ==================== Render ====================
@@ -512,42 +543,55 @@ export const AcademicDataEntry: React.FC = () => {
             <>
               {/* ===== VIEW MODE ===== */}
               {viewMode === 'view' && hasSavedData && (
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead className="bg-gray-50">
-                      <tr>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Subject</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
-                        <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Credits</th>
-                        <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Internal</th>
-                        <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">External</th>
-                        <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Total</th>
-                        <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Grade</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y">
-                      {savedScores.map((s, i) => (
-                        <tr key={i} className="hover:bg-gray-50">
-                          <td className="px-4 py-3">
-                            <p className="font-medium text-gray-900">{s.subject_name}</p>
-                            <p className="text-xs text-gray-500">{s.subject_code}</p>
-                          </td>
-                          <td className="px-4 py-3">
-                            {s.is_elective && <span className="px-2 py-1 bg-purple-100 text-purple-700 text-xs rounded-full">Elective</span>}
-                            {s.is_practical && <span className="px-2 py-1 bg-green-100 text-green-700 text-xs rounded-full ml-1">Practical</span>}
-                            {!s.is_elective && !s.is_practical && <span className="text-xs text-gray-500">Theory</span>}
-                          </td>
-                          <td className="px-4 py-3 text-center font-medium">{s.credits}</td>
-                          <td className="px-4 py-3 text-center">{s.internal_marks}</td>
-                          <td className="px-4 py-3 text-center">{s.external_marks}</td>
-                          <td className="px-4 py-3 text-center font-bold">{s.total_marks}</td>
-                          <td className="px-4 py-3 text-center">
-                            <span className={`px-3 py-1 rounded-full text-sm font-bold ${getGradeColor(s.grade)}`}>{s.grade}</span>
-                          </td>
+                <div className="space-y-4">
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Subject</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
+                          <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Credits</th>
+                          <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Internal</th>
+                          <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">External</th>
+                          <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Total</th>
+                          <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Grade</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody className="divide-y">
+                        {savedScores.map((s, i) => (
+                          <tr key={i} className="hover:bg-gray-50">
+                            <td className="px-4 py-3">
+                              <p className="font-medium text-gray-900">{s.subject_name}</p>
+                              <p className="text-xs text-gray-500">{s.subject_code}</p>
+                            </td>
+                            <td className="px-4 py-3">
+                              {s.is_elective && <span className="px-2 py-1 bg-purple-100 text-purple-700 text-xs rounded-full">Elective</span>}
+                              {s.is_practical && <span className="px-2 py-1 bg-green-100 text-green-700 text-xs rounded-full ml-1">Practical</span>}
+                              {!s.is_elective && !s.is_practical && <span className="text-xs text-gray-500">Theory</span>}
+                            </td>
+                            <td className="px-4 py-3 text-center font-medium">{s.credits}</td>
+                            <td className="px-4 py-3 text-center">{s.internal_marks}</td>
+                            <td className="px-4 py-3 text-center">{s.external_marks}</td>
+                            <td className="px-4 py-3 text-center font-bold">{s.total_marks}</td>
+                            <td className="px-4 py-3 text-center">
+                              <span className={`px-3 py-1 rounded-full text-sm font-bold ${getGradeColor(s.grade)}`}>{s.grade}</span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Study hours display in view mode */}
+                  <div className="p-3 bg-gray-50 rounded-lg flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-sm text-gray-600">
+                      <BookOpen className="w-4 h-4" />
+                      <span>Study hours recorded for this semester:</span>
+                    </div>
+                    <span className={`font-bold ${getStudyHoursColor(studyHours)}`}>
+                      {studyHours} hrs/day ({getStudyHoursLabel(studyHours)})
+                    </span>
+                  </div>
                 </div>
               )}
 
@@ -612,6 +656,67 @@ export const AcademicDataEntry: React.FC = () => {
                       </div>
                     );
                   })}
+
+                  {/* ===== STUDY HOURS SECTION ===== */}
+                  <div className="p-5 bg-gradient-to-r from-purple-50 to-indigo-50 border border-purple-200 rounded-xl">
+                    <div className="flex items-start gap-3">
+                      <div className="p-2.5 bg-purple-100 rounded-lg flex-shrink-0">
+                        <BookOpen className="w-5 h-5 text-purple-600" />
+                      </div>
+                      <div className="flex-1">
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="text-sm font-semibold text-purple-900">
+                            Average Daily Study Hours — Semester {selectedSemester}
+                          </label>
+                          <span className={`text-sm font-bold ${getStudyHoursColor(studyHours)}`}>
+                            {getStudyHoursLabel(studyHours)}
+                          </span>
+                        </div>
+                        <p className="text-xs text-purple-600 mb-3">
+                          How many hours did you typically study outside of class this semester?
+                          This helps our AI predict your next semester performance.
+                        </p>
+
+                        {/* Slider */}
+                        <div className="flex items-center gap-4">
+                          <input
+                            type="range"
+                            min={0}
+                            max={12}
+                            step={0.5}
+                            value={studyHours}
+                            onChange={e => setStudyHours(parseFloat(e.target.value))}
+                            className="flex-1 h-2 bg-purple-200 rounded-lg appearance-none cursor-pointer accent-purple-600"
+                          />
+                          <div className="flex items-center gap-1 bg-white px-4 py-2 rounded-lg border border-purple-200 min-w-[90px] justify-center shadow-sm">
+                            <span className="text-xl font-bold text-purple-700">{studyHours}</span>
+                            <span className="text-xs text-purple-500">hrs/day</span>
+                          </div>
+                        </div>
+
+                        {/* Scale labels */}
+                        <div className="flex justify-between text-xs text-purple-400 mt-1.5 px-1">
+                          <span>0</span>
+                          <span>2</span>
+                          <span>4</span>
+                          <span>6</span>
+                          <span>8</span>
+                          <span>10</span>
+                          <span>12</span>
+                        </div>
+
+                        {/* Contextual hint */}
+                        <div className="mt-3 text-xs text-purple-500 flex items-center gap-1">
+                          <Info className="w-3 h-3" />
+                          {studyHours <= 1 && "Very low study hours — consider increasing for better results"}
+                          {studyHours > 1 && studyHours <= 3 && "Light study schedule — sufficient for revision, may need more for tough subjects"}
+                          {studyHours > 3 && studyHours <= 6 && "Good study routine — this is the recommended range for most students"}
+                          {studyHours > 6 && studyHours <= 9 && "Strong dedication — make sure to include breaks and rest"}
+                          {studyHours > 9 && "Intensive schedule — ensure quality over quantity and avoid burnout"}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               )}
 
@@ -626,7 +731,7 @@ export const AcademicDataEntry: React.FC = () => {
               {viewMode === 'edit' && subjects.length > 0 && (
                 <div className="mt-4 flex items-center justify-between">
                   <span className="text-sm text-gray-600">
-                    {subjects.length} subjects • Semester {selectedSemester}
+                    {subjects.length} subjects • Semester {selectedSemester} • {studyHours} hrs/day study
                     {hasSavedData && <span className="ml-2 text-orange-600 font-medium">⚠ Saving will overwrite existing data</span>}
                   </span>
                   <div className="flex gap-3">
@@ -688,6 +793,7 @@ export const AcademicDataEntry: React.FC = () => {
               <li>• Subjects load automatically based on admission year & semester</li>
               <li>• Saved data is shown in View mode — switch to Edit to modify</li>
               <li>• Grades are calculated using percentage-based scale</li>
+              <li>• Study hours are saved per semester for AI performance predictions</li>
               <li>• After saving, click "Generate Recommendations" for AI-powered insights</li>
               <li>• Your CGPA is automatically recalculated from all semester records</li>
             </ul>

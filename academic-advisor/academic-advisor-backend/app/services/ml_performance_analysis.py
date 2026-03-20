@@ -21,6 +21,14 @@ import joblib
 
 from app.core.firebase_admin import firebase_manager
 from app.core.curriculum import get_semester_subjects, ELECTIVE_OPTIONS
+try:
+    from app.ml.models.performance_predictor import performance_predictor as _trained_perf
+    from app.ml.models.weakness_detector import weakness_detector as _trained_weak
+    _HAS_TRAINED_MODELS = True
+except ImportError:
+    _HAS_TRAINED_MODELS = False
+    _trained_perf = None
+    _trained_weak = None
 
 logger = logging.getLogger(__name__)
 
@@ -79,83 +87,58 @@ class MLPerformanceAnalyzer:
         performance_history: List[Dict[str, Any]],
         curriculum_data: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
-        """
-        Predict student performance with curriculum awareness
-        """
         try:
-            # Extract enhanced features
-            features = await self._extract_enhanced_features(
-                student_data, 
-                performance_history,
-                curriculum_data
-            )
-            
-            # Scale features
-            features_scaled = self.scalers['features'].fit_transform([features])
-            
-            # Ensemble predictions
             predictions = {}
-            
-            # Predict next semester SGPA
-            if len(performance_history) >= 2:
+
+            # ── Use trained model if available ──
+            if _HAS_TRAINED_MODELS and _trained_perf and _trained_perf.is_trained:
+                feat_dict = _trained_perf.extract_from_student_record(
+                    student_data, performance_history
+                )
+                ml_result = _trained_perf.predict(feat_dict)
+                predictions['predicted_sgpa'] = ml_result['predicted_sgpa']
+                predictions['confidence'] = ml_result['confidence']
+                predictions['lower_bound'] = ml_result['lower_bound']
+                predictions['upper_bound'] = ml_result['upper_bound']
+                predictions['model_used'] = ml_result['model_used']
+            elif len(performance_history) >= 2:
                 predicted_sgpa = await self._predict_next_sgpa(performance_history)
                 predictions['predicted_sgpa'] = float(predicted_sgpa)
+                predictions['confidence'] = self._calculate_confidence(performance_history)
+                predictions['model_used'] = 'polynomial_fallback'
             else:
                 predictions['predicted_sgpa'] = student_data.get('cgpa', 7.0)
-            
-            # Risk assessment
+                predictions['confidence'] = 0.3
+                predictions['model_used'] = 'default_fallback'
+
+            # Risk assessment (use trained model's risk category or compute)
             risk_score = await self._calculate_risk_score(student_data, performance_history)
             predictions['risk_score'] = float(risk_score)
             predictions['risk_level'] = self._classify_risk_level(risk_score)
-            
-            # Calculate success probability
+
             success_prob = await self._calculate_success_probability(
-                student_data, 
-                performance_history
+                student_data, performance_history
             )
             predictions['success_probability'] = float(success_prob)
-            
-            # Calculate confidence
-            confidence = self._calculate_confidence(performance_history)
-            predictions['confidence'] = confidence
-            
-            # Identify patterns
+
             patterns = await self._identify_patterns(performance_history)
             predictions['patterns'] = patterns
-            
-            # Generate insights
+
             insights = await self._generate_performance_insights(student_data, predictions)
             predictions['insights'] = insights
-            
-            # Curriculum-specific recommendations
+
             if curriculum_data:
                 curriculum_insights = await self._generate_curriculum_insights(
-                    student_data,
-                    predictions,
-                    curriculum_data
+                    student_data, predictions, curriculum_data
                 )
                 predictions['curriculum_insights'] = curriculum_insights
-            
-            # Store predictions in Firebase
-            await firebase_manager.update_document(
-                collection="predictions",
-                document_id=student_data['id'],
-                data={
-                    **predictions,
-                    'timestamp': datetime.utcnow().isoformat(),
-                    'model_version': self.model_version
-                }
-            )
-            
+
             return predictions
-            
+
         except Exception as e:
             logger.error(f"Prediction error: {str(e)}")
-            return {
-                'error': str(e),
-                'risk_score': 50.0,
-                'confidence': 0.0
-            }
+            return {'error': str(e), 'risk_score': 50.0, 'confidence': 0.0}
+
     
     async def detect_weaknesses(
         self,
@@ -165,79 +148,75 @@ class MLPerformanceAnalyzer:
         curriculum_data: Optional[Dict[str, Any]] = None,
         force_refresh: bool = False
     ) -> List[Dict[str, Any]]:
-        """
-        Detect academic weaknesses with curriculum awareness
-        """
         try:
-            # Check cache if not forcing refresh
             if not force_refresh:
                 cached = await firebase_manager.get_document(
                     collection="weakness_cache",
                     document_id=student_data['id']
                 )
-                
                 if cached and self._is_cache_valid(cached):
                     return cached.get('weaknesses', [])
-            
+
             weaknesses = []
-            
-            # Analyze subject-wise performance
-            subject_analysis = await self._analyze_subjects(performance_history)
-            
-            for subject, metrics in subject_analysis.items():
-                # Define threshold based on curriculum type
-                threshold = 60.0  # Default passing threshold
-                
-                if metrics['average'] < threshold:
-                    # Classify severity
-                    severity = await self._classify_severity(metrics)
-                    
-                    # Identify specific topics
-                    weak_topics = await self._identify_weak_topics(
-                        subject,
-                        assessments,
-                        student_data,
-                        curriculum_data
-                    )
-                    
-                    # Generate improvement plan
-                    improvement_plan = await self._generate_improvement_plan(
-                        subject,
-                        severity,
-                        weak_topics,
-                        curriculum_data
-                    )
-                    
-                    # Get curriculum-specific resources
-                    resources = await self._get_curriculum_resources(
-                        subject, 
-                        severity,
-                        curriculum_data
-                    )
-                    
-                    weakness = {
-                        'subject': subject,
-                        'severity': severity,
-                        'average_score': metrics['average'],
-                        'gap': threshold - metrics['average'],
-                        'trend': metrics['trend'],
-                        'topics': weak_topics,
-                        'improvement_plan': improvement_plan,
-                        'resources': resources,
-                        'confidence': metrics['confidence'],
-                        'detected_at': datetime.utcnow().isoformat(),
-                        'curriculum_aligned': curriculum_data is not None
-                    }
-                    
-                    weaknesses.append(weakness)
-            
-            # Sort by severity and gap
+
+            # ── Use trained model if available ──
+            if _HAS_TRAINED_MODELS and _trained_weak and _trained_weak.is_trained:
+                # Collect all subjects from performance history
+                all_subjects = []
+                for perf in performance_history:
+                    for subj in perf.get('subjects', []):
+                        all_subjects.append(subj)
+
+                if all_subjects:
+                    detected = _trained_weak.detect_all_subjects(student_data, all_subjects)
+                    for w in detected:
+                        # Enrich with improvement plan and resources
+                        improvement_plan = await self._generate_improvement_plan(
+                            w['subject'], w['severity'], w.get('weak_topics', []),
+                            curriculum_data
+                        )
+                        resources = await self._get_curriculum_resources(
+                            w['subject'], w['severity'], curriculum_data
+                        )
+                        w['improvement_plan'] = improvement_plan
+                        w['resources'] = resources
+                        w['detected_at'] = datetime.utcnow().isoformat()
+                        w['curriculum_aligned'] = curriculum_data is not None
+                        weaknesses.append(w)
+            else:
+                # Fall back to original rule-based analysis
+                subject_analysis = await self._analyze_subjects(performance_history)
+                for subject, metrics in subject_analysis.items():
+                    if metrics['average'] < 60.0:
+                        severity = await self._classify_severity(metrics)
+                        weak_topics = await self._identify_weak_topics(
+                            subject, assessments, student_data, curriculum_data
+                        )
+                        improvement_plan = await self._generate_improvement_plan(
+                            subject, severity, weak_topics, curriculum_data
+                        )
+                        resources = await self._get_curriculum_resources(
+                            subject, severity, curriculum_data
+                        )
+                        weaknesses.append({
+                            'subject': subject, 'severity': severity,
+                            'average_score': metrics['average'],
+                            'gap': 60 - metrics['average'],
+                            'trend': metrics['trend'],
+                            'topics': weak_topics,
+                            'improvement_plan': improvement_plan,
+                            'resources': resources,
+                            'confidence': metrics['confidence'],
+                            'detected_at': datetime.utcnow().isoformat(),
+                        })
+
             weaknesses.sort(key=lambda x: (
-                {'critical': 0, 'high': 1, 'medium': 2, 'low': 3}[x['severity']],
-                -x['gap']
+                {'critical': 0, 'high': 1, 'medium': 2, 'low': 3}.get(x.get('severity', 'low'), 4),
+                -x.get('gap', 0)
             ))
-            
-            # Cache results
+
+            # Cache
+            from datetime import timedelta
             await firebase_manager.create_document(
                 collection="weakness_cache",
                 document_id=student_data['id'],
@@ -247,12 +226,12 @@ class MLPerformanceAnalyzer:
                     'expires_at': (datetime.utcnow() + timedelta(hours=24)).isoformat()
                 }
             )
-            
             return weaknesses
-            
+
         except Exception as e:
             logger.error(f"Weakness detection error: {str(e)}")
             return []
+
     
     async def deep_analysis(
         self,

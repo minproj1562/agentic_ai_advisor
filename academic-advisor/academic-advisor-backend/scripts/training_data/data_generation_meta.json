@@ -1,0 +1,78 @@
+{
+  "performance_records": 15000,
+  "weakness_records": 52909,
+  "seed": 42,
+  "archetypes": [
+    "topper",
+    "strong",
+    "above_avg",
+    "average",
+    "below_avg",
+    "struggling",
+    "failing",
+    "improving",
+    "inconsistent"
+  ],
+  "semesters": [
+    3,
+    4,
+    5,
+    6,
+    7
+  ],
+  "performance_features": [
+    "semester",
+    "current_cgpa",
+    "current_sgpa",
+    "previous_sgpa",
+    "sgpa_trend",
+    "attendance",
+    "assignment_completion",
+    "quiz_average",
+    "lab_performance",
+    "project_score",
+    "study_hours",
+    "participation_score",
+    "extracurricular",
+    "dept_avg",
+    "num_subjects",
+    "num_backlogs",
+    "num_strong_subjects",
+    "num_weak_subjects",
+    "avg_subject_score",
+    "min_subject_score",
+    "max_subject_score",
+    "std_subject_score",
+    "practical_avg",
+    "theory_avg",
+    "credits_completed_ratio"
+  ],
+  "weakness_features": [
+    "semester",
+    "subject_score",
+    "attendance",
+    "assignment_score",
+    "quiz_average",
+    "lab_performance",
+    "previous_related_score",
+    "study_hours",
+    "difficulty_factor",
+    "cgpa",
+    "credits",
+    "is_practical",
+    "class_avg_score",
+    "score_vs_class_avg",
+    "trend_indicator"
+  ],
+  "elective_records": 17248,
+  "elective_labels": [
+    "ML",
+    "DWM",
+    "CCS",
+    "WT"
+  ],
+  "elective_score_range": [
+    2.0,
+    100.0
+  ]
+}

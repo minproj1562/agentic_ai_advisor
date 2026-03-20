@@ -1,6 +1,6 @@
 {
   "is_trained": true,
-  "timestamp": "2026-03-03T06:54:46.813415",
+  "timestamp": "2026-03-20T05:16:10.613717",
   "model_version": "2.0.0",
   "feature_dimension": 38,
   "labels": [
@@ -8,5 +8,12 @@
     "DWM",
     "ML",
     "WT"
-  ]
+  ],
+  "elective_recommender_trained": true,
+  "elective_accuracy": 0.9991,
+  "performance_predictor_trained": true,
+  "performance_model": "RandomForest",
+  "weakness_detector_trained": true,
+  "weakness_model": "XGBoost",
+  "all_models_trained": "2026-03-20T07:04:53.854364"
 }

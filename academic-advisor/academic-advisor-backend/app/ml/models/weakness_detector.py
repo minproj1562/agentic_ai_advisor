@@ -9,8 +9,8 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.multioutput import MultiOutputClassifier
 from sklearn.preprocessing import LabelEncoder, StandardScaler
 import lightgbm as lgb
+from collections import defaultdict
 from typing import Dict, List, Any
-
 from app.utils.helpers import get_logger
 
 logger = get_logger(__name__)
@@ -31,6 +31,11 @@ class WeaknessDetector:
         ]
         self.severity_levels = ['none', 'low', 'medium', 'high', 'critical']
         
+    @property
+    def is_trained(self) -> bool:
+        """Check whether a model has been trained/loaded."""
+        return self.model is not None
+
     def train(
         self,
         training_data: pd.DataFrame
@@ -305,3 +310,4 @@ class WeaknessDetector:
             })
         
         return interventions
+weakness_detector = WeaknessDetector()

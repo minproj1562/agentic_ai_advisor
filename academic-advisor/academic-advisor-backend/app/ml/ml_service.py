@@ -1,146 +1,223 @@
-#academic-advisor-backend/app/ml/ml_service.py
-from typing import List, Dict, Any, Optional
+# academic-advisor/academic-advisor-backend/app/ml/ml_service.py
+"""
+ML Prediction Service — Updated to use trained models
+=======================================================
+Uses trained PerformancePredictor and WeaknessDetector when available,
+falls back to heuristics otherwise.
+"""
+
 import logging
 import numpy as np
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.preprocessing import StandardScaler
 import pandas as pd
+from typing import List, Dict, Any, Optional
 
 logger = logging.getLogger(__name__)
+
+# Import trained model singletons
+try:
+    from app.ml.models.performance_predictor import performance_predictor
+    from app.ml.models.weakness_detector import weakness_detector
+    _MODELS_AVAILABLE = True
+    logger.info("✅ Trained ML models imported successfully")
+except ImportError as e:
+    _MODELS_AVAILABLE = False
+    performance_predictor = None
+    weakness_detector = None
+    logger.warning(f"⚠️ Trained models not available: {e}")
+
 
 class MLPredictionService:
     def __init__(self):
         self.logger = logger
-        self.performance_model = RandomForestRegressor()
-        self.risk_model = RandomForestRegressor()
-        self.scaler = StandardScaler()
-        self.models_trained = False
+        self.models_available = _MODELS_AVAILABLE
 
     async def predict_average_performance(self, features: List[Dict[str, Any]]) -> float:
-        """Predict next month's average performance"""
+        """Predict next month's average performance."""
         try:
             if not features:
-                return 7.0  # Default average
-            
-            # Convert features to DataFrame
-            df = pd.DataFrame(features)
-            
-            # Simple prediction logic (replace with trained model)
-            current_avg = df['current_sgpi'].mean()
-            previous_avg = df['previous_sgpi'].mean()
-            
-            # Simple trend-based prediction
-            trend = current_avg - previous_avg
-            predicted = current_avg + (trend * 0.1)  # Small adjustment based on trend
-            
-            return max(0, min(10, predicted))  # Ensure within valid range
-            
+                return 7.0
+
+            if self.models_available and performance_predictor and performance_predictor.is_trained:
+                predictions = []
+                for feat in features:
+                    # Map to predictor feature format
+                    pred_input = {
+                        "current_cgpa": feat.get("current_cgpa", feat.get("cgpa", 6.0)),
+                        "current_sgpa": feat.get("current_sgpi", feat.get("current_sgpa", 6.0)),
+                        "previous_sgpa": feat.get("previous_sgpi", feat.get("previous_sgpa", 6.0)),
+                        "sgpa_trend": feat.get("current_sgpi", 6) - feat.get("previous_sgpi", 6),
+                        "attendance": feat.get("attendance", 75),
+                        "assignment_completion": feat.get("assignment_completion", 65),
+                        "quiz_average": feat.get("quiz_average", 55),
+                        "lab_performance": feat.get("lab_performance", 60),
+                        "project_score": feat.get("project_score", 55),
+                        "study_hours": feat.get("study_hours", 4),
+                        "semester": feat.get("semester", 4),
+                    }
+                    result = performance_predictor.predict(pred_input)
+                    predictions.append(result["predicted_sgpa"])
+                return float(np.mean(predictions))
+            else:
+                # Original heuristic fallback
+                df = pd.DataFrame(features)
+                current_key = "current_sgpi" if "current_sgpi" in df.columns else "current_sgpa"
+                prev_key = "previous_sgpi" if "previous_sgpi" in df.columns else "previous_sgpa"
+                current_avg = df[current_key].mean() if current_key in df.columns else 7.0
+                previous_avg = df[prev_key].mean() if prev_key in df.columns else current_avg
+                trend = current_avg - previous_avg
+                return max(0, min(10, current_avg + trend * 0.1))
+
         except Exception as e:
             self.logger.error(f"Error predicting performance: {e}")
-            return 7.0  # Fallback value
+            return 7.0
 
     async def predict_at_risk_students(self, features: List[Dict[str, Any]]) -> List[float]:
-        """Predict at-risk probability for each student"""
+        """Predict at-risk probability for each student."""
         try:
             if not features:
                 return []
-            
-            risk_scores = []
-            for feature_set in features:
-                # Simple risk calculation
-                risk_score = 0.0
-                
-                # Low SGPI
-                if feature_set.get('current_sgpi', 0) < 6.0:
-                    risk_score += 0.4
-                
-                # Declining performance
-                current = feature_set.get('current_sgpi', 0)
-                previous = feature_set.get('previous_sgpi', 0)
-                if current < previous:
-                    risk_score += 0.3
-                
-                # Poor attendance
-                if feature_set.get('attendance', 100) < 75:
-                    risk_score += 0.2
-                
-                # Low assignment completion
-                if feature_set.get('assignment_completion', 100) < 70:
-                    risk_score += 0.1
-                
-                risk_scores.append(min(1.0, risk_score))
-            
-            return risk_scores
-            
+
+            if self.models_available and performance_predictor and performance_predictor.is_trained:
+                risk_scores = []
+                for feat in features:
+                    pred_input = {
+                        "current_cgpa": feat.get("current_cgpa", feat.get("cgpa", 6.0)),
+                        "current_sgpa": feat.get("current_sgpi", feat.get("current_sgpa", 6.0)),
+                        "previous_sgpa": feat.get("previous_sgpi", feat.get("previous_sgpa", 6.0)),
+                        "sgpa_trend": feat.get("current_sgpi", 6) - feat.get("previous_sgpi", 6),
+                        "attendance": feat.get("attendance", 75),
+                        "assignment_completion": feat.get("assignment_completion", 65),
+                        "semester": feat.get("semester", 4),
+                    }
+                    result = performance_predictor.predict(pred_input)
+                    predicted = result["predicted_sgpa"]
+                    
+                    # Convert SGPA prediction to risk score (0-1)
+                    if predicted < 4.5:
+                        risk = 0.9
+                    elif predicted < 5.5:
+                        risk = 0.7
+                    elif predicted < 6.5:
+                        risk = 0.4
+                    elif predicted < 7.5:
+                        risk = 0.2
+                    else:
+                        risk = 0.05
+                    
+                    # Attendance modifier
+                    att = feat.get("attendance", 75)
+                    if att < 60:
+                        risk = min(1.0, risk + 0.2)
+                    elif att < 75:
+                        risk = min(1.0, risk + 0.1)
+                    
+                    risk_scores.append(risk)
+                return risk_scores
+            else:
+                # Original heuristic
+                risk_scores = []
+                for feat in features:
+                    risk = 0.0
+                    sgpi_key = "current_sgpi" if "current_sgpi" in feat else "current_sgpa"
+                    if feat.get(sgpi_key, 10) < 6.0:
+                        risk += 0.4
+                    prev_key = "previous_sgpi" if "previous_sgpi" in feat else "previous_sgpa"
+                    if feat.get(sgpi_key, 0) < feat.get(prev_key, 0):
+                        risk += 0.3
+                    if feat.get("attendance", 100) < 75:
+                        risk += 0.2
+                    if feat.get("assignment_completion", 100) < 70:
+                        risk += 0.1
+                    risk_scores.append(min(1.0, risk))
+                return risk_scores
+
         except Exception as e:
             self.logger.error(f"Error predicting at-risk students: {e}")
             return [0.0] * len(features)
 
     async def calculate_success_probability(
-        self, 
-        features: List[Dict[str, Any]], 
-        target_sgpi: float = 7.5
+        self,
+        features: List[Dict[str, Any]],
+        target_sgpi: float = 7.5,
     ) -> float:
-        """Calculate probability of meeting target SGPI"""
+        """Calculate probability of meeting target SGPI."""
         try:
             if not features:
-                return 0.5  # Default probability
-            
-            # Simple success probability calculation
-            current_avg = np.mean([f.get('current_sgpi', 0) for f in features])
-            above_target = len([f for f in features if f.get('current_sgpi', 0) >= target_sgpi])
-            
-            base_probability = above_target / len(features) if features else 0
-            
-            # Adjust based on trends
-            improving_trends = len([
-                f for f in features 
-                if f.get('current_sgpi', 0) > f.get('previous_sgpi', 0)
-            ])
-            
-            trend_adjustment = (improving_trends / len(features)) * 0.2 if features else 0
-            
-            final_probability = base_probability + trend_adjustment
-            return min(1.0, max(0.0, final_probability))
-            
+                return 0.5
+
+            if self.models_available and performance_predictor and performance_predictor.is_trained:
+                predictions = []
+                for feat in features:
+                    pred_input = {
+                        "current_sgpa": feat.get("current_sgpi", feat.get("current_sgpa", 6.0)),
+                        "previous_sgpa": feat.get("previous_sgpi", feat.get("previous_sgpa", 6.0)),
+                        "attendance": feat.get("attendance", 75),
+                        "assignment_completion": feat.get("assignment_completion", 65),
+                    }
+                    result = performance_predictor.predict(pred_input)
+                    predictions.append(result["predicted_sgpa"])
+
+                above_target = sum(1 for p in predictions if p >= target_sgpi)
+                return min(1.0, above_target / len(predictions) + 0.1)
+            else:
+                sgpi_key = "current_sgpi" if features and "current_sgpi" in features[0] else "current_sgpa"
+                above = sum(1 for f in features if f.get(sgpi_key, 0) >= target_sgpi)
+                return above / len(features) if features else 0.5
+
         except Exception as e:
             self.logger.error(f"Error calculating success probability: {e}")
             return 0.5
 
     async def generate_recommendations(
-        self, 
-        faculty_id: str, 
-        features: List[Dict[str, Any]]
+        self,
+        faculty_id: str,
+        features: List[Dict[str, Any]],
     ) -> List[str]:
-        """Generate AI-powered recommendations"""
+        """Generate AI-powered recommendations."""
         recommendations = []
         
-        # Analyze features to generate recommendations
-        avg_sgpi = np.mean([f.get('current_sgpi', 0) for f in features]) if features else 0
-        at_risk_count = len([f for f in features if f.get('current_sgpi', 0) < 6.0])
+        if not features:
+            return ["No student data available for analysis."]
         
+        sgpi_key = "current_sgpi" if "current_sgpi" in features[0] else "current_sgpa"
+        avg_sgpi = np.mean([f.get(sgpi_key, 0) for f in features])
+        at_risk_count = sum(1 for f in features if f.get(sgpi_key, 0) < 6.0)
+
+        if self.models_available and weakness_detector and weakness_detector.is_trained:
+            # Use trained model for smarter recommendations
+            all_weaknesses = []
+            for feat in features[:10]:  # Sample for efficiency
+                subj_features = {
+                    "subject_score": feat.get("avg_score", 55),
+                    "attendance": feat.get("attendance", 75),
+                    "assignment_score": feat.get("assignment_completion", 65),
+                    "cgpa": feat.get("current_cgpa", feat.get("cgpa", 6)),
+                }
+                result = weakness_detector.detect(subj_features)
+                if result["severity"] in ("critical", "high"):
+                    all_weaknesses.append(result)
+
+            if len(all_weaknesses) > 3:
+                recommendations.append(
+                    f"⚠️ {len(all_weaknesses)} critical/high weaknesses detected across mentees. "
+                    "Schedule group remediation sessions."
+                )
+
         if avg_sgpi < 7.0:
             recommendations.append(
-                "Focus on foundational concepts and regular practice sessions for struggling students"
+                "Focus on foundational concepts and regular practice sessions for struggling students."
             )
-        
-        if at_risk_count > len(features) * 0.3:  # More than 30% at risk
+        if at_risk_count > len(features) * 0.3:
             recommendations.append(
-                "Consider implementing additional support programs or tutoring for at-risk students"
+                "More than 30% students are at-risk. Consider additional support programs."
             )
-        
-        # Check attendance patterns
-        low_attendance = len([f for f in features if f.get('attendance', 100) < 75])
-        if low_attendance > 0:
+        low_att = sum(1 for f in features if f.get("attendance", 100) < 75)
+        if low_att > 0:
             recommendations.append(
-                "Address attendance issues through personalized counseling and engagement strategies"
+                f"{low_att} students have low attendance. Address through personalized counseling."
             )
-        
-        # Add general best practices
         recommendations.extend([
-            "Schedule regular progress review meetings with each mentee",
-            "Encourage participation in academic support programs",
-            "Provide timely feedback on assignments and projects"
+            "Schedule regular progress review meetings with each mentee.",
+            "Encourage participation in academic support programs.",
         ])
-        
-        return recommendations[:5]  # Return top 5 recommendations
+        return recommendations[:5]

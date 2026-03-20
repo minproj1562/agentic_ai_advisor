@@ -79,6 +79,7 @@ class StudentProfile(Document):
     career_goals: List[str] = []
     created_at: datetime = Field(default_factory=datetime.now)
     last_updated: datetime = Field(default_factory=datetime.now)
+    study_hours: float = Field(default=4.0, ge=0, le=16, description="Average daily study hours (self-reported)")
 
     class Settings:
         name = "student_profiles"
