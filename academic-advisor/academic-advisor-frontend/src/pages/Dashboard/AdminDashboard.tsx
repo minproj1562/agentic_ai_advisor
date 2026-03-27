@@ -18,6 +18,7 @@ const FacultyManagement = lazy(() => import('.././../components/admin/sections/F
 const CurriculumManagement = lazy(() => import('.././../components/admin/sections/CurriculumManagement'));
 const SystemAnalytics = lazy(() => import('.././../components/admin/sections/SystemAnalytics'));
 const SettingsSection = lazy(() => import('../../components/dashboard/sections/Settings'));
+const BulkMarksUpload = lazy(() => import('../../components/admin/sections/BulkMarksUpload'));
 
 const AdminDashboard: React.FC = () => {
   const navigate = useNavigate();
@@ -97,6 +98,12 @@ const AdminDashboard: React.FC = () => {
         return (
           <Suspense fallback={<LoadingSkeleton />}>
             <SystemAnalytics />
+          </Suspense>
+        );
+              case 'bulk-upload':
+        return (
+          <Suspense fallback={<LoadingSkeleton />}>
+            <BulkMarksUpload />
           </Suspense>
         );
       case 'settings':

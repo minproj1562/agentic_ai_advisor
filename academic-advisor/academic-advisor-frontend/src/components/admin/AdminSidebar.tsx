@@ -6,6 +6,8 @@ import {
   BarChart3, Settings, Shield
 } from 'lucide-react';
 import { cn } from '../../utils/cn';
+import { FileSpreadsheet } from 'lucide-react';
+
 
 interface AdminSidebarProps {
   activeSection: string;
@@ -23,6 +25,13 @@ const AdminSidebar: React.FC<AdminSidebarProps> = ({
     { id: 'students', label: 'Students', icon: Users, badge: stats?.total_students },
     { id: 'faculty', label: 'Faculty', icon: GraduationCap, badge: stats?.total_faculty },
     { id: 'curriculum', label: 'Curriculum', icon: BookOpen },
+    {
+  id: 'bulk-upload',
+  label: 'Bulk Marks Upload',
+  icon: FileSpreadsheet,
+  description: 'Upload XLS marks for a batch',
+},
+
     { id: 'analytics', label: 'Analytics', icon: BarChart3 },
     { id: 'settings', label: 'Settings', icon: Settings },
   ];

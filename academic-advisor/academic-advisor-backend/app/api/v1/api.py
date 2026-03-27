@@ -73,9 +73,15 @@ api_router.include_router(readiness_endpoints.router, prefix="/readiness", tags=
 from app.api.v1.endpoints.chatbot import router as chatbot_router
 api_router.include_router(chatbot_router, prefix="/chatbot", tags=["Chatbot"])
 
+# Find this existing line:
 from app.api.v1.admin import router as admin_router
 api_router.include_router(admin_router, prefix="/admin", tags=["Admin"])
 
+# ADD these 3 lines RIGHT AFTER:
+from app.api.v1.endpoints.bulk_marks import router as bulk_marks_router
+api_router.include_router(
+    bulk_marks_router, prefix="/admin/bulk-marks", tags=["Admin - Bulk Marks Upload"]
+)
 # ==================== OPTIONAL ROUTERS ====================
 
 def _safe_include(module_path: str, attr: str, prefix: str, tags: list):

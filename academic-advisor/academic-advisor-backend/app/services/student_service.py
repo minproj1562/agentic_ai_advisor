@@ -8,6 +8,8 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Any, Optional
 import logging
 import io
+from app.services.pending_marks_service import pending_marks_service
+
 
 # Optional imports - handle gracefully if not installed
 try:
@@ -619,6 +621,23 @@ class StudentService:
             logger.error(f"Error generating study plan: {e}")
             return {'error': str(e)}
 
+async def create_or_update_student_profile(self, user_data: dict) -> StudentProfile:
+    """Create or update student profile"""
+    try:
+        # ... existing profile creation code ...
+        
+        # After saving the profile, check for pending marks
+        if profile and profile.roll_number:
+            linked_count = await pending_marks_service.link_pending_marks_to_student(profile)
+            if linked_count > 0:
+                logger.info(f"Linked {linked_count} pending semester marks to {profile.roll_number}")
+                # Reload profile to get updated data
+                profile = await StudentProfile.get(profile.id)
+        
+        return profile
+    except Exception as e:
+        logger.error(f"Error creating/updating student profile: {e}")
+        raise
 
 # Create singleton instance
 student_service = StudentService()

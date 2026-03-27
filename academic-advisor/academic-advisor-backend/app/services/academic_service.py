@@ -4,11 +4,14 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime
 import logging
 
-from app.models.student_profile import StudentProfile, SemesterRecord, SubjectScore
+from app.models.student_profile import StudentProfile, SemesterRecord, SubjectScore, SeatNumberRecord
+from app.models.pending_marks import PendingStudentMarks
 from app.core.security import FirebaseUser
 from app.core.curriculum import get_semester_subjects, get_elective_options
+from app.services.pending_marks_service import pending_marks_service
 
 logger = logging.getLogger(__name__)
+
 
 
 class AcademicService:
@@ -20,14 +23,22 @@ class AcademicService:
         current_year = current_date.year
         current_month = current_date.month
 
+        # Academic year starts in July
         if current_month >= 7:  # July-December (Odd semester)
             academic_year = f"{current_year}-{str(current_year + 1)[2:]}"
-            semester = (current_year - admission_year) * 2 + 1
+            # For odd semesters: Year difference * 2 + 1
+            year_diff = current_year - admission_year
+            semester = (year_diff * 2) + 1
         else:  # January-June (Even semester)
             academic_year = f"{current_year - 1}-{str(current_year)[2:]}"
-            semester = (current_year - admission_year) * 2
+            # For even semesters: Year difference * 2
+            year_diff = current_year - admission_year
+            semester = year_diff * 2
 
+        # Ensure semester is within valid range
         semester = max(1, min(semester, 8))
+        
+        logger.info(f"Calculated semester: {semester} for admission year: {admission_year}, current month: {current_month}")
         return semester, academic_year
 
     def _calculate_grade(self, total_marks: float, max_marks: float = 100.0) -> Dict[str, Any]:
@@ -54,8 +65,15 @@ class AcademicService:
             return {"grade": "F", "points": 0.0}
 
     async def get_student_profile(self, user: FirebaseUser) -> Optional[StudentProfile]:
-        """Get student profile"""
-        return await StudentProfile.find_one(StudentProfile.user_id == user.uid)
+        """Get student profile and check for pending marks if not already checked"""
+        profile = await StudentProfile.find_one(StudentProfile.user_id == user.uid)
+        
+        if profile and not profile.pending_marks_checked:
+            # Check for pending marks if not already done
+            await self._auto_fetch_pending_marks(profile)
+            profile = await StudentProfile.find_one(StudentProfile.user_id == user.uid)
+
+        return profile
 
     async def get_available_subjects(self, user: FirebaseUser, semester: int) -> Dict[str, Any]:
         """Get available subjects for a semester based on student's admission year"""
@@ -127,7 +145,7 @@ class AcademicService:
         user: FirebaseUser, 
         profile_data: Dict[str, Any]
     ) -> StudentProfile:
-        """Create or update student profile"""
+        """Create or update student profile with seat number support"""
         user_id = user.uid
         user_email = user.email or ""
 
@@ -138,6 +156,8 @@ class AcademicService:
 
         existing_profile = await StudentProfile.find_one(StudentProfile.user_id == user_id)
 
+        seat_number = profile_data.get("seat_number")
+        
         if existing_profile:
             existing_profile.name = profile_data.get("name", existing_profile.name)
             existing_profile.roll_number = profile_data.get("roll_number", existing_profile.roll_number)
@@ -148,14 +168,38 @@ class AcademicService:
             existing_profile.current_academic_year = academic_year
             existing_profile.last_updated = datetime.now()
 
+            # Update seat number if provided
+            if seat_number and seat_number != existing_profile.current_seat_number:
+                existing_profile.current_seat_number = seat_number
+                # Add to history
+                seat_record = SeatNumberRecord(
+                    seat_number=seat_number,
+                    semester=current_semester,
+                    academic_year=academic_year
+                )
+                existing_profile.seat_number_history.append(seat_record)
+
             await existing_profile.save()
+            
+            # Auto-fetch pending marks after profile update
+            await self._auto_fetch_pending_marks(existing_profile)
+            
             logger.info(f"Updated profile for user: {user_id}")
             return existing_profile
 
+        # Create new profile
         new_profile = StudentProfile(
             user_id=user_id,
             name=profile_data.get("name", ""),
             roll_number=profile_data.get("roll_number", ""),
+            current_seat_number=seat_number,
+            seat_number_history=[
+                SeatNumberRecord(
+                    seat_number=seat_number,
+                    semester=current_semester,
+                    academic_year=academic_year
+                )
+            ] if seat_number else [],
             branch=profile_data.get("branch", "IT"),
             admission_year=admission_year,
             email=profile_data.get("email", user_email),
@@ -173,6 +217,10 @@ class AcademicService:
         )
 
         await new_profile.insert()
+        
+        # Auto-fetch pending marks for new profile
+        await self._auto_fetch_pending_marks(new_profile)
+        
         logger.info(f"Created profile for user: {user_id}")
         return new_profile
 
@@ -181,7 +229,9 @@ class AcademicService:
         user: FirebaseUser,
         semester_number: int,
         academic_year: str,
-        subjects: List[Dict[str, Any]]
+        subjects: List[Dict[str, Any]],
+        study_hours: Optional[float] = None
+        
     ) -> Dict[str, Any]:
         """Add subject scores for a semester"""
         user_id = user.uid
@@ -315,3 +365,108 @@ class AcademicService:
             return []
 
         return profile.semester_records
+    
+    async def _auto_fetch_pending_marks(self, profile: StudentProfile) -> int:
+        """Automatically fetch and link pending marks based on roll number or seat number"""
+        try:
+            # Build query to find pending marks
+            query_conditions = []
+            
+            # Match by roll number
+            if profile.roll_number:
+                query_conditions.append({"roll_number": profile.roll_number})
+            
+            # Match by current seat number
+            if profile.current_seat_number:
+                query_conditions.append({"seat_number": profile.current_seat_number})
+            
+            # Match by any historical seat numbers
+            for seat_record in profile.seat_number_history:
+                query_conditions.append({"seat_number": seat_record.seat_number})
+            
+            if not query_conditions:
+                logger.warning(f"No identifiers to match for user {profile.user_id}")
+                return 0
+            
+            # Find all pending marks matching any condition
+            pending_marks = await PendingStudentMarks.find({
+                "$or": query_conditions,
+                "linked_to_profile": False
+            }).to_list()
+            
+            if not pending_marks:
+                logger.info(f"No pending marks found for user {profile.user_id}")
+                profile.pending_marks_checked = True
+                await profile.save()
+                return 0
+            
+            logger.info(f"Found {len(pending_marks)} pending marks entries for user {profile.user_id}")
+            
+            linked_count = 0
+            
+            for pending in pending_marks:
+                # Check if semester already exists
+                idx = next(
+                    (i for i, sr in enumerate(profile.semester_records)
+                     if sr.semester_number == pending.semester_number),
+                    None
+                )
+                
+                # Create semester record from pending marks
+                sem_rec = SemesterRecord(
+                    semester_number=pending.semester_number,
+                    academic_year=pending.academic_year,
+                    subjects=pending.subjects,
+                    sgpa=pending.sgpa,
+                    total_credits=pending.total_credits,
+                    credits_earned=pending.credits_earned,
+                    is_complete=True,
+                    created_at=pending.upload_timestamp
+                )
+                
+                if idx is not None:
+                    # Update existing (if admin uploaded after student registered)
+                    logger.info(f"Updating existing semester {pending.semester_number}")
+                    profile.semester_records[idx] = sem_rec
+                else:
+                    # Add new semester
+                    logger.info(f"Adding new semester {pending.semester_number}")
+                    profile.semester_records.append(sem_rec)
+                
+                # Mark pending marks as linked
+                pending.linked_to_profile = True
+                pending.linked_user_id = profile.user_id
+                await pending.save()
+                
+                linked_count += 1
+            
+            # Sort semester records
+            profile.semester_records.sort(key=lambda x: x.semester_number)
+            
+            # Recalculate CGPA
+            all_grade_points = 0.0
+            all_credits = 0
+            all_credits_earned = 0
+            
+            for sem in profile.semester_records:
+                if sem.is_complete and sem.total_credits > 0:
+                    all_grade_points += sem.sgpa * sem.total_credits
+                    all_credits += sem.total_credits
+                    all_credits_earned += sem.credits_earned
+            
+            profile.cgpa = round(all_grade_points / all_credits, 2) if all_credits > 0 else 0.0
+            profile.total_credits_earned = all_credits_earned
+            profile.marks_synced_at = datetime.now()
+            profile.pending_marks_checked = True
+            profile.last_updated = datetime.now()
+            
+            await profile.save()
+            
+            logger.info(f"Successfully linked {linked_count} semesters for user {profile.user_id}")
+            return linked_count
+            
+        except Exception as e:
+            logger.error(f"Error auto-fetching marks for user {profile.user_id}: {e}", exc_info=True)
+            return 0
+        
+        

@@ -27,6 +27,13 @@ class Grade(str, Enum):
     P = "P"
     F = "F"
 
+class SeatNumberRecord(BaseModel):
+    """Track seat numbers across semesters"""
+    seat_number: str = Field(..., pattern="^[0-9]{6}$")  # 6-digit seat number
+    semester: int
+    academic_year: str
+    created_at: datetime = Field(default_factory=datetime.now)
+
 
 class SubjectScore(BaseModel):
     """Subject score - EMBEDDED model"""
@@ -68,6 +75,11 @@ class StudentProfile(Document):
     email: str = ""
     branch: str = "IT"
     admission_year: int = 2020
+    
+    # Seat number tracking
+    current_seat_number: Optional[str] = Field(None, pattern="^[0-9]{6}$")
+    seat_number_history: List[SeatNumberRecord] = []
+    
     current_semester: int = 1
     current_academic_year: str = ""
     cgpa: float = 0.0
@@ -79,6 +91,11 @@ class StudentProfile(Document):
     career_goals: List[str] = []
     created_at: datetime = Field(default_factory=datetime.now)
     last_updated: datetime = Field(default_factory=datetime.now)
+    
+    # Track if marks have been fetched
+    marks_synced_at: Optional[datetime] = None
+    pending_marks_checked: bool = False
+    
     study_hours: float = Field(default=4.0, ge=0, le=16, description="Average daily study hours (self-reported)")
 
     class Settings:

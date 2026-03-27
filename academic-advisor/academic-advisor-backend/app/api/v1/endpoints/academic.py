@@ -1,6 +1,4 @@
-# academic-advisor-backend/app/api/v1/endpoints/academic.py
-
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Body
 from typing import List, Optional
 from pydantic import BaseModel, Field
 from datetime import datetime
@@ -8,7 +6,6 @@ import logging
 
 from app.core.security import get_current_user, FirebaseUser
 from app.services.academic_service import AcademicService
-# Add these imports at the top of the file (if not already present)
 from app.database.repositories.subject_repository import SubjectRepository
 
 router = APIRouter()
@@ -20,11 +17,11 @@ logger = logging.getLogger(__name__)
 class SubjectInput(BaseModel):
     subject_code: str = Field(..., min_length=1)
     subject_name: str = Field(..., min_length=1)
-    credits: int = Field(default=3, ge=1, le=10)  # Changed from le=6 to le=10 for internship
-    internal_marks: float = Field(default=0, ge=0, le=100)  # Changed from le=20 to le=100
-    external_marks: float = Field(default=0, ge=0, le=100)  # Changed from le=80 to le=100
-    internal_max: float = Field(default=20, ge=0, le=100)  # NEW: for grade calculation
-    external_max: float = Field(default=80, ge=0, le=100)  # NEW: for grade calculation
+    credits: int = Field(default=3, ge=1, le=10)
+    internal_marks: float = Field(default=0, ge=0, le=100)
+    external_marks: float = Field(default=0, ge=0, le=100)
+    internal_max: float = Field(default=20, ge=0, le=100)
+    external_max: float = Field(default=80, ge=0, le=100)
     total_marks: Optional[float] = None
     grade: Optional[str] = None
     grade_points: Optional[float] = None
@@ -50,6 +47,7 @@ class SubjectInput(BaseModel):
 class AddScoresRequest(BaseModel):
     semester_number: int = Field(..., ge=1, le=8)
     academic_year: str = Field(..., min_length=4)
+    study_hours: Optional[float] = Field(default=4.0, ge=0, le=16)
     subjects: List[SubjectInput] = Field(..., min_length=1)
 
     class Config:
@@ -57,6 +55,7 @@ class AddScoresRequest(BaseModel):
             "example": {
                 "semester_number": 5,
                 "academic_year": "2024-25",
+                "study_hours": 4.5,
                 "subjects": [
                     {
                         "subject_code": "CSIT301",
@@ -75,6 +74,7 @@ class AddScoresRequest(BaseModel):
 class ProfileCreateRequest(BaseModel):
     name: str = Field(..., min_length=1)
     roll_number: str = Field(..., min_length=1)
+    seat_number: Optional[str] = Field(None, pattern="^[0-9]{6}$", description="6-digit seat number")
     branch: str = Field(default="IT")
     admission_year: int = Field(..., ge=2010, le=2030)
     email: Optional[str] = None
@@ -84,11 +84,17 @@ class ProfileCreateRequest(BaseModel):
             "example": {
                 "name": "John Doe",
                 "roll_number": "CSIT/2022/045",
+                "seat_number": "692610",
                 "branch": "IT",
                 "admission_year": 2022,
                 "email": "john@example.com"
             }
         }
+
+
+class UpdateSeatNumberRequest(BaseModel):
+    seat_number: str = Field(..., pattern="^[0-9]{6}$", description="6-digit seat number")
+    semester: Optional[int] = Field(None, ge=1, le=8)
 
 
 # ==================== Endpoints ====================
@@ -113,6 +119,15 @@ async def get_profile(
                 "user_id": profile.user_id,
                 "name": profile.name,
                 "roll_number": profile.roll_number,
+                "seat_number": profile.current_seat_number,
+                "seat_number_history": [
+                    {
+                        "seat_number": sr.seat_number,
+                        "semester": sr.semester,
+                        "academic_year": sr.academic_year
+                    }
+                    for sr in profile.seat_number_history
+                ],
                 "branch": profile.branch,
                 "admission_year": profile.admission_year,
                 "current_semester": profile.current_semester,
@@ -120,7 +135,9 @@ async def get_profile(
                 "cgpa": profile.cgpa,
                 "total_credits_earned": profile.total_credits_earned,
                 "total_credits_required": profile.total_credits_required,
-                "email": profile.email
+                "email": profile.email,
+                "marks_synced": profile.marks_synced_at is not None,
+                "study_hours": profile.study_hours
             }
         }
     except HTTPException:
@@ -154,10 +171,12 @@ async def create_profile(
             "roll_number": profile.roll_number,
             "branch": profile.branch,
             "admission_year": profile.admission_year,
+            "marks_synced": profile.marks_synced_at is not None,
             "profile": {
                 "user_id": profile.user_id,
                 "name": profile.name,
                 "roll_number": profile.roll_number,
+                "seat_number": profile.current_seat_number,
                 "branch": profile.branch,
                 "admission_year": profile.admission_year,
                 "current_semester": profile.current_semester,
@@ -166,6 +185,38 @@ async def create_profile(
         }
     except Exception as e:
         logger.error(f"Error creating profile: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+
+
+@router.put("/profile/seat-number")
+async def update_seat_number(
+    request: UpdateSeatNumberRequest = Body(...),
+    current_user: FirebaseUser = Depends(get_current_user)
+):
+    """Update student's seat number"""
+    try:
+        service = AcademicService()
+        profile = await service.update_seat_number(
+            current_user, 
+            request.seat_number,
+            request.semester
+        )
+        
+        return {
+            "message": "Seat number updated successfully",
+            "seat_number": request.seat_number,
+            "marks_synced": profile.marks_synced_at is not None
+        }
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e)
+        )
+    except Exception as e:
+        logger.error(f"Error updating seat number: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
@@ -184,11 +235,13 @@ async def add_scores(
         # Convert Pydantic models to dicts
         subjects_data = [s.model_dump() for s in request.subjects]
 
+        # Include study hours in the service call
         result = await service.add_semester_scores(
             current_user,
             request.semester_number,
             request.academic_year,
-            subjects_data
+            subjects_data,
+            study_hours=request.study_hours  # Pass study hours if your service supports it
         )
 
         return {
@@ -210,17 +263,22 @@ async def add_scores(
 
 @router.get("/scores")
 async def get_scores(
-    semester_number: Optional[int] = None,
+    semester_number: Optional[int] = Query(None),
     current_user: FirebaseUser = Depends(get_current_user)
 ):
     """Get subject scores"""
     try:
         service = AcademicService()
         scores = await service.get_semester_scores(current_user, semester_number)
+        
+        # Get study hours if available
+        profile = await service.get_student_profile(current_user)
+        study_hours = profile.study_hours if profile else None
 
         return {
             "semester_number": semester_number,
             "count": len(scores),
+            "study_hours": study_hours,
             "scores": [
                 {
                     "subject_code": s.subject_code,
@@ -331,6 +389,7 @@ async def get_academic_summary(
             "user_id": profile.user_id,
             "name": profile.name,
             "roll_number": profile.roll_number,
+            "seat_number": profile.current_seat_number,
             "branch": profile.branch,
             "admission_year": profile.admission_year,
             "current_semester": profile.current_semester,
@@ -441,7 +500,6 @@ async def get_available_subjects_for_semester(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e)
         )
-# Add these new endpoints at the end of the file
 
 # ==================== SUBJECTS ENDPOINTS ====================
 
