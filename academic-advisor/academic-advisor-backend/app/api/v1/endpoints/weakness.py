@@ -409,19 +409,39 @@ async def get_weakness_summary(
 
 
 # ════════════════════════════════════════════════════════════════
-#  INTEREST MANAGEMENT ENDPOINTS
+#  INTEREST MANAGEMENT ENDPOINTS — ✅ FIXED
 # ════════════════════════════════════════════════════════════════
 
 
 @router.post("/{student_id}/interests")
 async def save_student_interests(
     student_id: str,
-    interests: List[str] = Body(..., embed=True),
-    interest_levels: Optional[Dict[str, int]] = Body(None, embed=True),
+    request: dict = Body(...),
     current_user: FirebaseUser = Depends(get_current_user)
 ):
     """Save or update student interests for weakness analysis."""
     try:
+        # Extract all fields from raw dict - guaranteed to work
+        interests = request.get("interests", [])
+        interest_levels = request.get("interest_levels", {})
+        career_goals = request.get("career_goals", [])
+        skills = request.get("skills", [])
+        skill_levels = request.get("skill_levels", {})
+        preferred_electives = request.get("preferred_electives", [])
+        honours_minors_interest = request.get("honours_minors_interest", [])
+
+        logger.info(
+            f"📥 POST /{student_id}/interests — "
+            f"interests={len(interests)}, "
+            f"career_goals={len(career_goals)}, "
+            f"skills={len(skills)}, "
+            f"preferred_electives={len(preferred_electives)}, "
+            f"honours={len(honours_minors_interest)}"
+        )
+
+        if not interests:
+            raise HTTPException(status_code=400, detail="interests is required and cannot be empty")
+
         profile = await StudentInterestProfile.find_one(
             {"user_id": student_id}
         )
@@ -430,21 +450,49 @@ async def save_student_interests(
             profile.interests = interests
             if interest_levels:
                 profile.interest_levels = interest_levels
+            if career_goals is not None:
+                profile.career_goals = career_goals
+            if skills is not None:
+                profile.skills = skills
+            if skill_levels:
+                profile.skill_levels = skill_levels
+            if preferred_electives is not None:
+                profile.preferred_electives = preferred_electives
+            if honours_minors_interest is not None:
+                profile.honours_minors_interest = honours_minors_interest
             profile.updated_at = datetime.utcnow()
             await profile.save()
         else:
             profile = StudentInterestProfile(
                 user_id=student_id,
                 interests=interests,
-                interest_levels=interest_levels or {}
+                interest_levels=interest_levels or {},
+                career_goals=career_goals or [],
+                skills=skills or [],
+                skill_levels=skill_levels or {},
+                preferred_electives=preferred_electives or [],
+                honours_minors_interest=honours_minors_interest or [],
             )
             await profile.save()
+
+        logger.info(
+            f"✅ POST saved for {student_id}: "
+            f"interests={len(profile.interests)}, "
+            f"career_goals={len(profile.career_goals)}, "
+            f"skills={len(profile.skills)}"
+        )
 
         return {
             "status": "success",
             "message": "Interests saved successfully",
-            "interests": interests
+            "interests": profile.interests,
+            "career_goals": profile.career_goals,
+            "skills": profile.skills,
+            "preferred_electives": profile.preferred_electives,
+            "honours_minors_interest": profile.honours_minors_interest,
         }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error saving interests: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
@@ -500,17 +548,15 @@ async def get_student_interests(
 @router.put("/{student_id}/interests")
 async def update_student_interests(
     student_id: str,
-    interests: Optional[List[str]] = Body(None),
-    interest_levels: Optional[Dict[str, int]] = Body(None),
-    career_goals: Optional[List[str]] = Body(None),
-    preferred_electives: Optional[List[str]] = Body(None),
-    honours_minors_interest: Optional[List[str]] = Body(None),
-    skills: Optional[List[str]] = Body(None),
-    skill_levels: Optional[Dict[str, int]] = Body(None),
+    request: dict = Body(...),
     current_user: FirebaseUser = Depends(get_current_user)
 ):
     """Update student interest profile with partial data."""
     try:
+        logger.info(
+            f"📥 PUT /{student_id}/interests — raw keys: {list(request.keys())}"
+        )
+
         profile = await StudentInterestProfile.find_one(
             {"user_id": student_id}
         )
@@ -518,37 +564,47 @@ async def update_student_interests(
         if not profile:
             profile = StudentInterestProfile(user_id=student_id)
 
-        if interests is not None:
-            profile.interests = interests
-        if interest_levels is not None:
-            profile.interest_levels = interest_levels
-        if career_goals is not None:
-            profile.career_goals = career_goals
-        if preferred_electives is not None:
-            profile.preferred_electives = preferred_electives
-        if honours_minors_interest is not None:
-            profile.honours_minors_interest = honours_minors_interest
-        if skills is not None:
-            profile.skills = skills
-        if skill_levels is not None:
-            profile.skill_levels = skill_levels
+        if "interests" in request:
+            profile.interests = request["interests"]
+        if "interest_levels" in request:
+            profile.interest_levels = request["interest_levels"]
+        if "career_goals" in request:
+            profile.career_goals = request["career_goals"]
+        if "preferred_electives" in request:
+            profile.preferred_electives = request["preferred_electives"]
+        if "honours_minors_interest" in request:
+            profile.honours_minors_interest = request["honours_minors_interest"]
+        if "skills" in request:
+            profile.skills = request["skills"]
+        if "skill_levels" in request:
+            profile.skill_levels = request["skill_levels"]
 
         profile.updated_at = datetime.utcnow()
         await profile.save()
+
+        logger.info(
+            f"✅ PUT saved for {student_id}: "
+            f"interests={len(profile.interests)}, "
+            f"career_goals={len(profile.career_goals)}, "
+            f"skills={len(profile.skills)}"
+        )
 
         return {
             "status": "success",
             "message": "Interest profile updated",
             "profile": {
                 "interests": getattr(profile, 'interests', []) or [],
+                "interest_levels": getattr(profile, 'interest_levels', {}) or {},
                 "career_goals": getattr(profile, 'career_goals', []) or [],
-                "preferred_electives": getattr(profile, 'preferred_electives', []) or []
+                "skills": getattr(profile, 'skills', []) or [],
+                "skill_levels": getattr(profile, 'skill_levels', {}) or {},
+                "preferred_electives": getattr(profile, 'preferred_electives', []) or [],
+                "honours_minors_interest": getattr(profile, 'honours_minors_interest', []) or [],
             }
         }
     except Exception as e:
         logger.error(f"Error updating interests: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
-
 
 # ════════════════════════════════════════════════════════════════
 #  SYNC INTERESTS ENDPOINTS
@@ -569,6 +625,7 @@ async def sync_interests_from_all_sources(
 
         synced_interests: List[str] = []
         synced_career_goals: List[str] = []
+        synced_skills: List[str] = []
         sources: List[str] = []
 
         # Check StudentProfile first
@@ -583,6 +640,8 @@ async def sync_interests_from_all_sources(
                     )
                 if hasattr(profile, 'career_goals') and profile.career_goals:
                     synced_career_goals = profile.career_goals
+                if hasattr(profile, 'skills') and profile.skills:
+                    synced_skills = profile.skills
         except Exception as e:
             logger.warning(f"Could not check StudentProfile: {e}")
 
@@ -609,6 +668,11 @@ async def sync_interests_from_all_sources(
                         and performance.career_goals
                     ):
                         synced_career_goals = performance.career_goals
+                    if (
+                        hasattr(performance, 'skills')
+                        and performance.skills
+                    ):
+                        synced_skills = performance.skills
             except Exception as e:
                 logger.warning(f"Could not check StudentPerformance: {e}")
 
@@ -622,6 +686,7 @@ async def sync_interests_from_all_sources(
                 "student_id": student_id,
                 "interests": [],
                 "career_goals": [],
+                "skills": [],
                 "sources": [],
                 "sources_checked": ["StudentProfile", "StudentPerformance"],
                 "suggestion": (
@@ -629,7 +694,7 @@ async def sync_interests_from_all_sources(
                 )
             }
 
-        # Save to StudentInterestProfile
+        # Save to StudentInterestProfile — ✅ FIXED: preserve existing fields
         action = "not_saved"
         try:
             interest_profile = await StudentInterestProfile.find_one(
@@ -640,6 +705,8 @@ async def sync_interests_from_all_sources(
                 interest_profile.interests = synced_interests
                 if synced_career_goals:
                     interest_profile.career_goals = synced_career_goals
+                if synced_skills:
+                    interest_profile.skills = synced_skills
                 interest_profile.updated_at = datetime.utcnow()
                 await interest_profile.save()
                 action = "updated"
@@ -647,7 +714,8 @@ async def sync_interests_from_all_sources(
                 interest_profile = StudentInterestProfile(
                     user_id=student_id,
                     interests=synced_interests,
-                    career_goals=synced_career_goals or []
+                    career_goals=synced_career_goals or [],
+                    skills=synced_skills or [],
                 )
                 await interest_profile.save()
                 action = "created"
@@ -656,7 +724,9 @@ async def sync_interests_from_all_sources(
 
         logger.info(
             f"📝 {action.title()} StudentInterestProfile "
-            f"with {len(synced_interests)} interests"
+            f"with {len(synced_interests)} interests, "
+            f"{len(synced_career_goals)} career_goals, "
+            f"{len(synced_skills)} skills"
         )
 
         return {
@@ -664,6 +734,7 @@ async def sync_interests_from_all_sources(
             "action": action,
             "interests": synced_interests,
             "career_goals": synced_career_goals,
+            "skills": synced_skills,
             "sources": sources,
             "synced_at": datetime.utcnow().isoformat(),
             "message": (
@@ -679,6 +750,7 @@ async def sync_interests_from_all_sources(
             "student_id": student_id,
             "interests": [],
             "career_goals": [],
+            "skills": [],
             "sources": []
         }
 
@@ -707,6 +779,7 @@ async def force_sync_interests(
 
         all_interests: set = set()
         all_career_goals: set = set()
+        all_skills: set = set()
         sources_used: List[str] = []
 
         # Get from StudentProfile
@@ -729,6 +802,11 @@ async def force_sync_interests(
                         and profile.career_goals
                     ):
                         all_career_goals.update(profile.career_goals)
+                    if (
+                        hasattr(profile, 'skills')
+                        and profile.skills
+                    ):
+                        all_skills.update(profile.skills)
                     sources_used.append("StudentProfile")
                     logger.info(
                         f"✅ Found {len(profile.interests)} interests "
@@ -760,6 +838,11 @@ async def force_sync_interests(
                         and performance.career_goals
                     ):
                         all_career_goals.update(performance.career_goals)
+                    if (
+                        hasattr(performance, 'skills')
+                        and performance.skills
+                    ):
+                        all_skills.update(performance.skills)
                     sources_used.append("StudentPerformance")
                     logger.info(
                         f"✅ Found {len(performance.interests)} interests "
@@ -775,6 +858,7 @@ async def force_sync_interests(
                 "student_id": student_id,
                 "interests": [],
                 "career_goals": [],
+                "skills": [],
                 "sources": [],
                 "sources_checked": (
                     sources_used or ["None - invalid source specified"]
@@ -784,8 +868,9 @@ async def force_sync_interests(
 
         interests_list = list(all_interests)
         career_goals_list = list(all_career_goals)
+        skills_list = list(all_skills)
 
-        # Save to StudentInterestProfile
+        # Save to StudentInterestProfile — ✅ FIXED: preserve existing fields
         try:
             interest_profile = await StudentInterestProfile.find_one(
                 {"user_id": student_id}
@@ -794,6 +879,8 @@ async def force_sync_interests(
             if interest_profile:
                 interest_profile.interests = interests_list
                 interest_profile.career_goals = career_goals_list
+                if skills_list:
+                    interest_profile.skills = skills_list
                 interest_profile.updated_at = datetime.utcnow()
                 await interest_profile.save()
                 action = "updated"
@@ -801,7 +888,8 @@ async def force_sync_interests(
                 interest_profile = StudentInterestProfile(
                     user_id=student_id,
                     interests=interests_list,
-                    career_goals=career_goals_list
+                    career_goals=career_goals_list,
+                    skills=skills_list,
                 )
                 await interest_profile.save()
                 action = "created"
@@ -811,7 +899,9 @@ async def force_sync_interests(
 
         logger.info(
             f"📝 Force {action} StudentInterestProfile "
-            f"with {len(interests_list)} interests"
+            f"with {len(interests_list)} interests, "
+            f"{len(career_goals_list)} career_goals, "
+            f"{len(skills_list)} skills"
         )
 
         return {
@@ -820,6 +910,7 @@ async def force_sync_interests(
             "force_source": force_source or "auto",
             "interests": interests_list,
             "career_goals": career_goals_list,
+            "skills": skills_list,
             "sources": sources_used,
             "total_interests": len(interests_list),
             "synced_at": datetime.utcnow().isoformat(),
@@ -836,6 +927,7 @@ async def force_sync_interests(
             "student_id": student_id,
             "interests": [],
             "career_goals": [],
+            "skills": [],
             "sources": []
         }
 
@@ -876,6 +968,18 @@ async def check_interests_sources(
                     getattr(interest_profile, 'career_goals', [])
                     if interest_profile else []
                 ),
+                "skills": (
+                    getattr(interest_profile, 'skills', [])
+                    if interest_profile else []
+                ),
+                "preferred_electives": (
+                    getattr(interest_profile, 'preferred_electives', [])
+                    if interest_profile else []
+                ),
+                "honours_minors_interest": (
+                    getattr(interest_profile, 'honours_minors_interest', [])
+                    if interest_profile else []
+                ),
                 "updated_at": (
                     interest_profile.updated_at.isoformat()
                     if (
@@ -904,6 +1008,11 @@ async def check_interests_sources(
                 "career_goals": (
                     profile.career_goals
                     if profile and hasattr(profile, 'career_goals') and profile.career_goals
+                    else []
+                ),
+                "skills": (
+                    profile.skills
+                    if profile and hasattr(profile, 'skills') and profile.skills
                     else []
                 ),
                 "has_semester_records": (
@@ -948,9 +1057,11 @@ async def check_interests_sources(
 
         # Summary
         all_interests: set = set()
+        all_skills: set = set()
         for source_data in sources.values():
             if isinstance(source_data, dict):
                 all_interests.update(source_data.get("interests", []))
+                all_skills.update(source_data.get("skills", []))
 
         recommended_action = _get_recommended_action(sources)
 
@@ -960,6 +1071,8 @@ async def check_interests_sources(
             "summary": {
                 "total_unique_interests": len(all_interests),
                 "all_interests": list(all_interests),
+                "total_unique_skills": len(all_skills),
+                "all_skills": list(all_skills),
                 "recommended_action": recommended_action
             }
         }
@@ -971,6 +1084,8 @@ async def check_interests_sources(
             "summary": {
                 "total_unique_interests": 0,
                 "all_interests": [],
+                "total_unique_skills": 0,
+                "all_skills": [],
                 "recommended_action": "Error occurred. Please try again."
             },
             "error": str(e)
@@ -1043,7 +1158,7 @@ async def debug_student_data(
         except Exception as e:
             debug_info["latest_analysis"] = {"error": str(e)}
 
-        # Check all interest sources
+        # Check all interest sources — ✅ FIXED: include skills
         try:
             interest_profile = await StudentInterestProfile.find_one(
                 {"user_id": student_id}
@@ -1056,14 +1171,30 @@ async def debug_student_data(
                     "interests": (
                         getattr(interest_profile, 'interests', [])
                         if interest_profile else []
-                    )
+                    ),
+                    "career_goals": (
+                        getattr(interest_profile, 'career_goals', [])
+                        if interest_profile else []
+                    ),
+                    "skills": (
+                        getattr(interest_profile, 'skills', [])
+                        if interest_profile else []
+                    ),
                 },
                 "StudentProfile": {
                     "exists": profile is not None,
                     "interests": (
                         getattr(profile, 'interests', [])
                         if profile else []
-                    )
+                    ),
+                    "career_goals": (
+                        getattr(profile, 'career_goals', [])
+                        if profile else []
+                    ),
+                    "skills": (
+                        getattr(profile, 'skills', [])
+                        if profile else []
+                    ),
                 }
             }
 
@@ -1077,7 +1208,11 @@ async def debug_student_data(
                     "interests": (
                         getattr(performance, 'interests', [])
                         if performance else []
-                    )
+                    ),
+                    "career_goals": (
+                        getattr(performance, 'career_goals', [])
+                        if performance else []
+                    ),
                 }
             except Exception as e:
                 debug_info["interest_sources"]["StudentPerformance"] = {

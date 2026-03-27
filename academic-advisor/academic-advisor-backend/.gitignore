@@ -3,3 +3,6 @@ serviceAccountKey.json
 serviceAccountKey.json
 venv/
 scripts/training_data_sample.csv
+# ML models
+app/ml/models/saved/
+*.joblib

@@ -877,6 +877,63 @@ export const engineeringService = {
     }
   },
 
+    // ============== UPDATE INTEREST PROFILE (✅ NEW) ==============
+
+  /**
+   * Save/update student interest profile.
+   * Uses upsert so it works for both new and existing profiles.
+   * Preserves electives and honours if provided.
+   */
+  async updateInterestProfile(
+    userId: string,
+    data: {
+      interests: string[];
+      career_goals: string[];
+      skills: string[];
+      preferred_electives?: string[];
+      honours_minors_interest?: string[];
+      interest_levels?: Record<string, number>;
+      skill_levels?: Record<string, number>;
+    }
+  ): Promise<{ success: boolean; profile?: InterestProfile }> {
+    try {
+      const payload = {
+        interests: data.interests,
+        career_goals: data.career_goals,
+        skills: data.skills,
+        preferred_electives: data.preferred_electives || [],
+        honours_minors_interest: data.honours_minors_interest || [],
+        interest_levels: data.interest_levels || {},
+        skill_levels: data.skill_levels || {},
+      };
+
+      console.log('📤 Updating interest profile for', userId, payload);
+
+      const response = await apiClient.put(`/weakness/${userId}/interests`, payload);
+      return {
+        success: true,
+        profile: response.data,
+      };
+    } catch (error) {
+      console.error('Failed to update interest profile via PUT:', error);
+
+      // Fallback: try POST if PUT fails (endpoint might only support POST)
+      try {
+        const response = await apiClient.post(`/weakness/${userId}/interests`, {
+          interests: data.interests,
+          career_goals: data.career_goals,
+          skills: data.skills,
+          preferred_electives: data.preferred_electives || [],
+          honours_minors_interest: data.honours_minors_interest || [],
+        });
+        return { success: true, profile: response.data };
+      } catch (fallbackError) {
+        console.error('Fallback POST also failed:', fallbackError);
+        return { success: false };
+      }
+    }
+  },
+
   /**
    * ✅ NEW: Check all interest sources (for debugging)
    */

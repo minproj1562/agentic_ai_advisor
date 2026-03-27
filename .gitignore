@@ -22,3 +22,6 @@ __pycache__/
 .DS_Store
 Thumbs.db
 node_modules
+
+academic-advisor/academic-advisor-backend/app/ml/models/saved/
+*.joblib

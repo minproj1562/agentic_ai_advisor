@@ -31,6 +31,7 @@ from app.models.student_projects import StudentProject, StudentInterestProfile a
 from app.models.elective import Elective
 from app.models.resource import StudyResource
 from app.models.weakness import WeaknessAnalysisResult
+from app.models.weakness import StudentInterestProfile as WeaknessInterestProfile  # ✅ ADD THIS
 from app.models.messages import Message, Conversation
 from app.models.faculty import Faculty
 from app.models.meeting_request import MeetingRequest
@@ -79,7 +80,8 @@ document_models = [
     StudentProfile,
     StudentPerformance,
     StudentProject,
-    ProjectInterestProfile,
+    ProjectInterestProfile,       # collection: student_interest_profiles (from student_projects.py)
+    WeaknessInterestProfile,      # ✅ collection: student_interests (from weakness.py) — THE FIX
     Elective,
     StudyResource,
     WeaknessAnalysisResult,

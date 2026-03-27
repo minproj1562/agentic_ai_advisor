@@ -1,5 +1,5 @@
 // src/services/weakness.service.ts
-// ENHANCED VERSION with Readiness API support
+// FIXED VERSION - saveInterests sends ALL fields, response verification added
 
 import axios, { AxiosInstance } from 'axios';
 import { auth } from './firebase.config';
@@ -136,31 +136,20 @@ export interface ReadinessResponse {
   readiness_level: ReadinessLevel;
   recommendation_type: RecommendationType;
   primary_recommendation: string;
-
-  // Per-category scores
   interest_readiness: number;
   elective_readiness: number;
   honours_readiness: number;
-
-  // Breakdowns
   interest_breakdown: Record<string, number>;
   elective_breakdown: Record<string, number>;
   honours_breakdown: Record<string, number>;
-
-  // Flags
   has_critical_weakness: boolean;
   has_blockers: boolean;
   is_first_semester: boolean;
-
-  // Action items
   subjects_to_focus: string[];
   estimated_preparation_time: string;
   detailed_recommendations: string[];
-
-  // Weaknesses & study plan
   weaknesses: ReadinessWeakness[];
   study_plan?: StudyPlan | null;
-
   analysis_timestamp: string;
 }
 
@@ -240,22 +229,19 @@ class WeaknessService {
   private readinessApi: AxiosInstance;
 
   constructor() {
-    // Weakness API
     this.api = axios.create({
       baseURL: `${API_BASE_URL}/api/v1/weakness`,
       timeout: 30000,
       headers: { 'Content-Type': 'application/json' },
     });
 
-    // Readiness API
     this.readinessApi = axios.create({
       baseURL: `${API_BASE_URL}/api/v1/readiness`,
       timeout: 30000,
       headers: { 'Content-Type': 'application/json' },
     });
 
-    // Add auth interceptors to both
-    [this.api, this.readinessApi].forEach(client => {
+    [this.api, this.readinessApi].forEach((client) => {
       client.interceptors.request.use(
         async (config) => {
           try {
@@ -426,10 +412,9 @@ class WeaknessService {
     if (electives?.length) params.electives = electives.join(',');
     if (honours?.length) params.honours = honours.join(',');
 
-    const response = await this.readinessApi.get<ReadinessResponse>(
-      `/${studentId}`,
-      { params }
-    );
+    const response = await this.readinessApi.get<ReadinessResponse>(`/${studentId}`, {
+      params,
+    });
     return response.data;
   }
 
@@ -438,45 +423,175 @@ class WeaknessService {
     return response.data;
   }
 
-  async getElectiveReadiness(studentId: string, electiveCode: string): Promise<ElectiveReadiness> {
+  async getElectiveReadiness(
+    studentId: string,
+    electiveCode: string
+  ): Promise<ElectiveReadiness> {
     const response = await this.readinessApi.get<ElectiveReadiness>(
       `/${studentId}/for-elective/${electiveCode}`
     );
     return response.data;
   }
 
-  async getHonoursReadiness(studentId: string, programme: string): Promise<HonoursReadiness> {
+  async getHonoursReadiness(
+    studentId: string,
+    programme: string
+  ): Promise<HonoursReadiness> {
     const response = await this.readinessApi.get<HonoursReadiness>(
       `/${studentId}/for-honours/${encodeURIComponent(programme)}`
     );
     return response.data;
   }
 
-  // ============== Interest Management ==============
+  // ============== Interest Management — ✅ FIXED ==============
 
+  /**
+   * ✅ FIXED: Now sends ALL fields to the POST endpoint.
+   *
+   * The backend POST endpoint has been updated to accept:
+   *   interests, career_goals, skills, interest_levels,
+   *   skill_levels, preferred_electives, honours_minors_interest
+   *
+   * Previously only `interests` and `interest_levels` were sent/accepted,
+   * causing career_goals and skills to be silently dropped.
+   */
   async saveInterests(
     studentId: string,
     interests: string[],
+    careerGoals?: string[],
+    skills?: string[],
     interestLevels?: Record<string, number>
   ): Promise<any> {
-    const response = await this.api.post(`/${studentId}/interests`, {
-      interests,
-      interest_levels: interestLevels,
+    const payload: Record<string, any> = {
+      interests: interests || [],
+      career_goals: careerGoals || [],
+      skills: skills || [],
+    };
+
+    if (interestLevels && Object.keys(interestLevels).length > 0) {
+      payload.interest_levels = interestLevels;
+    }
+
+    console.log('📤 weakness.service saveInterests POST payload:', {
+      endpoint: `POST /weakness/${studentId}/interests`,
+      interests: payload.interests.length,
+      career_goals: payload.career_goals.length,
+      skills: payload.skills.length,
     });
-    return response.data;
+
+    const response = await this.api.post(`/${studentId}/interests`, payload);
+    const data = response.data;
+
+    // ✅ Verify the response includes all fields we sent
+    console.log('📥 weakness.service saveInterests response:', {
+      saved_interests: data.interests?.length ?? '?',
+      saved_career_goals: data.career_goals?.length ?? '?',
+      saved_skills: data.skills?.length ?? '?',
+    });
+
+    if (data.career_goals === undefined && (careerGoals?.length ?? 0) > 0) {
+      console.error(
+        '❌ Backend POST /interests did NOT return career_goals. ' +
+        'The backend endpoint may need updating. ' +
+        'Expected career_goals in response but got undefined.'
+      );
+    }
+    if (data.skills === undefined && (skills?.length ?? 0) > 0) {
+      console.error(
+        '❌ Backend POST /interests did NOT return skills. ' +
+        'The backend endpoint may need updating. ' +
+        'Expected skills in response but got undefined.'
+      );
+    }
+
+    return data;
   }
 
+  /**
+   * Get student interest profile — returns ALL fields.
+   * ✅ Returns empty profile on 404 instead of throwing.
+   */
   async getInterests(studentId: string): Promise<InterestProfile> {
-    const response = await this.api.get<InterestProfile>(`/${studentId}/interests`);
-    return response.data;
+    try {
+      const response = await this.api.get<InterestProfile>(`/${studentId}/interests`);
+      const data = response.data;
+
+      // Normalize response to guarantee all fields exist
+      return {
+        student_id: data.student_id || studentId,
+        interests: data.interests || [],
+        interest_levels: data.interest_levels || {},
+        career_goals: data.career_goals || [],
+        preferred_electives: data.preferred_electives || [],
+        honours_minors_interest: data.honours_minors_interest || [],
+        skills: data.skills || [],
+        skill_levels: data.skill_levels || {},
+      };
+    } catch (error: any) {
+      if (error.response?.status === 404) {
+        console.log('No interest profile found, returning empty');
+        return {
+          student_id: studentId,
+          interests: [],
+          interest_levels: {},
+          career_goals: [],
+          preferred_electives: [],
+          honours_minors_interest: [],
+          skills: [],
+          skill_levels: {},
+        };
+      }
+      throw error;
+    }
   }
 
+  /**
+   * ✅ FIXED: Update interests with explicit logging to verify what's sent/received.
+   * Sends ALL fields in the PUT payload.
+   */
   async updateInterests(
     studentId: string,
     updates: Partial<Omit<InterestProfile, 'student_id'>>
   ): Promise<any> {
-    const response = await this.api.put(`/${studentId}/interests`, updates);
-    return response.data;
+    const payload = {
+      interests: updates.interests || [],
+      career_goals: updates.career_goals || [],
+      skills: updates.skills || [],
+      interest_levels: updates.interest_levels || {},
+      skill_levels: updates.skill_levels || {},
+      preferred_electives: updates.preferred_electives || [],
+      honours_minors_interest: updates.honours_minors_interest || [],
+    };
+
+    console.log('📤 weakness.service updateInterests PUT payload:', {
+      endpoint: `PUT /weakness/${studentId}/interests`,
+      interests: payload.interests.length,
+      career_goals: payload.career_goals.length,
+      skills: payload.skills.length,
+      preferred_electives: payload.preferred_electives.length,
+      honours_minors_interest: payload.honours_minors_interest.length,
+    });
+
+    try {
+      const response = await this.api.put(`/${studentId}/interests`, payload);
+      const data = response.data;
+
+      console.log('✅ weakness.service updateInterests response:', {
+        status: data.status,
+        profile_interests: data.profile?.interests?.length ?? '?',
+        profile_career_goals: data.profile?.career_goals?.length ?? '?',
+        profile_skills: data.profile?.skills?.length ?? '?',
+      });
+
+      return data;
+    } catch (error: any) {
+      console.error('❌ weakness.service updateInterests PUT failed:', {
+        status: error.response?.status,
+        data: error.response?.data,
+        message: error.message,
+      });
+      throw error;
+    }
   }
 
   async syncInterests(studentId: string): Promise<any> {
@@ -487,17 +602,23 @@ class WeaknessService {
   // ============== Available Options ==============
 
   async getAvailableInterests(): Promise<AvailableInterest[]> {
-    const response = await this.api.get<{ interests: AvailableInterest[] }>('/options/interests');
+    const response = await this.api.get<{ interests: AvailableInterest[] }>(
+      '/options/interests'
+    );
     return response.data.interests;
   }
 
   async getAvailableElectives(): Promise<AvailableElective[]> {
-    const response = await this.api.get<{ electives: AvailableElective[] }>('/options/electives');
+    const response = await this.api.get<{ electives: AvailableElective[] }>(
+      '/options/electives'
+    );
     return response.data.electives;
   }
 
   async getAvailableHonours(): Promise<AvailableHonours[]> {
-    const response = await this.api.get<{ programmes: AvailableHonours[] }>('/options/honours');
+    const response = await this.api.get<{ programmes: AvailableHonours[] }>(
+      '/options/honours'
+    );
     return response.data.programmes;
   }
 }
