@@ -6,3 +6,9 @@ scripts/training_data_sample.csv
 # ML models
 app/ml/models/saved/
 *.joblib
+
+
+# Data / Excel files
+academic-advisor/academic-advisor-backend/*.xlsx
+academic-advisor/academic-advisor-backend/scripts/training_data/*.csv
+academic-advisor/academic-advisor-backend/scripts/training_data/*.json

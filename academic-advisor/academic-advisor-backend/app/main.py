@@ -16,6 +16,7 @@ import firebase_admin
 from firebase_admin import credentials
 from datetime import datetime
 import os
+from app.models.pending_marks import PendingStudentMarks
 
 from app.config import settings
 from app.api.v1.api import api_router
@@ -95,6 +96,8 @@ document_models = [
     TrainingDataPoint,
     SubjectRequirementMap,
     ReadinessResult,
+    PendingStudentMarks,  # <-- ADD THIS LINE
+
     
     # Chatbot models
     ChatSession,

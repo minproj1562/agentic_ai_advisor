@@ -1,8 +1,8 @@
 # academic-advisor-backend/app/services/bulk_marks_service.py
-"""
-Bulk Marks Upload Service — Mumbai University Marksheet Format
+""" Bulk Marks Upload Service — Mumbai University Marksheet Format
 ══════════════════════════════════════════════════════════════
-Template columns:  Sr.No | Seat No | Name | Subject(CA|MSE|ESE|TOT) | ... | Total | SGPI | Result
+Template columns:
+  Sr.No | Seat No | Name | Subject(CA|MSE|ESE|TOT) | ... | Total | SGPI | Result
 Mapping:           CA → internal_marks,  MSE+ESE → external_marks
 """
 
@@ -10,6 +10,8 @@ import io, csv, re, uuid, json, logging
 from datetime import datetime
 from typing import Dict, List, Any, Optional, Tuple
 from dataclasses import dataclass, field as dc_field
+import zipfile
+from typing import Tuple
 
 import pandas as pd
 from openpyxl import Workbook, load_workbook
@@ -27,6 +29,7 @@ from app.core.curriculum import (
 )
 
 logger = logging.getLogger(__name__)
+
 
 # ══════════════════════════════════════════════════════════
 # 1.  COMPONENT DEFINITIONS  (Mumbai University scheme)
@@ -1256,12 +1259,16 @@ class BulkMarksService:
     # 5.5  SAVE
     # ─────────────────────────────────────────────────
 
+# ═══════════════════════════════════════════════════════════
+# In bulk_marks_service.py — REPLACE the save() method with this:
+# ═══════════════════════════════════════════════════════════
+
     async def save(
         self,
         parsed: List[ParsedStudentMarks],
         semester: int, academic_year: str, branch: str,
         overwrite: bool = True,
-        admin_email: str = None,  # Add admin email parameter
+        admin_email: str = None,
     ) -> UploadResult:
         result = UploadResult(
             upload_id=str(uuid.uuid4()),
@@ -1271,29 +1278,27 @@ class BulkMarksService:
         result.csv_data = self.to_csv(parsed)
 
         for stu in parsed:
+            # ═══════════════════════════════════════════
+            # ALWAYS save/update pending marks as backup
+            # (even for matched students)
+            # ═══════════════════════════════════════════
+            try:
+                await self._save_pending_marks(
+                    stu, semester, academic_year, branch, admin_email
+                )
+            except Exception as e:
+                logger.warning(f"Backup pending save failed for {stu.roll_number}: {e}")
+
             profile = await self._find_profile(stu.roll_number)
-            
+
             if profile is None:
-                # NEW: Save to pending marks instead of skipping
                 result.unmatched_students += 1
                 result.unmatched_roll_numbers.append(stu.roll_number)
-                
-                # Save as pending marks
-                try:
-                    await self._save_pending_marks(
-                        stu, semester, academic_year, branch, admin_email
-                    )
-                    result.created_students += 1  # Track as created
-                    logger.info(f"Saved pending marks for unregistered student: {stu.roll_number}")
-                except Exception as e:
-                    result.failed_updates += 1
-                    result.errors.append({
-                        "roll_number": stu.roll_number, 
-                        "error": f"Failed to save pending marks: {str(e)}"
-                    })
+                result.created_students += 1
+                logger.info(f"Saved pending marks for unregistered student: {stu.roll_number}")
                 continue
 
-            # Process matched students
+            # ── Process matched students ──
             result.matched_students += 1
 
             if stu.errors:
@@ -1357,6 +1362,7 @@ class BulkMarksService:
                     profile.semester_records.append(sem_rec)
                     profile.semester_records.sort(key=lambda x: x.semester_number)
 
+                # Recalculate CGPA
                 agp = ac = ace = 0.0
                 for sr in profile.semester_records:
                     if sr.is_complete and sr.total_credits > 0:
@@ -1367,19 +1373,40 @@ class BulkMarksService:
                 profile.cgpa = round(agp / ac, 2) if ac > 0 else 0.0
                 profile.total_credits_earned = int(ace)
                 profile.last_updated = datetime.now()
-                await profile.save()
+                profile.marks_synced_at = datetime.now()
+
+                # ═══════════════════════════════════════════
+                # FIX: Also reset pending_marks_checked so
+                # the student's next login picks up changes
+                # ═══════════════════════════════════════════
+                profile.pending_marks_checked = False
+
+                await profile.replace()
 
                 result.updated_students += 1
                 result.matched_details.append({
                     "roll_number": stu.roll_number,
                     "student_name": profile.name,
+                    "profile_name": profile.name,
                     "user_id": profile.user_id,
-                    "sgpa": sgpa,
-                    "updated_cgpa": profile.cgpa,
-                    "subjects_count": len(processed),
+                    "branch": profile.branch,
+                    "current_cgpa": profile.cgpa,
+                    "preview_sgpa": sgpa,
                     "credits_earned": int(ce),
+                    "total_credits": int(tc),
+                    "subjects_count": len(processed),
+                    "subjects": stu.subjects,
+                    "errors": [],
+                    "warnings": stu.warnings,
+                    "has_errors": False,
+                    "updated_cgpa": profile.cgpa,
                     "status": "updated",
                 })
+
+                logger.info(
+                    f"✅ Updated marks for {stu.roll_number}: "
+                    f"Sem {semester} SGPA={sgpa}, CGPA={profile.cgpa}"
+                )
 
             except Exception as e:
                 result.failed_updates += 1
@@ -1388,24 +1415,14 @@ class BulkMarksService:
 
         return result
 
+
     # ─────────────────────────────────────────────────
     # 5.6  HELPERS
     # ─────────────────────────────────────────────────
 
-    @staticmethod
-    async def _find_profile(roll_number: str) -> Optional[StudentProfile]:
-        p = await StudentProfile.find_one(StudentProfile.roll_number == roll_number)
-        if p:
-            return p
-        p = await StudentProfile.find_one({
-            "roll_number": {"$regex": f"^{re.escape(roll_number)}$", "$options": "i"}
-        })
-        if p:
-            return p
-        hits = await StudentProfile.find({
-            "roll_number": {"$regex": re.escape(roll_number), "$options": "i"}
-        }).to_list()
-        return hits[0] if len(hits) == 1 else None
+# ═══════════════════════════════════════════════════════════
+# In bulk_marks_service.py — REPLACE _save_pending_marks with this:
+# ═══════════════════════════════════════════════════════════
 
     async def _save_pending_marks(
         self,
@@ -1414,14 +1431,15 @@ class BulkMarksService:
         academic_year: str,
         branch: str,
         admin_email: str = None,
-        seat_number: Optional[str] = None,  # Add seat number parameter
+        seat_number: Optional[str] = None,
     ) -> None:
-        """Save marks for students who haven't registered yet"""
-        
-        # Calculate grades
+        """
+        Save marks to pending_student_marks collection.
+        FIXED: Saves old linked_user_id before resetting so profile flag gets cleared.
+        """
         processed_subjects = []
         tgp = tc = ce = 0.0
-        
+
         for sd in stu.subjects:
             ss = SubjectScore(
                 subject_code=sd["subject_code"],
@@ -1441,44 +1459,40 @@ class BulkMarksService:
             if sd["grade"] != "F":
                 tgp += sd["grade_points"] * c
                 ce += c
-        
+
         sgpa = round(tgp / tc, 2) if tc > 0 else 0.0
-        
-        # Extract admission year from roll number if possible
-        # Assuming format like "2022ITXXXXX"
+
+        # Extract admission year from roll number
         admission_year_from_roll = None
         if stu.roll_number and len(stu.roll_number) >= 4:
             try:
                 admission_year_from_roll = int(stu.roll_number[:4])
             except ValueError:
                 pass
-        
-        # Check if pending marks already exist
-        existing = await PendingStudentMarks.find_one({
-            "roll_number": stu.roll_number,
-            "semester_number": semester
-        })
-        
+
         identifier = stu.roll_number
-        detected_seat_number = None
-        if identifier and len(identifier) == 6 and identifier.isdigit():
-           detected_seat_number = identifier
-        # Check if we can find a student by this seat number
-           profile = await StudentProfile.find_one(StudentProfile.current_seat_number == identifier)
-           if profile:
-            # Use the student's roll number for pending marks
-                identifier = profile.roll_number
-    
-    # Check if pending marks already exist
-        existing = await PendingStudentMarks.find_one({
-            "$or": [
-                {"roll_number": stu.roll_number, "semester_number": semester},
-                {"seat_number": detected_seat_number, "semester_number": semester} if detected_seat_number else {"_id": None}
-           ]
-       })
-    
+        detected_seat_number = seat_number
+        if identifier and len(identifier) >= 5 and len(identifier) <= 6 and identifier.isdigit():
+            detected_seat_number = identifier[-5:]
+
+        # ── Find existing pending marks ──
+        or_conditions = [
+            {"roll_number": stu.roll_number, "semester_number": semester}
+        ]
+        if detected_seat_number:
+            or_conditions.append(
+                {"seat_number": detected_seat_number, "semester_number": semester}
+            )
+
+        existing = await PendingStudentMarks.find_one({"$or": or_conditions})
+
         if existing:
-        # Update existing
+            # ═══════════════════════════════════════════
+            # FIX: Save old linked info BEFORE resetting
+            # ═══════════════════════════════════════════
+            old_linked_user_id = existing.linked_user_id
+            old_was_linked = existing.linked_to_profile
+
             existing.subjects = processed_subjects
             existing.sgpa = sgpa
             existing.total_credits = int(tc)
@@ -1486,26 +1500,63 @@ class BulkMarksService:
             existing.academic_year = academic_year
             existing.upload_timestamp = datetime.now()
             existing.uploaded_by = admin_email or "admin"
+            existing.linked_to_profile = False
+            existing.linked_user_id = None
             if detected_seat_number:
                 existing.seat_number = detected_seat_number
-            await existing.save()
+            await existing.replace()
+
+            # ═══════════════════════════════════════════
+            # FIX: Reset the OLD linked profile's flag
+            # using the saved value (not the reset one)
+            # ═══════════════════════════════════════════
+            if old_was_linked and old_linked_user_id:
+                try:
+                    linked_profile = await StudentProfile.find_one(
+                        StudentProfile.user_id == old_linked_user_id
+                    )
+                    if linked_profile:
+                        linked_profile.pending_marks_checked = False
+                        await linked_profile.replace()
+                        logger.info(
+                            f"Reset pending_marks_checked for previously linked user: "
+                            f"{old_linked_user_id}"
+                        )
+                except Exception as e:
+                    logger.warning(f"Could not reset linked profile flag: {e}")
+
+            # Also try to find and reset by roll number
+            try:
+                profile_by_roll = await StudentProfile.find_one(
+                    StudentProfile.roll_number == stu.roll_number
+                )
+                if profile_by_roll:
+                    profile_by_roll.pending_marks_checked = False
+                    await profile_by_roll.replace()
+            except Exception as e:
+                logger.warning(f"Could not reset profile by roll: {e}")
+
+            logger.info(f"Updated pending marks for {stu.roll_number} sem {semester}")
+
         else:
-        # Create new
+            # Create new pending marks entry
             pending = PendingStudentMarks(
-            roll_number=identifier,
-            seat_number=detected_seat_number,
-            student_name=stu.student_name,
-            branch=branch,
-            admission_year=admission_year_from_roll or 2022,
-            semester_number=semester,
-            academic_year=academic_year,
-            subjects=processed_subjects,
-            sgpa=sgpa,
-            total_credits=int(tc),
-            credits_earned=int(ce),
-            uploaded_by=admin_email or "admin"
-        )
-        await pending.save()    
+                roll_number=identifier,
+                seat_number=detected_seat_number,
+                student_name=stu.student_name,
+                branch=branch,
+                admission_year=admission_year_from_roll or 2022,
+                semester_number=semester,
+                academic_year=academic_year,
+                subjects=processed_subjects,
+                sgpa=sgpa,
+                total_credits=int(tc),
+                credits_earned=int(ce),
+                uploaded_by=admin_email or "admin",
+            )
+            await pending.insert()
+            logger.info(f"Created pending marks for {stu.roll_number} sem {semester}")
+
     # ─────────────────────────────────────────────────
     # 5.7  TEMPLATE WITH PRE-FILLED STUDENTS
     # ─────────────────────────────────────────────────
@@ -1623,38 +1674,750 @@ class BulkMarksService:
             for s in students
         ]
 
-@staticmethod
-async def _find_profile(identifier: str) -> Optional[StudentProfile]:
-    """Find profile by roll number OR seat number"""
-    # Try exact roll number match
-    p = await StudentProfile.find_one(StudentProfile.roll_number == identifier)
-    if p:
-        return p
+# ═══════════════════════════════════════════════════════════
+# In bulk_marks_service.py — REPLACE _find_profile with this:
+# ═══════════════════════════════════════════════════════════
+
+    @staticmethod
+    async def _find_profile(identifier: str) -> Optional[StudentProfile]:
+        """
+        Find profile by roll number OR seat number.
+        FIXED: Prefer profiles with real Firebase UIDs over placeholders.
+        """
+        if not identifier or not identifier.strip():
+            return None
+
+        identifier = identifier.strip()
+
+        # ── 1. Exact roll number match ──
+        profiles = await StudentProfile.find(
+            StudentProfile.roll_number == identifier
+        ).to_list()
+
+        if profiles:
+            # Prefer profile with real user_id (not placeholder from add_students_batch)
+            real = [p for p in profiles if not p.user_id.startswith("pending_")]
+            if real:
+                return real[0]
+            return profiles[0]
+
+        # ── 2. Case-insensitive roll number match ──
+        profiles = await StudentProfile.find({
+            "roll_number": {"$regex": f"^{re.escape(identifier)}$", "$options": "i"}
+        }).to_list()
+
+        if profiles:
+            real = [p for p in profiles if not p.user_id.startswith("pending_")]
+            if real:
+                return real[0]
+            return profiles[0]
+
+        # ── 3. Seat number match (current) ──
+        p = await StudentProfile.find_one(
+            StudentProfile.current_seat_number == identifier
+        )
+        if p:
+            return p
+
+        # ── 4. Seat number match (history) ──
+        p = await StudentProfile.find_one({
+            "seat_number_history.seat_number": identifier
+        })
+        if p:
+            return p
+
+        # ── 5. Fuzzy roll number match (single result only) ──
+        hits = await StudentProfile.find({
+            "roll_number": {"$regex": re.escape(identifier), "$options": "i"}
+        }).to_list()
+        return hits[0] if len(hits) == 1 else None
+
+    async def generate_all_semester_templates(
+        self,
+        branch: str,
+        academic_year: str,
+        admission_year: int,
+        semesters: Optional[List[int]] = None,
+    ) -> io.BytesIO:
+        """
+        Generate templates for multiple semesters as a ZIP file.
+        Each template is pre-filled with student data.
+        """
+        if semesters is None:
+            # Determine which semesters to generate based on admission year
+            current_date = datetime.now()
+            current_year = current_date.year
+            current_month = current_date.month
+
+            # Calculate current semester for this batch
+            if current_month >= 7:
+                year_diff = current_year - admission_year
+                current_sem = (year_diff * 2) + 1
+            else:
+                year_diff = current_year - admission_year
+                current_sem = year_diff * 2
+
+            # Generate templates for all semesters up to and including current
+            semesters = list(range(1, min(current_sem + 1, 9)))
+
+        # Fetch students for this branch and admission year
+        students = await self.get_students_for_template(branch, admission_year)
+
+        # Create ZIP file in memory
+        zip_buffer = io.BytesIO()
+
+        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+            for sem in semesters:
+                try:
+                    # Check if subjects exist for this semester
+                    subjects = get_semester_subjects(sem, admission_year)
+                    if not subjects:
+                        logger.warning(f"No subjects for semester {sem}, skipping")
+                        continue
+
+                    # Generate template for this semester
+                    template_buf = await self.generate_template_with_students(
+                        semester=sem,
+                        branch=branch,
+                        academic_year=academic_year,
+                        admission_year=admission_year,
+                        prefill_branch=branch,
+                    )
+
+                    # Add to ZIP
+                    filename = f"marks_sem{sem}_{branch}_{academic_year.replace('-', '_')}.xlsx"
+                    zip_file.writestr(filename, template_buf.read())
+
+                    logger.info(f"Generated template for semester {sem}")
+
+                except Exception as e:
+                    logger.error(f"Error generating template for semester {sem}: {e}")
+                    continue
+
+        zip_buffer.seek(0)
+        return zip_buffer
+
+    async def get_students_summary(
+        self,
+        branch: Optional[str] = None,
+        admission_year: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """
+        Get summary of students grouped by branch and admission year.
+        """
+        pipeline = []
+
+        # Match stage
+        match_stage: Dict[str, Any] = {}
+        if branch:
+            match_stage["branch"] = {"$regex": f"^{branch}$", "$options": "i"}
+        if admission_year:
+            match_stage["admission_year"] = admission_year
+
+        if match_stage:
+            pipeline.append({"$match": match_stage})
+
+        # Group by branch and admission year
+        pipeline.append({
+            "$group": {
+                "_id": {
+                    "branch": "$branch",
+                    "admission_year": "$admission_year"
+                },
+                "count": {"$sum": 1},
+                "students": {
+                    "$push": {
+                        "roll_number": "$roll_number",
+                        "name": "$name",
+                        "current_semester": "$current_semester",
+                        "cgpa": "$cgpa"
+                    }
+                }
+            }
+        })
+
+        # Sort
+        pipeline.append({"$sort": {"_id.admission_year": -1, "_id.branch": 1}})
+
+        # Execute aggregation
+        from motor.motor_asyncio import AsyncIOMotorClient
+        from app.core.config import settings
+
+        client = AsyncIOMotorClient(settings.MONGODB_URL)
+        db = client[settings.DATABASE_NAME]
+        collection = db["student_profiles"]
+
+        cursor = collection.aggregate(pipeline)
+        results = await cursor.to_list(length=100)
+
+        # Format response
+        groups = []
+        total_students = 0
+
+        for doc in results:
+            group = {
+                "branch": doc["_id"]["branch"],
+                "admission_year": doc["_id"]["admission_year"],
+                "count": doc["count"],
+                "students": doc["students"][:10]  # Limit to 10 for preview
+            }
+            groups.append(group)
+            total_students += doc["count"]
+
+        client.close()
+
+        return {
+            "total_students": total_students,
+            "groups": groups,
+            "filters": {
+                "branch": branch,
+                "admission_year": admission_year
+            }
+        }
+
+    async def add_students_batch(
+        self,
+        students_data: List[Dict[str, Any]],
+        branch: str,
+        admission_year: int,
+    ) -> Dict[str, Any]:
+        """
+        Add multiple students to the database.
+        Returns summary of added/skipped students.
+        """
+        added = []
+        skipped = []
+        errors = []
+
+        for data in students_data:
+            roll_number = data.get("roll_number", "").strip()
+            name = data.get("name", "").strip()
+
+            if not roll_number or not name:
+                errors.append({
+                    "data": data,
+                    "error": "Missing roll_number or name"
+                })
+                continue
+
+            # Check if student already exists
+            existing = await StudentProfile.find_one(
+                StudentProfile.roll_number == roll_number
+            )
+
+            if existing:
+                skipped.append({
+                    "roll_number": roll_number,
+                    "name": name,
+                    "reason": "Already exists"
+                })
+                continue
+
+            try:
+                # Calculate current semester
+                current_date = datetime.now()
+                current_year = current_date.year
+                current_month = current_date.month
+
+                if current_month >= 7:
+                    academic_year = f"{current_year}-{str(current_year + 1)[2:]}"
+                    year_diff = current_year - admission_year
+                    semester = (year_diff * 2) + 1
+                else:
+                    academic_year = f"{current_year - 1}-{str(current_year)[2:]}"
+                    year_diff = current_year - admission_year
+                    semester = year_diff * 2
+
+                semester = max(1, min(semester, 8))
+
+                # Create a placeholder user_id (will be updated when student registers)
+                placeholder_user_id = f"pending_{roll_number}_{datetime.now().strftime('%Y%m%d%H%M%S')}"
+
+                # Create student profile
+                profile = StudentProfile(
+                    user_id=placeholder_user_id,
+                    name=name,
+                    roll_number=roll_number,
+                    current_seat_number=data.get("seat_number"),
+                    branch=branch,
+                    admission_year=admission_year,
+                    email=data.get("email", ""),
+                    current_semester=semester,
+                    current_academic_year=academic_year,
+                    cgpa=0.0,
+                    total_credits_earned=0,
+                    total_credits_required=160,
+                    semester_records=[],
+                    skills=[],
+                    interests=[],
+                    career_goals=[],
+                    created_at=datetime.now(),
+                    last_updated=datetime.now(),
+                )
+
+                await profile.insert()
+
+                added.append({
+                    "roll_number": roll_number,
+                    "name": name,
+                    "semester": semester,
+                    "user_id": placeholder_user_id
+                })
+
+            except Exception as e:
+                errors.append({
+                    "roll_number": roll_number,
+                    "name": name,
+                    "error": str(e)
+                })
+
+        return {
+            "total_processed": len(students_data),
+            "added": len(added),
+            "skipped": len(skipped),
+            "errors": len(errors),
+            "added_students": added,
+            "skipped_students": skipped,
+            "error_details": errors
+        }
+
+    async def export_students_to_excel(
+        self,
+        branch: str,
+        admission_year: Optional[int] = None,
+    ) -> io.BytesIO:
+        """
+        Export student list to Excel for reference.
+        """
+        students = await self.get_students_for_template(branch, admission_year)
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Students"
+
+        # Headers
+        headers = [
+            "Sr. No", "Roll Number", "Name", "Branch", "Admission Year",
+            "Current Semester", "CGPA", "Credits Earned", "Email"
+        ]
+
+        for i, h in enumerate(headers, 1):
+            cell = ws.cell(row=1, column=i, value=h)
+            cell.font = Font(bold=True, color="FFFFFF")
+            cell.fill = PatternFill("solid", fgColor="2F5496")
+            cell.border = _BORDER
+
+        # Data rows
+        for idx, student in enumerate(students, 2):
+            ws.cell(row=idx, column=1, value=idx - 1)
+            ws.cell(row=idx, column=2, value=student.get("roll_number", ""))
+            ws.cell(row=idx, column=3, value=student.get("name", ""))
+            ws.cell(row=idx, column=4, value=student.get("branch", ""))
+            ws.cell(row=idx, column=5, value=student.get("admission_year", ""))
+            ws.cell(row=idx, column=6, value=student.get("current_semester", ""))
+            ws.cell(row=idx, column=7, value=student.get("cgpa", 0))
+            ws.cell(row=idx, column=8, value=student.get("total_credits_earned", 0))
+            ws.cell(row=idx, column=9, value=student.get("email", ""))
+
+            for c in range(1, len(headers) + 1):
+                ws.cell(row=idx, column=c).border = _BORDER
+
+        # Adjust column widths
+        widths = [8, 20, 30, 10, 15, 15, 10, 15, 30]
+        for i, w in enumerate(widths, 1):
+            ws.column_dimensions[get_column_letter(i)].width = w
+
+        buf = io.BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+        return buf
     
-    # Try case-insensitive roll number match
-    p = await StudentProfile.find_one({
-        "roll_number": {"$regex": f"^{re.escape(identifier)}$", "$options": "i"}
-    })
-    if p:
-        return p
-    
-    # Try seat number match (current)
-    p = await StudentProfile.find_one(StudentProfile.current_seat_number == identifier)
-    if p:
-        return p
-    
-    # Try seat number match (history)
-    p = await StudentProfile.find_one({
-        "seat_number_history.seat_number": identifier
-    })
-    if p:
-        return p
-    
-    # Last resort: fuzzy roll number match
-    hits = await StudentProfile.find({
-        "roll_number": {"$regex": re.escape(identifier), "$options": "i"}
-    }).to_list()
-    return hits[0] if len(hits) == 1 else None
+# Add this method inside the BulkMarksService class in bulk_marks_service.py
+
+    async def generate_template_with_marks(
+        self,
+        semester: int,
+        branch: str,
+        academic_year: str,
+        admission_year: int,
+        elective_choices: Optional[Dict[str, str]] = None,
+    ) -> io.BytesIO:
+        """
+        Generate an XLSX template with existing marks data pre-filled.
+        Fetches students and their semester records from the database.
+        """
+        subjects = get_semester_subjects(semester, admission_year)
+        if not subjects:
+            raise ValueError(
+                f"No subjects for semester {semester}, admission {admission_year}"
+            )
+
+        # Resolve elective choices
+        resolved = self._resolve_electives(subjects, elective_choices)
+
+        # Fetch students with their marks for this semester
+        query_filter: Dict[str, Any] = {}
+        if branch:
+            query_filter["branch"] = {"$regex": f"^{branch}$", "$options": "i"}
+        if admission_year:
+            query_filter["admission_year"] = admission_year
+
+        students = await StudentProfile.find(query_filter).sort("roll_number").to_list()
+
+        # Build student marks data
+        students_with_marks = []
+        for student in students:
+            # Find semester record for this semester
+            sem_record = None
+            for sr in student.semester_records:
+                if sr.semester_number == semester:
+                    sem_record = sr
+                    break
+            
+            student_data = {
+                "roll_number": student.roll_number,
+                "name": student.name,
+                "seat_number": student.current_seat_number or "",
+                "subjects": {},
+                "sgpa": sem_record.sgpa if sem_record else None,
+                "total_marks": 0,
+                "has_marks": sem_record is not None,
+            }
+            
+            if sem_record:
+                # Map subject marks
+                for subj in sem_record.subjects:
+                    student_data["subjects"][subj.subject_code] = {
+                        "internal_marks": subj.internal_marks,
+                        "external_marks": subj.external_marks,
+                        "total_marks": subj.total_marks,
+                        "grade": subj.grade,
+                        "grade_points": subj.grade_points,
+                    }
+                    student_data["total_marks"] += subj.total_marks
+            
+            students_with_marks.append(student_data)
+
+        # Generate workbook
+        wb = Workbook()
+        self._build_marks_sheet_with_data(
+            wb, resolved, semester, branch, academic_year, admission_year, 
+            students_with_marks
+        )
+        self._build_info_sheet(wb, resolved)
+
+        elec = [s for s in subjects if s.is_elective and s.elective_group]
+        if elec:
+            self._build_elective_sheet(wb, elec)
+
+        buf = io.BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+        return buf
+
+    def _build_marks_sheet_with_data(
+        self, wb, subjects, semester, branch, ay, adm_yr, students_with_marks
+    ):
+        """Build marks sheet with existing marks data pre-filled"""
+        ws = wb.active
+        ws.title = "Marks Data"
+        S = STYLE
+
+        # ─── Row 1: metadata ───
+        meta = [
+            ("semester", semester), ("branch", branch),
+            ("academic_year", ay), ("admission_year", adm_yr),
+        ]
+        c = 1
+        for key, val in meta:
+            k_cell = ws.cell(row=1, column=c, value=key)
+            k_cell.font = S["meta_font"]; k_cell.fill = S["meta_fill"]
+            v_cell = ws.cell(row=1, column=c + 1, value=val)
+            v_cell.font = S["meta_font"]; v_cell.fill = S["meta_fill"]
+            c += 2
+
+        # ─── Row 2: instructions ───
+        ws.cell(row=2, column=1, value=(
+            "This template contains existing marks data. "
+            "Modify as needed and re-upload to update records."
+        )).font = S["inst_font"]
+        ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=14)
+
+        HDR = 4      # subject name row
+        COMP = 5     # component row
+        MAX_R = 6    # max-marks row
+        DATA = 7     # first data row
+
+        # ─── Fixed columns ───
+        fixed_headers = [
+            ("Sr.\nNo", 6),
+            ("Seat No\n(Roll Number)", 20),
+            ("Name of\nStudent", 30),
+        ]
+        for i, (label, width) in enumerate(fixed_headers, 1):
+            cell = ws.cell(row=HDR, column=i, value=label)
+            cell.font = S["hdr_font"]; cell.fill = S["hdr_fill"]
+            cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+            cell.border = S["border"]
+            ws.merge_cells(start_row=HDR, start_column=i, end_row=COMP, end_column=i)
+            for r in (HDR, COMP):
+                ws.cell(row=r, column=i).border = S["border"]
+            ws.column_dimensions[get_column_letter(i)].width = width
+
+        # ─── Subject columns ───
+        col = len(fixed_headers) + 1
+        column_map: List[Dict[str, Any]] = []
+        subject_col_mapping = {}  # Maps subject_code -> {component -> col}
+
+        for sub in subjects:
+            comps = get_subject_components(sub)
+            n_comp = len(comps)
+            n_cols = n_comp + 1  # +1 for TOT
+
+            has_elective_code = sub.is_elective and sub.elective_group
+            if has_elective_code:
+                n_cols += 1
+
+            start_col = col
+            subject_col_mapping[sub.subject_code] = {"start": start_col, "components": {}}
+
+            # ── Subject header ──
+            type_label = get_subject_type_label(sub)
+            if has_elective_code:
+                header_text = (
+                    f"{sub.elective_group}\n({sub.subject_code}) "
+                    f"[{sub.credits} cr, {type_label}]"
+                )
+            else:
+                header_text = (
+                    f"{sub.subject_name}\n({sub.subject_code}) "
+                    f"[{sub.credits} cr, {type_label}]"
+                )
+
+            cell = ws.cell(row=HDR, column=start_col, value=header_text)
+            fill = CATEGORY_FILLS.get(sub.course_type, S["hdr_fill"])
+            cell.font = S["hdr_font"]; cell.fill = fill
+            cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+            cell.border = S["border"]
+
+            if n_cols > 1:
+                ws.merge_cells(
+                    start_row=HDR, start_column=start_col,
+                    end_row=HDR, end_column=start_col + n_cols - 1,
+                )
+
+            # ── Component headers ──
+            ci = start_col
+
+            if has_elective_code:
+                cc = ws.cell(row=COMP, column=ci, value="ELEC\nCODE")
+                cc.font = S["comp_font"]; cc.fill = S["elec_fill"]
+                cc.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+                cc.border = S["border"]
+                mc = ws.cell(row=MAX_R, column=ci, value="Code")
+                mc.font = S["max_font"]; mc.fill = S["max_fill"]
+                mc.alignment = Alignment(horizontal="center")
+                mc.border = S["border"]
+                ws.column_dimensions[get_column_letter(ci)].width = 14
+                column_map.append({
+                    "col": ci, "subject_code": sub.subject_code,
+                    "component": "ELEC_CODE", "max": 0,
+                    "elective_group": sub.elective_group,
+                })
+                subject_col_mapping[sub.subject_code]["elec_code_col"] = ci
+                ci += 1
+
+            for comp in comps:
+                cc = ws.cell(row=COMP, column=ci, value=comp["label"])
+                cc.font = S["comp_font"]; cc.fill = S["comp_fill"]
+                cc.alignment = Alignment(horizontal="center", vertical="center")
+                cc.border = S["border"]
+
+                mc = ws.cell(row=MAX_R, column=ci, value=comp["max"])
+                mc.font = S["max_font"]; mc.fill = S["max_fill"]
+                mc.alignment = Alignment(horizontal="center")
+                mc.border = S["border"]
+
+                ws.column_dimensions[get_column_letter(ci)].width = 8
+                column_map.append({
+                    "col": ci, "subject_code": sub.subject_code,
+                    "component": comp["key"], "max": comp["max"],
+                    "elective_group": sub.elective_group or "",
+                })
+                subject_col_mapping[sub.subject_code]["components"][comp["key"]] = ci
+                ci += 1
+
+            # TOT column
+            tc = ws.cell(row=COMP, column=ci, value="TOT")
+            tc.font = Font(bold=True, size=10); tc.fill = S["comp_fill"]
+            tc.alignment = Alignment(horizontal="center")
+            tc.border = S["border"]
+            total_max = sum(comp["max"] for comp in comps)
+            tm = ws.cell(row=MAX_R, column=ci, value=total_max)
+            tm.font = S["max_font"]; tm.fill = S["max_fill"]
+            tm.alignment = Alignment(horizontal="center")
+            tm.border = S["border"]
+            ws.column_dimensions[get_column_letter(ci)].width = 8
+            column_map.append({
+                "col": ci, "subject_code": sub.subject_code,
+                "component": "TOT", "max": total_max,
+                "elective_group": sub.elective_group or "",
+            })
+            subject_col_mapping[sub.subject_code]["tot_col"] = ci
+            ci += 1
+
+            col = ci
+
+        # ── Summary columns ──
+        summary_start_col = col
+        summary_headers = ["Total\nMarks", "SGPI", "Result"]
+        for label in summary_headers:
+            cell = ws.cell(row=HDR, column=col, value=label)
+            cell.font = S["hdr_font"]; cell.fill = S["summary_fill"]
+            cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+            cell.border = S["border"]
+            ws.merge_cells(start_row=HDR, start_column=col, end_row=COMP, end_column=col)
+            ws.column_dimensions[get_column_letter(col)].width = 10
+            col += 1
+
+        # ── Max row styling for fixed cols ──
+        for i in range(1, len(fixed_headers) + 1):
+            c = ws.cell(row=MAX_R, column=i, value="")
+            c.fill = S["max_fill"]; c.border = S["border"]
+
+        # ═══════════════════════════════════════════════════
+        # FILL STUDENT DATA WITH MARKS
+        # ═══════════════════════════════════════════════════
+        total_cols = col - 1
+        
+        for idx, student in enumerate(students_with_marks):
+            row = DATA + idx
+            
+            # Sr. No
+            ws.cell(row=row, column=1, value=idx + 1).alignment = Alignment(horizontal="center")
+            
+            # Roll Number / Seat No
+            roll_cell = ws.cell(row=row, column=2, value=student["roll_number"])
+            roll_cell.alignment = Alignment(horizontal="center")
+            roll_cell.font = Font(bold=True)
+            
+            # Name
+            ws.cell(row=row, column=3, value=student["name"]).alignment = Alignment(horizontal="left")
+            
+            # Fill subject marks
+            for sub in subjects:
+                sub_code = sub.subject_code
+                if sub_code not in subject_col_mapping:
+                    continue
+                    
+                col_info = subject_col_mapping[sub_code]
+                
+                # Check if student has marks for this subject
+                if sub_code in student["subjects"]:
+                    marks_data = student["subjects"][sub_code]
+                    internal = marks_data["internal_marks"]
+                    external = marks_data["external_marks"]
+                    total = marks_data["total_marks"]
+                    
+                    # Get subject components to properly split marks
+                    comps = get_subject_components(sub)
+                    
+                    # Fill component columns based on subject type
+                    if sub.course_type in ("MNP", "MJP", "INT"):
+                        # Project/Internship: TW only
+                        if "TW" in col_info["components"]:
+                            ws.cell(row=row, column=col_info["components"]["TW"], value=internal)
+                    
+                    elif sub.course_type == "SBL":
+                        # Skill Lab: TW + PR
+                        if "TW" in col_info["components"]:
+                            ws.cell(row=row, column=col_info["components"]["TW"], value=internal)
+                        if "PR" in col_info["components"]:
+                            ws.cell(row=row, column=col_info["components"]["PR"], value=external)
+                    
+                    elif sub.course_type == "LBC" or sub.is_practical:
+                        # Lab: IA + PR
+                        if "IA" in col_info["components"]:
+                            ws.cell(row=row, column=col_info["components"]["IA"], value=internal)
+                        if "PR" in col_info["components"]:
+                            ws.cell(row=row, column=col_info["components"]["PR"], value=external)
+                    
+                    else:
+                        # Theory: CA + MSE + ESE
+                        # internal = CA, external = MSE + ESE
+                        if "CA" in col_info["components"]:
+                            ws.cell(row=row, column=col_info["components"]["CA"], value=internal)
+                        
+                        # Split external marks into MSE and ESE
+                        # Default ratio: MSE=30, ESE=50 (total external=80)
+                        if "MSE" in col_info["components"] and "ESE" in col_info["components"]:
+                            # Try to estimate MSE/ESE split
+                            # If external_max is 80, assume MSE=30, ESE=50
+                            ext_max = sub.external_max
+                            if ext_max == 80:
+                                mse_max, ese_max = 30, 50
+                            else:
+                                mse_max = round(ext_max * 0.375)
+                                ese_max = ext_max - mse_max
+                            
+                            # Proportionally split actual marks
+                            if ext_max > 0:
+                                mse_marks = round(external * (mse_max / ext_max), 1)
+                                ese_marks = round(external - mse_marks, 1)
+                            else:
+                                mse_marks, ese_marks = 0, 0
+                            
+                            ws.cell(row=row, column=col_info["components"]["MSE"], value=mse_marks)
+                            ws.cell(row=row, column=col_info["components"]["ESE"], value=ese_marks)
+                    
+                    # Fill TOT column
+                    if "tot_col" in col_info:
+                        ws.cell(row=row, column=col_info["tot_col"], value=total)
+            
+            # Fill summary columns
+            if student["has_marks"]:
+                # Total Marks
+                ws.cell(row=row, column=summary_start_col, value=student["total_marks"])
+                # SGPI
+                sgpi_cell = ws.cell(row=row, column=summary_start_col + 1, value=student["sgpa"])
+                sgpi_cell.font = Font(bold=True)
+                # Result
+                result = "PASS" if student["sgpa"] and student["sgpa"] >= 4.0 else "FAIL" if student["sgpa"] else ""
+                ws.cell(row=row, column=summary_start_col + 2, value=result)
+            
+            # Apply borders to all columns
+            for c2 in range(1, total_cols + 1):
+                ws.cell(row=row, column=c2).border = S["border"]
+                if c2 > 3:  # Mark columns
+                    ws.cell(row=row, column=c2).alignment = Alignment(horizontal="center")
+
+        # ── Store column map ──
+        ws.cell(row=100, column=1, value="__COLUMN_MAP__")
+        ws.cell(row=100, column=2, value=json.dumps(column_map))
+        ws.row_dimensions[100].hidden = True
+
+        # ── Store students metadata ──
+        ws.cell(row=101, column=1, value="__STUDENTS_META__")
+        ws.cell(row=101, column=2, value=json.dumps({
+            "total_students": len(students_with_marks),
+            "students_with_marks": len([s for s in students_with_marks if s["has_marks"]]),
+            "branch": branch,
+            "admission_year": adm_yr,
+            "semester": semester,
+        }))
+        ws.row_dimensions[101].hidden = True
+
+        # ── Freeze panes ──
+        ws.freeze_panes = f"D{DATA}"
+
+        # ── Color rows based on marks status ──
+        for idx, student in enumerate(students_with_marks):
+            row = DATA + idx
+            if student["has_marks"]:
+                # Light green for students with existing marks
+                for c2 in range(1, 4):
+                    ws.cell(row=row, column=c2).fill = PatternFill("solid", fgColor="E2EFDA")
+
 
 # ══════════════════════════════════════════════════════════
 bulk_marks_service = BulkMarksService()

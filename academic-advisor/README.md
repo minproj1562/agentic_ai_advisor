@@ -635,3 +635,27 @@ python -m scripts.train_models --samples 1250
 
 # Step 5: Train WITH comparison (all-in-one)
 python -m scripts.train_models --samples 1000 --compare --hard-mode
+
+# Full workflow: seed ALL students + export XLSX
+python -m scripts.generate_full_marks_export
+
+# Seed + export for IT branch only
+python -m scripts.generate_full_marks_export --branch IT
+
+# Only IT, 2022 batch
+python -m scripts.generate_full_marks_export -b IT -a 2022
+
+# Export only (don't generate new marks)
+python -m scripts.generate_full_marks_export --export-only
+
+# Seed only (don't export)
+python -m scripts.generate_full_marks_export --seed-only
+
+# Overwrite existing marks with fresh data
+python -m scripts.generate_full_marks_export --overwrite
+
+# Dry run (preview without saving)
+python -m scripts.generate_full_marks_export --dry-run
+
+# Custom output path
+python -m scripts.generate_full_marks_export -o ./my_marks.xlsx

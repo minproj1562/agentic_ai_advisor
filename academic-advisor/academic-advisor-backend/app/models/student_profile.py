@@ -29,7 +29,7 @@ class Grade(str, Enum):
 
 class SeatNumberRecord(BaseModel):
     """Track seat numbers across semesters"""
-    seat_number: str = Field(..., pattern="^[0-9]{6}$")  # 6-digit seat number
+    seat_number: str = Field(..., pattern="^[0-9]{5}$")  # 5-digit seat number
     semester: int
     academic_year: str
     created_at: datetime = Field(default_factory=datetime.now)
@@ -77,7 +77,7 @@ class StudentProfile(Document):
     admission_year: int = 2020
     
     # Seat number tracking
-    current_seat_number: Optional[str] = Field(None, pattern="^[0-9]{6}$")
+    current_seat_number: Optional[str] = Field(None, pattern="^[0-9]{5}$")
     seat_number_history: List[SeatNumberRecord] = []
     
     current_semester: int = 1

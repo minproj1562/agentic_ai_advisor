@@ -1,4 +1,5 @@
-# academic-advisor-backend/app/services/pending_marks_service.py
+# app/services/pending_marks_service.py
+
 from typing import Optional, List
 import logging
 from datetime import datetime
@@ -18,10 +19,25 @@ class PendingMarksService:
         Returns number of semesters linked.
         """
         try:
-            # Find all pending marks for this roll number
+            # FIX: Search by both roll_number AND seat_number
+            query_conditions = [
+                {"roll_number": student_profile.roll_number, "linked_to_profile": False}
+            ]
+            
+            if student_profile.current_seat_number:
+                query_conditions.append({
+                    "seat_number": student_profile.current_seat_number,
+                    "linked_to_profile": False
+                })
+            
+            for seat_rec in student_profile.seat_number_history:
+                query_conditions.append({
+                    "seat_number": seat_rec.seat_number,
+                    "linked_to_profile": False
+                })
+            
             pending_marks = await PendingStudentMarks.find({
-                "roll_number": student_profile.roll_number,
-                "linked_to_profile": False
+                "$or": query_conditions
             }).to_list()
             
             if not pending_marks:
@@ -53,16 +69,14 @@ class PendingMarksService:
                 )
                 
                 if idx is not None:
-                    # Update existing (if admin uploaded after student registered)
                     student_profile.semester_records[idx] = sem_rec
                 else:
-                    # Add new semester
                     student_profile.semester_records.append(sem_rec)
                 
                 # Mark pending marks as linked
                 pending.linked_to_profile = True
                 pending.linked_user_id = student_profile.user_id
-                await pending.save()
+                await pending.replace()  # FIX: was .save()
                 
                 linked_count += 1
             
@@ -79,10 +93,11 @@ class PendingMarksService:
             
             student_profile.cgpa = round(agp / ac, 2) if ac > 0 else 0.0
             student_profile.total_credits_earned = int(ace)
+            student_profile.marks_synced_at = datetime.now()
             student_profile.last_updated = datetime.now()
             
-            # Save updated profile
-            await student_profile.save()
+            # FIX: Use replace() for nested document changes
+            await student_profile.replace()
             
             logger.info(f"Successfully linked {linked_count} semesters for {student_profile.roll_number}")
             return linked_count

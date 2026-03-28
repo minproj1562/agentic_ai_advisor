@@ -74,7 +74,7 @@ class AddScoresRequest(BaseModel):
 class ProfileCreateRequest(BaseModel):
     name: str = Field(..., min_length=1)
     roll_number: str = Field(..., min_length=1)
-    seat_number: Optional[str] = Field(None, pattern="^[0-9]{6}$", description="6-digit seat number")
+    seat_number: Optional[str] = Field(None, pattern="^[0-9]{5}$", description="5  digit seat number")
     branch: str = Field(default="IT")
     admission_year: int = Field(..., ge=2010, le=2030)
     email: Optional[str] = None
@@ -93,8 +93,9 @@ class ProfileCreateRequest(BaseModel):
 
 
 class UpdateSeatNumberRequest(BaseModel):
-    seat_number: str = Field(..., pattern="^[0-9]{6}$", description="6-digit seat number")
+    seat_number: str = Field(..., pattern="^[0-9]{5}$", description="5 digit seat number")
     semester: Optional[int] = Field(None, ge=1, le=8)
+
 
 
 # ==================== Endpoints ====================
@@ -437,7 +438,7 @@ async def delete_semester(
 
         original_len = len(profile.semester_records)
         profile.semester_records = [
-            s for s in profile.semester_records 
+            s for s in profile.semester_records
             if s.semester_number != semester_number
         ]
 
@@ -449,16 +450,30 @@ async def delete_semester(
 
         # Recalculate CGPA
         if profile.semester_records:
-            total_points = sum(s.sgpa * s.total_credits for s in profile.semester_records if s.is_complete)
-            total_credits = sum(s.total_credits for s in profile.semester_records if s.is_complete)
-            profile.cgpa = round(total_points / total_credits, 2) if total_credits > 0 else 0.0
-            profile.total_credits_earned = sum(s.credits_earned for s in profile.semester_records)
+            total_points = sum(
+                s.sgpa * s.total_credits
+                for s in profile.semester_records
+                if s.is_complete
+            )
+            total_credits = sum(
+                s.total_credits
+                for s in profile.semester_records
+                if s.is_complete
+            )
+            profile.cgpa = (
+                round(total_points / total_credits, 2)
+                if total_credits > 0
+                else 0.0
+            )
+            profile.total_credits_earned = sum(
+                s.credits_earned for s in profile.semester_records
+            )
         else:
             profile.cgpa = 0.0
             profile.total_credits_earned = 0
 
         profile.last_updated = datetime.now()
-        await profile.save()
+        await profile.replace()  # ← FIX: was .save()
 
         return {
             "message": f"Semester {semester_number} deleted successfully",
@@ -772,3 +787,49 @@ async def get_subjects_by_semester(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e)
         )    
+
+# In app/api/v1/endpoints/academic.py, add this endpoint:
+
+@router.post("/profile/force-sync")
+async def force_sync_marks(
+    current_user: FirebaseUser = Depends(get_current_user)
+):
+    """Force re-sync marks from pending_marks collection"""
+    try:
+        from app.models.student_profile import StudentProfile  # ← THE FIX
+        
+        service = AcademicService()
+        profile = await StudentProfile.find_one(
+            StudentProfile.user_id == current_user.uid
+        )
+        
+        if not profile:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Profile not found"
+            )
+        
+        # Reset the check flag
+        profile.pending_marks_checked = False
+        await profile.replace()
+        
+        # Force re-fetch
+        linked = await service._auto_fetch_pending_marks(profile)
+        
+        # Re-fetch latest
+        profile = await StudentProfile.find_one(
+            StudentProfile.user_id == current_user.uid
+        )
+        
+        return {
+            "message": f"Sync complete. {linked} new semester(s) linked.",
+            "semesters_linked": linked,
+            "total_semesters": len(profile.semester_records) if profile else 0,
+            "cgpa": profile.cgpa if profile else 0,
+            "marks_synced_at": str(profile.marks_synced_at) if profile and profile.marks_synced_at else None,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Force sync error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))

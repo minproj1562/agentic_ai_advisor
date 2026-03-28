@@ -33,19 +33,19 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from motor.motor_asyncio import AsyncIOMotorClient
 from beanie import init_beanie
-from openpyxl import load_workbook
+from openpyxl import load_workbook, Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
 logger = logging.getLogger(__name__)
 
+
 # ══════════════════════════════════════════════════════════
-# 1.  PERFORMANCE PROFILES — diverse student distribution
+# 1.  PERFORMANCE PROFILES
 # ══════════════════════════════════════════════════════════
 
 @dataclass
 class PerformanceProfile:
-    """Defines a student's academic performance tendency"""
     name: str
     internal_mean: float
     internal_std: float
@@ -53,7 +53,7 @@ class PerformanceProfile:
     external_std: float
     fail_probability: float
     practical_bonus: float
-    weight: float  # Relative frequency in population
+    weight: float
 
 
 PERFORMANCE_PROFILES = [
@@ -86,7 +86,6 @@ def generate_marks_for_subject(
     is_elective: bool = False,
     semester_drift: float = 0.0,
 ) -> Tuple[float, float]:
-    """Generate realistic marks based on student profile"""
     int_pct = random.gauss(profile.internal_mean + semester_drift, profile.internal_std)
     ext_pct = random.gauss(profile.external_mean + semester_drift, profile.external_std)
 
@@ -97,7 +96,6 @@ def generate_marks_for_subject(
         int_pct += random.uniform(1, 4)
         ext_pct += random.uniform(1, 4)
 
-    # Force fail scenario
     if random.random() < profile.fail_probability:
         ext_pct = random.uniform(10, 38)
         if random.random() < 0.4:
@@ -108,7 +106,6 @@ def generate_marks_for_subject(
 
     internal = round((int_pct / 100.0) * internal_max, 1)
     external = round((ext_pct / 100.0) * external_max, 1)
-
     internal = max(0, min(internal, internal_max))
     external = max(0, min(external, external_max))
 
@@ -145,7 +142,7 @@ def get_max_semester_for_student(admission_year: int) -> int:
 
 
 # ══════════════════════════════════════════════════════════
-# 3.  COMPONENT MARKS SPLITTING (matches bulk_marks_service)
+# 3.  COMPONENT SPLITTING (mirrors bulk_marks_service)
 # ══════════════════════════════════════════════════════════
 
 def split_marks_to_components(
@@ -154,14 +151,8 @@ def split_marks_to_components(
     internal_max: float, external_max: float,
 ) -> Dict[str, float]:
     """
-    Split internal/external marks into university components.
-    Must match get_subject_components() in bulk_marks_service.py exactly.
-
-    Theory  → CA(internal), MSE + ESE(external split 30:50 for ext=80)
-    Lab     → IA(internal), PR(external)
-    SBL     → TW(internal), PR(external)
-    Project → TW(internal)
-    Intern  → TW(internal)
+    Split internal/external → university component marks.
+    Exact reverse of components_to_subject_score() in bulk_marks_service.
     """
     ct = course_type
 
@@ -174,7 +165,7 @@ def split_marks_to_components(
     if ct == "LBC" or is_practical:
         return {"IA": internal, "PR": external}
 
-    # Theory
+    # Theory: CA = internal, MSE+ESE = external
     ca = internal
     if external_max == 80:
         mse_max, ese_max = 30, 50
@@ -185,7 +176,7 @@ def split_marks_to_components(
         ese_max = external_max - mse_max
 
     total_ext_max = mse_max + ese_max
-    if total_ext_max > 0:
+    if total_ext_max > 0 and external > 0:
         mse = round(external * (mse_max / total_ext_max), 1)
         ese = round(external - mse, 1)
     else:
@@ -205,7 +196,6 @@ async def init_database():
 
     client = AsyncIOMotorClient(settings.MONGODB_URL)
     db = client[settings.DATABASE_NAME]
-
     await init_beanie(
         database=db,
         document_models=[StudentProfile, PendingStudentMarks],
@@ -237,9 +227,15 @@ async def seed_marks_for_all_students(
 
     if not students:
         print("❌ No students found")
-        return {"total": 0, "updated": 0, "skipped": 0}
+        return {"total_students": 0, "updated": 0, "skipped": 0,
+                "semesters_created": 0, "semesters_skipped_existing": 0,
+                "profile_distribution": {}, "grade_distribution": {},
+                "by_admission_year": {}}
 
     print(f"\n👥 Found {len(students)} students")
+    if not overwrite:
+        has_marks = sum(1 for s in students if any(sr.subjects for sr in s.semester_records))
+        print(f"   {has_marks} already have marks (use --overwrite to regenerate)")
 
     stats = {
         "total_students": len(students),
@@ -268,7 +264,7 @@ async def seed_marks_for_all_students(
         yr_key = str(admission_year)
         if yr_key not in stats["by_admission_year"]:
             stats["by_admission_year"][yr_key] = {
-                "students": 0, "semesters_total": 0, "cgpa_sum": 0,
+                "students": 0, "semesters_total": 0, "cgpa_sum": 0.0,
             }
         stats["by_admission_year"][yr_key]["students"] += 1
 
@@ -282,6 +278,7 @@ async def seed_marks_for_all_students(
                 None,
             )
 
+            # Skip if already has subjects and not overwriting
             if existing_sem and existing_sem.subjects and not overwrite:
                 stats["semesters_skipped_existing"] += 1
                 continue
@@ -398,18 +395,21 @@ async def seed_marks_for_all_students(
                 f"{student.roll_number}"
             )
 
-    # Compute averages
     for yr_key, yr_data in stats["by_admission_year"].items():
         n = yr_data["students"]
-        yr_data["avg_cgpa"] = round(yr_data["cgpa_sum"] / n, 2) if n > 0 else 0
+        updated_in_yr = stats["updated"]  # approximate
+        if yr_data["cgpa_sum"] > 0 and n > 0:
+            yr_data["avg_cgpa"] = round(yr_data["cgpa_sum"] / n, 2)
+        else:
+            yr_data["avg_cgpa"] = 0.0
         del yr_data["cgpa_sum"]
 
     return stats
 
 
 # ══════════════════════════════════════════════════════════
-# 6.  EXPORT — uses bulk_marks_service.generate_template()
-#     to guarantee 100% upload-compatible format
+# 6.  EXPORT — one file per (admission_year, branch, semester)
+#     Uses bulk_marks_service.generate_template() for format
 # ══════════════════════════════════════════════════════════
 
 async def export_all_marks_to_xlsx(
@@ -420,23 +420,15 @@ async def export_all_marks_to_xlsx(
     """
     Export ALL marks using the EXACT university template format.
 
-    Strategy:
-      1. For each (admission_year, semester) combo, call
-         bulk_marks_service.generate_template() to get the properly
-         formatted workbook with __COLUMN_MAP__ embedded.
-      2. Load the workbook, read the column map.
-      3. Fill in each student's marks into the correct cells.
-      4. Save to disk.
-
-    The resulting files are 100% compatible with bulk upload.
+    For each (admission_year, branch, semester):
+      1. Call bulk_marks_service.generate_template() → gets proper format
+      2. Read __COLUMN_MAP__ from the template
+      3. Fill student marks into correct cells
+      4. Save to individual .xlsx file
     """
     from app.models.student_profile import StudentProfile
     from app.core.curriculum import get_semester_subjects, get_elective_options
-    from app.services.bulk_marks_service import (
-        bulk_marks_service,
-        get_subject_components,
-        components_to_subject_score,
-    )
+    from app.services.bulk_marks_service import bulk_marks_service
 
     THIN = Side(style="thin")
     BORDER = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
@@ -455,13 +447,13 @@ async def export_all_marks_to_xlsx(
 
     print(f"📊 Exporting marks for {len(students)} students...")
 
-    # Group students by (admission_year, branch)
+    # Group by (admission_year, branch)
     groups: Dict[Tuple[int, str], List] = {}
     for s in students:
         key = (s.admission_year, s.branch)
         groups.setdefault(key, []).append(s)
 
-    # Find all semesters with data per group
+    # Find semesters with data per group
     group_semesters: Dict[Tuple[int, str], set] = {}
     for key, grp in groups.items():
         sems = set()
@@ -478,18 +470,17 @@ async def export_all_marks_to_xlsx(
         semesters = sorted(group_semesters.get((adm_year, branch), set()))
 
         if not semesters:
-            print(f"  ⏭️  {branch} {adm_year}: no semesters with marks, skipping")
+            print(f"  ⏭️  {branch} {adm_year}: no semesters with marks")
             continue
 
         for sem_num in semesters:
             subjects = get_semester_subjects(sem_num, adm_year)
             if not subjects:
-                print(f"  ⏭️  {branch} {adm_year} Sem {sem_num}: no curriculum, skipping")
                 continue
 
             academic_year = get_academic_year(sem_num, adm_year)
 
-            # ── Step 1: Generate the official template ──
+            # ── Step 1: Generate official template ──
             try:
                 template_buf = bulk_marks_service.generate_template(
                     semester=sem_num,
@@ -499,29 +490,27 @@ async def export_all_marks_to_xlsx(
                     elective_choices=None,
                 )
             except Exception as e:
-                print(f"  ❌ {branch} {adm_year} Sem {sem_num}: template error: {e}")
+                print(f"  ❌ {branch} {adm_year} S{sem_num}: template error: {e}")
                 continue
 
-            # ── Step 2: Load the template and read __COLUMN_MAP__ ──
+            # ── Step 2: Load and read __COLUMN_MAP__ ──
             wb = load_workbook(template_buf)
             ws = wb["Marks Data"]
 
             col_map_json = None
             try:
-                marker = ws.cell(row=100, column=1).value
-                if marker == "__COLUMN_MAP__":
+                if ws.cell(row=100, column=1).value == "__COLUMN_MAP__":
                     col_map_json = ws.cell(row=100, column=2).value
             except Exception:
                 pass
 
             if not col_map_json:
-                print(f"  ❌ {branch} {adm_year} Sem {sem_num}: no __COLUMN_MAP__ in template")
+                print(f"  ❌ {branch} {adm_year} S{sem_num}: no __COLUMN_MAP__")
                 continue
 
             col_map = json.loads(col_map_json)
 
-            # Build subject→component→column lookup
-            # {subject_code: {component_key: {"col": int, "max": int}, ...}, "elec_code_col": int|None}
+            # Build lookup: {subject_code: {components: {key: {col, max}}, elec_code_col, tot_col}}
             subject_columns: Dict[str, Dict[str, Any]] = {}
             for entry in col_map:
                 scode = entry["subject_code"]
@@ -543,7 +532,7 @@ async def export_all_marks_to_xlsx(
                         "max": entry["max"],
                     }
 
-            # Find where data starts (first row after max-marks row)
+            # Find data start row
             DATA_START = 7
             for r in range(4, 20):
                 v = ws.cell(row=r, column=1).value
@@ -551,37 +540,33 @@ async def export_all_marks_to_xlsx(
                     DATA_START = r
                     break
 
-            # Find the last used column (for summary columns)
-            # Summary columns are after all subject columns: Total Marks, SGPI, Result
+            # Find summary columns (after all subject columns)
             all_col_nums = [e["col"] for e in col_map]
             max_subject_col = max(all_col_nums) if all_col_nums else 3
             summary_total_col = max_subject_col + 1
             summary_sgpi_col = max_subject_col + 2
             summary_result_col = max_subject_col + 3
 
-            # ── Step 3: Build elective code lookup ──
+            # Build elective code lookup
             elec_code_lookup: Dict[str, Dict[str, str]] = {}
             for sub in subjects:
                 if sub.is_elective and sub.elective_group:
-                    options = get_elective_options(sub.elective_group)
-                    for opt in options:
+                    for opt in get_elective_options(sub.elective_group):
                         elec_code_lookup[opt["code"].upper()] = {
                             "template_code": sub.subject_code,
                             "name": opt["name"],
                             "code": opt["code"],
                         }
 
-            # ── Step 4: Fill in student data ──
+            # ── Step 3: Fill student data ──
+            sorted_students = sorted(group_students, key=lambda s: s.roll_number)
             students_filled = 0
             students_no_marks = 0
-
-            # Sort students by roll number
-            sorted_students = sorted(group_students, key=lambda s: s.roll_number)
 
             for idx, student in enumerate(sorted_students):
                 row = DATA_START + idx
 
-                # Fixed columns: Sr.No, Seat No (Roll Number), Name
+                # Fixed columns
                 ws.cell(row=row, column=1, value=idx + 1)
                 ws.cell(row=row, column=1).alignment = Alignment(horizontal="center")
                 ws.cell(row=row, column=1).border = BORDER
@@ -604,33 +589,30 @@ async def export_all_marks_to_xlsx(
 
                 if not sem_record or not sem_record.subjects:
                     students_no_marks += 1
-                    # Apply borders to empty row
                     for c in range(1, summary_result_col + 1):
                         ws.cell(row=row, column=c).border = BORDER
                     continue
 
                 students_filled += 1
 
-                # Highlight rows with marks
+                # Green highlight for rows with marks
                 for c in range(1, 4):
-                    ws.cell(row=row, column=c).fill = PatternFill(
-                        "solid", fgColor="E2EFDA"
-                    )
+                    ws.cell(row=row, column=c).fill = PatternFill("solid", fgColor="E2EFDA")
 
                 total_marks_sum = 0.0
 
                 for subj_score in sem_record.subjects:
                     sc = subj_score.subject_code
 
-                    # Find the column info for this subject
+                    # Find column info: direct match
                     col_info = subject_columns.get(sc)
 
-                    # If not found directly, try elective lookup
+                    # Try elective lookup
                     if not col_info and sc.upper() in elec_code_lookup:
                         template_code = elec_code_lookup[sc.upper()]["template_code"]
                         col_info = subject_columns.get(template_code)
 
-                    # Last resort: try matching by subject name
+                    # Try by subject name
                     if not col_info:
                         for tmpl_code, tmpl_info in subject_columns.items():
                             tmpl_sub = next(
@@ -650,49 +632,44 @@ async def export_all_marks_to_xlsx(
                     total = subj_score.total_marks
                     total_marks_sum += total
 
-                    # Find the curriculum subject definition for component splitting
+                    # Get curriculum subject for this code
                     curr_sub = next(
-                        (s for s in subjects if s.subject_code == sc),
-                        None,
+                        (s for s in subjects if s.subject_code == sc), None
                     )
+                    # Fallback: find via template code
                     if not curr_sub:
-                        # Try template code from elective lookup
                         for tmpl_code in subject_columns:
-                            tmpl_sub = next(
-                                (s for s in subjects if s.subject_code == tmpl_code),
-                                None,
-                            )
-                            if tmpl_sub and col_info is subject_columns.get(tmpl_code):
-                                curr_sub = tmpl_sub
+                            if subject_columns[tmpl_code] is col_info:
+                                curr_sub = next(
+                                    (s for s in subjects if s.subject_code == tmpl_code),
+                                    None,
+                                )
                                 break
 
-                    if not curr_sub:
-                        curr_sub_type = "PCC"
-                        curr_sub_practical = False
-                        curr_int_max = 20.0
-                        curr_ext_max = 80.0
+                    if curr_sub:
+                        ct = curr_sub.course_type
+                        ip = curr_sub.is_practical
+                        im = curr_sub.internal_max
+                        em = curr_sub.external_max
                     else:
-                        curr_sub_type = curr_sub.course_type
-                        curr_sub_practical = curr_sub.is_practical
-                        curr_int_max = curr_sub.internal_max
-                        curr_ext_max = curr_sub.external_max
+                        ct, ip, im, em = "PCC", False, 20.0, 80.0
 
-                    # Split marks into components
+                    # Split into components
                     comp_marks = split_marks_to_components(
-                        internal, external,
-                        curr_sub_type, curr_sub_practical,
-                        curr_int_max, curr_ext_max,
+                        internal, external, ct, ip, im, em
                     )
 
-                    # Fill elective code if applicable
+                    # Fill elective code column
                     if col_info.get("elec_code_col"):
                         elec_info = elec_code_lookup.get(sc.upper())
                         if elec_info:
-                            ws.cell(
+                            ec_cell = ws.cell(
                                 row=row,
                                 column=col_info["elec_code_col"],
                                 value=elec_info["code"],
-                            ).alignment = Alignment(horizontal="center")
+                            )
+                            ec_cell.alignment = Alignment(horizontal="center")
+                            ec_cell.border = BORDER
 
                     # Fill component columns
                     for comp_key, mark_value in comp_marks.items():
@@ -709,18 +686,16 @@ async def export_all_marks_to_xlsx(
                     # Fill TOT column
                     if col_info.get("tot_col"):
                         tot_cell = ws.cell(
-                            row=row,
-                            column=col_info["tot_col"],
-                            value=total,
+                            row=row, column=col_info["tot_col"], value=total
                         )
                         tot_cell.font = Font(bold=True)
                         tot_cell.alignment = Alignment(horizontal="center")
                         tot_cell.border = BORDER
 
-                # Summary columns
-                ws.cell(row=row, column=summary_total_col, value=round(total_marks_sum, 1))
-                ws.cell(row=row, column=summary_total_col).alignment = Alignment(horizontal="center")
-                ws.cell(row=row, column=summary_total_col).border = BORDER
+                # ── Summary columns ──
+                total_cell = ws.cell(row=row, column=summary_total_col, value=round(total_marks_sum, 1))
+                total_cell.alignment = Alignment(horizontal="center")
+                total_cell.border = BORDER
 
                 sgpi_cell = ws.cell(row=row, column=summary_sgpi_col, value=sem_record.sgpa)
                 sgpi_cell.font = Font(bold=True, color="2F5496")
@@ -741,14 +716,13 @@ async def export_all_marks_to_xlsx(
                 result_cell.alignment = Alignment(horizontal="center")
                 result_cell.border = BORDER
 
-                # Apply borders to all columns in the row
+                # Borders for full row
                 for c in range(1, summary_result_col + 1):
                     ws.cell(row=row, column=c).border = BORDER
 
-            # ── Store students metadata ──
-            meta_row = 101
-            ws.cell(row=meta_row, column=1, value="__STUDENTS_META__")
-            ws.cell(row=meta_row, column=2, value=json.dumps({
+            # ── Students metadata (hidden row 101) ──
+            ws.cell(row=101, column=1, value="__STUDENTS_META__")
+            ws.cell(row=101, column=2, value=json.dumps({
                 "total_students": len(sorted_students),
                 "students_with_marks": students_filled,
                 "students_without_marks": students_no_marks,
@@ -757,7 +731,7 @@ async def export_all_marks_to_xlsx(
                 "semester": sem_num,
                 "exported_at": datetime.now().isoformat(),
             }))
-            ws.row_dimensions[meta_row].hidden = True
+            ws.row_dimensions[101].hidden = True
 
             # ── Save file ──
             filename = (
@@ -765,17 +739,31 @@ async def export_all_marks_to_xlsx(
                 f"{academic_year.replace('-', '_')}.xlsx"
             )
             filepath = os.path.join(output_dir, filename)
-            wb.save(filepath)
+
+            # Handle permission error: close file if open
+            try:
+                wb.save(filepath)
+            except PermissionError:
+                # Try alternate filename with timestamp
+                ts = datetime.now().strftime("%H%M%S")
+                alt_filename = (
+                    f"marks_sem{sem_num}_{branch}_{adm_year}_"
+                    f"{academic_year.replace('-', '_')}_{ts}.xlsx"
+                )
+                filepath = os.path.join(output_dir, alt_filename)
+                wb.save(filepath)
+                print(f"  ⚠️  Original file locked, saved as: {alt_filename}")
+
             output_files.append(filepath)
 
             print(
-                f"  ✅ {filepath:55s} | "
+                f"  ✅ {os.path.basename(filepath):55s} | "
                 f"{students_filled:3d} with marks, "
                 f"{students_no_marks:3d} empty, "
                 f"{len(subjects):2d} subjects"
             )
 
-    # ── Generate overview file ──
+    # ── Generate overview ──
     if output_files:
         _generate_overview(output_dir, groups, group_semesters, students)
 
@@ -788,8 +776,7 @@ def _generate_overview(
     group_semesters: Dict,
     all_students: List,
 ):
-    """Generate an overview Excel file summarizing all exported data"""
-    from openpyxl import Workbook
+    """Generate overview Excel summarizing all exports"""
     from app.core.curriculum import get_semester_subjects
 
     THIN = Side(style="thin")
@@ -799,7 +786,7 @@ def _generate_overview(
 
     wb = Workbook()
 
-    # ── Sheet 1: Summary ──
+    # Sheet 1: Summary
     ws = wb.active
     ws.title = "Export Summary"
 
@@ -853,10 +840,10 @@ def _generate_overview(
     for ci in range(1, len(headers) + 1):
         ws.column_dimensions[get_column_letter(ci)].width = 18
 
-    # ── Sheet 2: CGPA Distribution ──
+    # Sheet 2: CGPA Distribution
     ws2 = wb.create_sheet("CGPA Distribution")
     dist_headers = ["Branch", "Adm. Year", "Roll Number", "Name",
-                    "Current Sem", "CGPA", "Total Credits", "Profile"]
+                    "Current Sem", "CGPA", "Total Credits", "Category"]
     for i, h in enumerate(dist_headers, 1):
         cell = ws2.cell(row=1, column=i, value=h)
         cell.font = HDR_FONT
@@ -865,15 +852,15 @@ def _generate_overview(
 
     row = 2
     for s in sorted(all_students, key=lambda x: (x.branch, x.admission_year, x.roll_number)):
+        category = _cgpa_category(s.cgpa)
         vals = [
             s.branch, s.admission_year, s.roll_number, s.name,
-            s.current_semester, s.cgpa, s.total_credits_earned,
-            _cgpa_to_profile(s.cgpa),
+            s.current_semester, s.cgpa, s.total_credits_earned, category,
         ]
         for ci, v in enumerate(vals, 1):
             cell = ws2.cell(row=row, column=ci, value=v)
             cell.border = BORDER
-            if ci == 6:  # CGPA column
+            if ci == 6:
                 if s.cgpa >= 8.0:
                     cell.fill = PatternFill("solid", fgColor="C6EFCE")
                 elif s.cgpa >= 6.0:
@@ -886,11 +873,17 @@ def _generate_overview(
         ws2.column_dimensions[get_column_letter(ci)].width = 18
 
     overview_path = os.path.join(output_dir, "00_OVERVIEW.xlsx")
-    wb.save(overview_path)
-    print(f"\n  📋 Overview: {overview_path}")
+    try:
+        wb.save(overview_path)
+        print(f"\n  📋 Overview: {overview_path}")
+    except PermissionError:
+        ts = datetime.now().strftime("%H%M%S")
+        alt = os.path.join(output_dir, f"00_OVERVIEW_{ts}.xlsx")
+        wb.save(alt)
+        print(f"\n  📋 Overview: {alt} (original locked)")
 
 
-def _cgpa_to_profile(cgpa: float) -> str:
+def _cgpa_category(cgpa: float) -> str:
     if cgpa >= 9.0: return "Outstanding"
     if cgpa >= 8.0: return "Excellent"
     if cgpa >= 7.0: return "Very Good"
@@ -902,7 +895,7 @@ def _cgpa_to_profile(cgpa: float) -> str:
 
 
 # ══════════════════════════════════════════════════════════
-# 7.  CLI & MAIN
+# 7.  CLI
 # ══════════════════════════════════════════════════════════
 
 def print_stats(stats: Dict[str, Any]):
@@ -915,26 +908,32 @@ def print_stats(stats: Dict[str, Any]):
     print(f"  Semesters Created:       {stats['semesters_created']}")
     print(f"  Semesters Skipped:       {stats['semesters_skipped_existing']}")
 
-    print(f"\n  📈 Performance Profile Distribution:")
-    for name, count in sorted(stats["profile_distribution"].items(), key=lambda x: -x[1]):
-        bar = "█" * (count // 2 + 1)
-        print(f"    {name:18s}: {count:4d}  {bar}")
+    if stats["profile_distribution"]:
+        print(f"\n  📈 Performance Profile Distribution:")
+        for name, count in sorted(stats["profile_distribution"].items(), key=lambda x: -x[1]):
+            bar = "█" * max(1, count // 2)
+            print(f"    {name:18s}: {count:4d}  {bar}")
 
-    print(f"\n  📊 Grade Distribution:")
     total_grades = sum(stats["grade_distribution"].values())
-    for grade in ["O", "A+", "A", "B+", "B", "C", "P", "F"]:
-        count = stats["grade_distribution"][grade]
-        pct = (count / total_grades * 100) if total_grades > 0 else 0
-        bar = "█" * (count // 10 + 1)
-        print(f"    {grade:4s}: {count:6d}  ({pct:5.1f}%)  {bar}")
+    if total_grades > 0:
+        print(f"\n  📊 Grade Distribution ({total_grades} total):")
+        for grade in ["O", "A+", "A", "B+", "B", "C", "P", "F"]:
+            count = stats["grade_distribution"].get(grade, 0)
+            pct = (count / total_grades * 100)
+            bar = "█" * max(1, count // 10)
+            print(f"    {grade:4s}: {count:6d}  ({pct:5.1f}%)  {bar}")
+    else:
+        print(f"\n  ℹ️  No new grades generated (all semesters already existed)")
+        print(f"      Use --overwrite to regenerate marks")
 
-    print(f"\n  📅 By Admission Year:")
-    for yr, data in sorted(stats["by_admission_year"].items()):
-        print(
-            f"    {yr}: {data['students']:3d} students, "
-            f"{data['semesters_total']:3d} semesters, "
-            f"avg CGPA: {data['avg_cgpa']:.2f}"
-        )
+    if stats["by_admission_year"]:
+        print(f"\n  📅 By Admission Year:")
+        for yr, data in sorted(stats["by_admission_year"].items()):
+            print(
+                f"    {yr}: {data['students']:3d} students, "
+                f"{data['semesters_total']:3d} new semesters, "
+                f"avg CGPA: {data['avg_cgpa']:.2f}"
+            )
     print(f"{'='*70}\n")
 
 
@@ -954,7 +953,7 @@ async def main():
     parser.add_argument("--export-only", action="store_true",
                         help="Only export existing marks, don't seed")
     parser.add_argument("--overwrite", action="store_true",
-                        help="Overwrite existing semester records")
+                        help="Overwrite existing semester records with fresh marks")
     parser.add_argument("--dry-run", action="store_true",
                         help="Generate marks but don't save to DB")
     parser.add_argument("--output-dir", "-o", type=str,
@@ -974,7 +973,9 @@ async def main():
             if args.admission_year:
                 print(f"   Admission Year: {args.admission_year}")
             if args.overwrite:
-                print(f"   ⚠️  OVERWRITE mode enabled")
+                print(f"   ⚠️  OVERWRITE mode: will regenerate ALL marks")
+            else:
+                print(f"   ℹ️  SAFE mode: only fills empty semesters")
             if args.dry_run:
                 print(f"   🧪 DRY RUN — no DB writes")
             print(f"{'='*70}\n")
@@ -1001,10 +1002,9 @@ async def main():
             )
 
             if files:
-                print(f"\n✅ Exported {len(files)} file(s):")
-                for f in files:
-                    print(f"   📄 {f}")
-                print(f"\n💡 These files can be uploaded via Admin > Bulk Marks Upload")
+                print(f"\n✅ Exported {len(files)} file(s) to: {os.path.abspath(args.output_dir)}")
+                print(f"\n💡 These files can be re-uploaded via Admin > Bulk Marks Upload")
+                print(f"   Each file has the __COLUMN_MAP__ embedded for proper parsing")
 
     finally:
         client.close()
