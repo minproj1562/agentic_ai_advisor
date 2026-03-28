@@ -22,5 +22,16 @@ __pycache__/
 .DS_Store
 Thumbs.db
 
-academic-advisor/academic-advisor-backend/app/ml/models/saved/
-*.joblib
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+venv/
+.env
+
+
+# Data / Excel files
+academic-advisor/academic-advisor-backend/*.xlsx
+academic-advisor/academic-advisor-backend/scripts/training_data/*.csv
+academic-advisor/academic-advisor-backend/scripts/training_data/*.json
