@@ -160,28 +160,31 @@ class RAGService:
         unit: Optional[int] = None,
         top_k: int = 5
     ) -> List[Dict[str, Any]]:
-        """Retrieve relevant syllabus content"""
-        
-        # Build filter for vector store
+        """Retrieve relevant syllabus content — ONLY from syllabus store."""
+
         filter_dict = {"type": "syllabus"}
         if subject_code:
             filter_dict["subject_code"] = subject_code
         if unit:
             filter_dict["unit"] = unit
-            
-        # Search vector store
-        results = self.syllabus_store.similarity_search_with_score(
-            query,
-            k=top_k,
-            filter=filter_dict if len(filter_dict) > 1 else None
-        )
-        
-        # Also search MongoDB for exact matches (using Beanie)
+
+        try:
+            results = self.syllabus_store.similarity_search_with_score(
+                query,
+                k=top_k * 2,  # fetch more, then filter
+                filter=filter_dict if len(filter_dict) > 1 else None
+            )
+        except Exception as e:
+            logger.warning(f"Vector search failed: {e}")
+            results = []
+
+        # Filter out low-relevance results (distance > 1.2 typically means poor match)
+        filtered_results = [(doc, score) for doc, score in results if score < 1.2]
+
         db_results = await self._search_syllabus_db(query, subject_code, unit)
-        
-        # Combine and deduplicate results
-        combined = self._merge_results(results, db_results)
-        
+
+        combined = self._merge_results(filtered_results[:top_k], db_results)
+
         return combined
         
     async def _search_syllabus_db(
@@ -403,3 +406,48 @@ class RAGService:
             return "Medium"
         else:
             return "Low"
+        
+    async def index_open_elective_knowledge(self):
+        """Index the 5 Sem-VII Open Elective syllabi into the knowledge store."""
+        from app.ml.models.recommendation_engine import OPEN_ELECTIVE_META
+
+        for key, meta in OPEN_ELECTIVE_META.items():
+            content_parts = [
+                f"Open Elective: {meta['name']} ({meta['code']})",
+                f"Semester: {meta['semester']}",
+                f"Credits: {meta['credits']}",
+                f"Category: {meta['category']}",
+                f"Description: {meta['description']}",
+                f"Skills: {', '.join(meta['skills'])}",
+                f"Career Paths: {', '.join(meta['career_paths'])}",
+            ]
+            if meta.get("modules"):
+                content_parts.append("Modules:")
+                for i, mod in enumerate(meta["modules"], 1):
+                    content_parts.append(f"  {i}. {mod}")
+
+            full_content = "\n".join(content_parts)
+            chunks = self.text_splitter.split_text(full_content)
+
+            documents = [
+                Document(
+                    page_content=chunk,
+                    metadata={
+                        "id": f"oec_{key}_{i}",
+                        "subject_code": meta["code"],
+                        "subject_name": meta["name"],
+                        "type": "syllabus",
+                        "category": "open_elective",
+                        "semester": 7,
+                    }
+                )
+                for i, chunk in enumerate(chunks)
+            ]
+
+            self.knowledge_store.add_documents(documents)
+            # Also add to syllabus store for subject queries
+            self.syllabus_store.add_documents(documents)
+
+        self.knowledge_store.persist()
+        self.syllabus_store.persist()
+        logger.info("✅ Indexed 5 Open Elective syllabi into vector stores")

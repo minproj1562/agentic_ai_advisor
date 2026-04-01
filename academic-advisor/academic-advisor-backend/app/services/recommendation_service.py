@@ -1,8 +1,8 @@
-# academic-advisor-backend/app/services/recommendation_service.py
+# app/services/recommendation_service.py
 """
 Recommendation Service - Unified orchestrator
 Fetches student data → calls ML engine → stores results → handles feedback
-FIXED: Cache invalidation after project upload + training data generation
+Supports Program Electives + Open Electives (Sem VII)
 """
 
 import logging
@@ -15,11 +15,12 @@ from app.models.student_profile import StudentProfile
 from app.models.student_projects import StudentProject, StudentInterestProfile
 from app.models.recommendation import (
     RecommendationRecord, RecommendationFeedback, TrainingDataPoint,
-    ElectiveDetail, HonoursDetail, CareerDetail, RecommendationType
+    ElectiveDetail, OpenElectiveDetail, HonoursDetail, CareerDetail, RecommendationType
 )
 from app.schemas.recommendation_schemas import (
     CumulativeRecommendationResponse,
     ElectiveRecommendationResponse,
+    OpenElectiveRecommendationResponse,
     HonoursRecommendationResponse,
     CareerRecommendationResponse,
     RecommendationBasisResponse,
@@ -29,8 +30,6 @@ logger = logging.getLogger(__name__)
 
 
 class RecommendationService:
-    """Orchestrates recommendation generation from all data sources."""
-
     def __init__(self):
         self.engine = recommendation_engine
 
@@ -39,25 +38,17 @@ class RecommendationService:
     # ================================================================
 
     async def get_student_data(self, student_id: str) -> Dict[str, Any]:
-        """Fetch all student data needed for recommendations."""
         data = {
-            'marks': {},
-            'interests': [],
-            'projects': [],
-            'cgpa': 0.0,
-            'semester': 4,
-            'project_skills': [],
+            'marks': {}, 'interests': [], 'projects': [],
+            'cgpa': 0.0, 'semester': 4, 'project_skills': [],
         }
 
         try:
-            profile = await StudentProfile.find_one(
-                StudentProfile.user_id == student_id
-            )
+            profile = await StudentProfile.find_one(StudentProfile.user_id == student_id)
             if profile:
                 data['cgpa'] = profile.cgpa or 0.0
                 data['semester'] = profile.current_semester or 4
                 data['interests'] = list(profile.interests or [])
-
                 for sem_record in (profile.semester_records or []):
                     for subj in (sem_record.subjects or []):
                         current = data['marks'].get(subj.subject_name, 0)
@@ -121,16 +112,10 @@ class RecommendationService:
         return data
 
     # ================================================================
-    #  CACHE MANAGEMENT  (NEW)
+    #  CACHE MANAGEMENT
     # ================================================================
 
     async def invalidate_cache(self, student_id: str) -> int:
-        """
-        Mark all active recommendation records as inactive.
-        Called after project upload or interest update so the next
-        request regenerates fresh recommendations.
-        Returns the number of records invalidated.
-        """
         try:
             result = await RecommendationRecord.find(
                 RecommendationRecord.student_id == student_id,
@@ -145,20 +130,12 @@ class RecommendationService:
             return 0
 
     # ================================================================
-    #  TRAINING DATA FROM PROJECTS  (NEW)
+    #  TRAINING DATA FROM PROJECTS
     # ================================================================
 
     async def create_training_data_from_project(
-        self,
-        student_id: str,
-        student_data: Dict[str, Any],
-        top_elective: str,
+        self, student_id: str, student_data: Dict[str, Any], top_elective: str,
     ) -> None:
-        """
-        After a project is analyzed and recommendations are generated,
-        create a synthetic training data point from the real student data.
-        The 'label' is the top recommended elective.
-        """
         try:
             features = self.engine.extract_features(
                 marks=student_data['marks'],
@@ -171,6 +148,7 @@ class RecommendationService:
                 interests={i: 1.0 for i in student_data['interests']},
                 project_skills=student_data.get('project_skills', []),
                 label=top_elective,
+                label_type="program_elective",
                 source="project_analysis",
             )
             await td.insert()
@@ -186,11 +164,11 @@ class RecommendationService:
         self,
         student_id: str,
         include_electives: bool = True,
+        include_open_electives: bool = True,
         include_honours: bool = True,
         include_career: bool = True,
         force_refresh: bool = False,
     ) -> CumulativeRecommendationResponse:
-        """Generate cumulative recommendations from all sources."""
         start_time = time.time()
 
         # Check cache
@@ -208,14 +186,15 @@ class RecommendationService:
             except Exception as e:
                 logger.warning(f"Could not check cache: {e}")
 
-        # Fetch fresh data
         student_data = await self.get_student_data(student_id)
 
         electives_resp: List[ElectiveRecommendationResponse] = []
+        open_electives_resp: List[OpenElectiveRecommendationResponse] = []
         honours_resp: List[HonoursRecommendationResponse] = []
         careers_resp: List[CareerRecommendationResponse] = []
         models_used = ['Rule-Based']
 
+        # ── Program Electives ──
         if include_electives:
             raw_electives = self.engine.recommend_electives(
                 marks=student_data['marks'],
@@ -248,6 +227,43 @@ class RecommendationService:
             if self.engine.is_trained:
                 models_used = ['RandomForest', 'KNN', 'Rule-Based']
 
+        # ── Open Electives (Sem VII) ──
+        if include_open_electives:
+            raw_oe = self.engine.recommend_open_electives(
+                marks=student_data['marks'],
+                interests=student_data['interests'],
+                projects=student_data['projects'],
+                cgpa=student_data['cgpa'],
+                use_ml=self.engine.oe_is_trained,
+            )
+            for oe in raw_oe:
+                open_electives_resp.append(OpenElectiveRecommendationResponse(
+                    elective_code=oe['elective_code'],
+                    elective_name=oe['elective_name'],
+                    credits=oe['credits'],
+                    semester=oe.get('semester', 7),
+                    category=oe.get('category', 'Open Elective'),
+                    match_score=oe['match_score'],
+                    match_explanation=oe.get('match_explanation', ''),
+                    prerequisites_met=oe.get('prerequisites_met', True),
+                    skill_alignment=oe.get('skill_alignment', []),
+                    career_relevance=oe.get('career_relevance', []),
+                    modules=oe.get('modules', []),
+                    recommendation_basis=RecommendationBasisResponse(
+                        interests_weight=oe.get('recommendation_basis', {}).get('interests_weight', 0),
+                        performance_weight=oe.get('recommendation_basis', {}).get('performance_weight', 0),
+                        projects_weight=oe.get('recommendation_basis', {}).get('projects_weight', 0),
+                    ),
+                    skill_gaps=oe.get('skill_gaps', []),
+                    score_breakdown=oe.get('score_breakdown'),
+                    ranking_explanation=oe.get('ranking_explanation'),
+                    confidence=oe.get('confidence'),
+                ))
+            if self.engine.oe_is_trained:
+                if 'OE-RandomForest' not in models_used:
+                    models_used.append('OE-RandomForest')
+
+        # ── Honours ──
         if include_honours:
             raw_honours = self.engine.recommend_honours(
                 marks=student_data['marks'],
@@ -259,9 +275,7 @@ class RecommendationService:
                 from app.core.subject_mappings import get_programme_type_for_branch
                 student_branch = 'IT'
                 try:
-                    profile = await StudentProfile.find_one(
-                        StudentProfile.user_id == student_id
-                    )
+                    profile = await StudentProfile.find_one(StudentProfile.user_id == student_id)
                     if profile and profile.branch:
                         student_branch = profile.branch.upper()
                 except Exception:
@@ -271,10 +285,10 @@ class RecommendationService:
                     h['type'] = get_programme_type_for_branch(programme_name, student_branch)
             except ImportError:
                 pass
-
             for h in raw_honours:
                 honours_resp.append(HonoursRecommendationResponse(**h))
 
+        # ── Careers ──
         if include_career:
             raw_careers = self.engine.recommend_careers(
                 marks=student_data['marks'],
@@ -287,7 +301,7 @@ class RecommendationService:
 
         computation_time = (time.time() - start_time) * 1000
 
-        # Store recommendation record
+        # Store record
         try:
             record = RecommendationRecord(
                 student_id=student_id,
@@ -297,6 +311,7 @@ class RecommendationService:
                 cgpa=student_data['cgpa'],
                 semester=student_data['semester'],
                 electives=[ElectiveDetail(**e.model_dump()) for e in electives_resp],
+                open_electives=[OpenElectiveDetail(**oe.model_dump()) for oe in open_electives_resp],
                 honours=[HonoursDetail(**h.model_dump()) for h in honours_resp],
                 careers=[CareerDetail(**c.model_dump()) for c in careers_resp],
                 models_used=models_used,
@@ -308,12 +323,14 @@ class RecommendationService:
 
         return CumulativeRecommendationResponse(
             electives=electives_resp,
+            open_electives=open_electives_resp,
             honours=honours_resp,
             careers=careers_resp,
             model_info={
                 'models_used': models_used,
                 'is_ml_trained': self.engine.is_trained,
-                'version': '2.0.0',
+                'is_oe_ml_trained': self.engine.oe_is_trained,
+                'version': '3.0.0',
             },
             computation_time_ms=computation_time,
             data_summary={
@@ -325,7 +342,6 @@ class RecommendationService:
         )
 
     def _format_cached(self, cached: RecommendationRecord) -> CumulativeRecommendationResponse:
-        """Format cached record as response."""
         electives = []
         for e in (cached.electives or []):
             basis = e.recommendation_basis or {}
@@ -350,11 +366,38 @@ class RecommendationService:
                 confidence=e.confidence,
             ))
 
+        open_electives = []
+        for oe in (cached.open_electives or []):
+            basis = oe.recommendation_basis or {}
+            open_electives.append(OpenElectiveRecommendationResponse(
+                elective_code=oe.elective_code,
+                elective_name=oe.elective_name,
+                credits=oe.credits,
+                semester=oe.semester,
+                category=oe.category,
+                match_score=oe.match_score,
+                match_explanation=oe.match_explanation or '',
+                prerequisites_met=oe.prerequisites_met,
+                skill_alignment=oe.skill_alignment,
+                career_relevance=oe.career_relevance,
+                modules=oe.modules,
+                recommendation_basis=RecommendationBasisResponse(
+                    interests_weight=basis.get('interests_weight', 0),
+                    performance_weight=basis.get('performance_weight', 0),
+                    projects_weight=basis.get('projects_weight', 0),
+                ),
+                skill_gaps=oe.skill_gaps or [],
+                score_breakdown=oe.score_breakdown,
+                ranking_explanation=oe.ranking_explanation,
+                confidence=oe.confidence,
+            ))
+
         honours = [HonoursRecommendationResponse(**h.model_dump()) for h in (cached.honours or [])]
         careers = [CareerRecommendationResponse(**c.model_dump()) for c in (cached.careers or [])]
 
         return CumulativeRecommendationResponse(
             electives=electives,
+            open_electives=open_electives,
             honours=honours,
             careers=careers,
             model_info={
@@ -362,7 +405,8 @@ class RecommendationService:
                 'cached': True,
                 'cached_at': cached.created_at.isoformat(),
                 'is_ml_trained': self.engine.is_trained,
-                'version': '2.0.0',
+                'is_oe_ml_trained': self.engine.oe_is_trained,
+                'version': '3.0.0',
             },
             computation_time_ms=cached.computation_time_ms,
         )
@@ -372,17 +416,11 @@ class RecommendationService:
     # ================================================================
 
     async def record_feedback(
-        self,
-        student_id: str,
-        recommendation_type: str,
-        recommendation_id: str,
-        rating: int,
-        feedback_text: str = "",
+        self, student_id: str, recommendation_type: str,
+        recommendation_id: str, rating: int, feedback_text: str = "",
     ) -> None:
-        """Record feedback WITH full student context for retraining."""
         try:
             student_data = await self.get_student_data(student_id)
-
             feedback = RecommendationFeedback(
                 student_id=student_id,
                 recommendation_type=RecommendationType(recommendation_type),
@@ -398,10 +436,7 @@ class RecommendationService:
                 student_project_count=len(student_data['projects']),
             )
             await feedback.insert()
-
-            # Invalidate cache so next request reflects updated model view
             await self.invalidate_cache(student_id)
-
             logger.info(f"Recorded feedback for {student_id}: {recommendation_type} - rating {rating}")
         except Exception as e:
             logger.error(f"Failed to record feedback: {e}")
@@ -421,14 +456,15 @@ class RecommendationService:
 
         return {
             'is_trained': self.engine.is_trained,
-            'model_version': '2.0.0',
-            'models_available': ['Rule-Based', 'RandomForest', 'KNN'],
+            'is_oe_trained': self.engine.oe_is_trained,
+            'model_version': '3.0.0',
+            'models_available': ['Rule-Based', 'RandomForest', 'KNN', 'OE-RandomForest'],
             'feature_dimension': 35,
             'electives_supported': ['ML', 'WT', 'DWM', 'CCS'],
+            'open_electives_supported': ['RE', 'OR', 'CSL', 'DBM', 'EAM'],
             'total_feedback_collected': feedback_count,
             'total_training_points': training_count,
         }
 
 
-# Singleton
 recommendation_service = RecommendationService()

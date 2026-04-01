@@ -1,0 +1,4 @@
+Task,Model,Primary Metric,Value,Secondary Metric,Value,CV Score,N Samples
+PEC Recommender,RandomForest(200)+KNN(5),Accuracy,0.9833,F1 Weighted,0.9833,0.9926±0.0023,2688
+OEC Recommender,RandomForest(200),Accuracy,0.9873,F1 Weighted,0.9873,0.9823±0.0083,2750
+Perf. Predictor ,XGBoost,RMSE,1.4147,R²,0.8535,1.3633±0.0344,4800

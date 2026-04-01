@@ -206,3 +206,27 @@ DEPARTMENT_SKILLS = {
         "Power Electronics", "Renewable Energy"
     ]
 }
+# ═══════════════════════════════════════════════════════════════
+#  OPEN ELECTIVE CONSTANTS (Semester VII)
+# ═══════════════════════════════════════════════════════════════
+
+OPEN_ELECTIVE_CODES = {
+    "RE": "OEC7012",
+    "OR": "OEC7015",
+    "CSL": "OEC7016",
+    "DBM": "OEC7017",
+    "EAM": "OEC7018",
+}
+
+OPEN_ELECTIVE_NAMES = {
+    "OEC7012": "Reliability Engineering",
+    "OEC7015": "Operation Research",
+    "OEC7016": "Cyber Security and Laws",
+    "OEC7017": "Digital Business Management",
+    "OEC7018": "Energy Audit and Management",
+}
+
+OPEN_ELECTIVE_LABELS = ["RE", "OR", "CSL", "DBM", "EAM"]
+
+# Currently offered OECs for SH-2026 (Sem VII)
+OFFERED_OEC_SEM7_2026 = list(OPEN_ELECTIVE_CODES.keys())

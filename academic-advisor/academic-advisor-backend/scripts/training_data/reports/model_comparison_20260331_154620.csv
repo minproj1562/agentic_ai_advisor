@@ -1,0 +1,11 @@
+Task,Model,Primary Metric,Value,Secondary Metric,Value,CV Score,N Samples
+PEC Recommender,RandomForest(200)+KNN(5),Accuracy,0.9833,F1 Weighted,0.9833,0.9926±0.0023,2688
+OEC Recommender,RandomForest(200),Accuracy,0.9873,F1 Weighted,0.9873,0.9823±0.0083,2750
+Perf. Predictor ,XGBoost,RMSE,1.4147,R²,0.8535,1.3633±0.0344,4800
+Perf. Predictor ✅,RandomForest,RMSE,1.3591,R²,0.8648,1.3242±0.0495,4800
+Perf. Predictor ,GradientBoosting,RMSE,1.3946,R²,0.8576,1.3595±0.0360,4800
+Perf. Predictor ,LightGBM,RMSE,1.3839,R²,0.8598,1.3568±0.0467,4800
+Weakness Detector ,XGBoost,F1 Weighted,0.8618,Accuracy,0.8611,0.8632±0.0077,16988
+Weakness Detector ,LightGBM,F1 Weighted,0.8646,Accuracy,0.8642,0.8617±0.0069,16988
+Weakness Detector ,RandomForest,F1 Weighted,0.8633,Accuracy,0.8621,0.8591±0.0075,16988
+Weakness Detector ✅,GradientBoosting,F1 Weighted,0.8684,Accuracy,0.8682,0.8646±0.0039,16988

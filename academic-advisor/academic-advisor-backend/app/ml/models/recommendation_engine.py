@@ -9,6 +9,7 @@ Features:
   - Per-category confidence levels
   - Concept matching for project descriptions
   - Ranking explanation with comparisons
+  - Open Elective (Sem-VII) recommendations
 """
 
 import numpy as np
@@ -106,7 +107,7 @@ INTEREST_AREAS = [
 ALL_SUBJECTS = CANONICAL_SUBJECTS
 
 # ═══════════════════════════════════════════════════════════════════
-#  ELECTIVE CATALOGUE
+#  PROGRAM ELECTIVE CATALOGUE (Sem 5-6)
 # ═══════════════════════════════════════════════════════════════════
 
 ELECTIVE_META = {
@@ -139,6 +140,235 @@ ELECTIVE_META = {
         "description": "Cloud Computing Services covers virtualisation, containers, AWS/Azure/GCP, serverless, micro-services, and CI/CD pipelines.",
     },
 }
+
+# ═══════════════════════════════════════════════════════════════════
+#  OPEN ELECTIVE CATALOGUE (Sem VII) — NEW
+# ═══════════════════════════════════════════════════════════════════
+
+OPEN_ELECTIVE_META = {
+    "RE": {
+        "code": "OEC7012", "name": "Reliability Engineering", "credits": 3,
+        "semester": 7, "category": "Open Elective",
+        "career_paths": ["Reliability Engineer", "Quality Assurance Engineer", "Systems Engineer", "Safety Engineer", "Risk Analyst"],
+        "skills": ["Probability Theory", "FMEA/FMECA", "Fault Tree Analysis", "Weibull Analysis", "System Reliability", "Markov Analysis"],
+        "description": (
+            "Reliability Engineering covers probability theory, reliability functions, failure analysis (Bath Tub Curve, MTTF, MTBF), "
+            "hazard models (constant, time-dependent, Weibull), system reliability configurations (series, parallel, k-out-of-n, redundancy), "
+            "maintainability, availability, FMECA, Fault Tree Analysis, and Event Tree Analysis."
+        ),
+        "modules": [
+            "Probability (Baye's Theorem, conditional probability)",
+            "Reliability Concepts (failure density, MTTF, MTBF, Bath Tub Curve)",
+            "Reliability Hazard Models (Weibull, constant/time-dependent hazard)",
+            "System Reliability (series, parallel, mixed, k-out-of-n, Markov)",
+            "Maintainability and Availability (fault isolation, modularization)",
+            "FMECA & Fault Tree Analysis (Event Tree Analysis)",
+        ],
+    },
+    "OR": {
+        "code": "OEC7015", "name": "Operation Research", "credits": 3,
+        "semester": 7, "category": "Open Elective",
+        "career_paths": ["Operations Analyst", "Supply Chain Analyst", "Management Consultant", "Logistics Manager", "Business Analyst"],
+        "skills": ["Linear Programming", "Simplex Method", "Queuing Theory", "Game Theory", "Dynamic Programming", "Simulation", "Inventory Models"],
+        "description": (
+            "Operation Research covers linear programming (graphical, simplex, Big M, Two Phase, duality), "
+            "queuing models (single/multi-server, Poisson, exponential), Monte-Carlo simulation, "
+            "dynamic programming (shortest path, cargo loading, capital budgeting), "
+            "game theory (saddle point, minimax, dominance, mixed strategy), and inventory models (EOQ, price breaks)."
+        ),
+        "modules": [
+            "Introduction to OR (LPP, Simplex, Big M, Two Phase, Duality)",
+            "Queuing Models (single/multi-server, Poisson input)",
+            "Simulation (Monte-Carlo, methodology, applications)",
+            "Dynamic Programming (shortest path, capital budgeting)",
+            "Game Theory (saddle point, minimax, mixed strategy)",
+            "Inventory Models (EOQ, price breaks, probabilistic EOQ)",
+        ],
+    },
+    "CSL": {
+        "code": "OEC7016", "name": "Cyber Security and Laws", "credits": 3,
+        "semester": 7, "category": "Open Elective",
+        "career_paths": ["Cybersecurity Analyst", "Compliance Officer", "Information Security Manager", "Legal Tech Consultant", "IT Auditor"],
+        "skills": ["Cybercrime Analysis", "IT Act 2000/2008", "GDPR", "ISO 27001", "Social Engineering", "Digital Forensics", "Phishing Analysis"],
+        "description": (
+            "Cyber Security and Laws covers cybercrime classification, social engineering, botnets, phishing, password cracking, "
+            "DoS/DDoS, SQL injection, identity theft, e-commerce security, Indian IT Act 2000 & 2008 amendments, "
+            "cyber law (contract, IP, evidence, criminal aspects), and compliance standards (SOX, GLBA, HIPAA, ISO, PCI)."
+        ),
+        "modules": [
+            "Introduction to Cybercrime (ITA 2000, global perspective)",
+            "Cyber Offenses (social engineering, botnets, cloud/mobile security)",
+            "Tools & Methods (phishing, keyloggers, viruses, DoS, SQL injection)",
+            "Cyberspace Concepts (e-commerce, IP, cyber law, electronic banking)",
+            "Indian IT Act (2000, 2008 amendments, penalties, adjudication)",
+            "Information Security Compliances (SOX, HIPAA, ISO, PCI, FISMA)",
+        ],
+    },
+    "DBM": {
+        "code": "OEC7017", "name": "Digital Business Management", "credits": 3,
+        "semester": 7, "category": "Open Elective",
+        "career_paths": ["Digital Marketing Manager", "Product Manager", "E-commerce Manager", "Business Analyst", "Growth Hacker", "Data Analyst"],
+        "skills": ["SEO/SEM", "Digital Strategy", "CRM", "A/B Testing", "Data Analytics", "Agile/Lean", "E-commerce", "Platform Business Models"],
+        "description": (
+            "Digital Business Management covers digital transformation (digitization vs digitalization), "
+            "digital strategy frameworks, KPI dashboards, digital marketing (SEO, SEM, social media, content marketing), "
+            "customer journey mapping, e-commerce models (B2B, B2C, C2C, D2C), omni-channel operations, "
+            "data analytics and AI for business, platform ecosystems, API economy, Agile & Lean Startup, and ethics."
+        ),
+        "modules": [
+            "Foundations of Digital Business (Marketplaces, Subscription, Freemium, PaaS)",
+            "Digital Strategy & Transformation (KPI dashboards, CAC, LTV, roadmaps)",
+            "Digital Marketing & Customer Acquisition (SEO, SEM, CRM, A/B testing)",
+            "Ecommerce & Omni-channel Operations (B2B/B2C/D2C, fulfillment, logistics)",
+            "Data, Analytics & AI for Business (SQL, predictive analytics, recommendation engines)",
+            "Platforms, Ecosystems & Ethics (API economy, Agile, Lean Startup, GDPR)",
+        ],
+    },
+    "EAM": {
+        "code": "OEC7018", "name": "Energy Audit and Management", "credits": 3,
+        "semester": 7, "category": "Open Elective",
+        "career_paths": ["Energy Auditor", "Sustainability Consultant", "Energy Manager", "Green Building Consultant", "Environmental Engineer"],
+        "skills": ["Energy Auditing", "Financial Analysis (NPV, ROI, IRR)", "Power Factor Correction", "HVAC Optimization", "ECBC", "BEE Standards"],
+        "description": (
+            "Energy Audit and Management covers energy scenarios (renewable/non-renewable, Energy Conservation Act 2001, BEE), "
+            "energy audit principles (benchmarking, simple payback, NPV, ROI, IRR), "
+            "energy management in electrical systems (power factor, motor loading, VSDs, lighting efficiency), "
+            "thermal systems (boilers, furnaces, heat exchangers, HVAC), "
+            "on-site energy performance assessment (ILER method), and Energy Conservation Building Codes (ECBC)."
+        ),
+        "modules": [
+            "Energy Scenario (Conservation Act 2001, BEE, renewable/non-renewable)",
+            "Energy Audit Principles (benchmarking, payback, NPV, ROI, IRR)",
+            "Electrical Systems Management (power factor, motors, lighting, VSDs)",
+            "Thermal Systems Management (boilers, furnaces, heat exchangers, HVAC)",
+            "Energy Performance Assessment (ILER, on-site techniques)",
+            "Energy Conservation in Buildings (ECBC, green buildings)",
+        ],
+    },
+}
+
+# Open Elective labels
+OPEN_ELECTIVE_LABELS = ["RE", "OR", "CSL", "DBM", "EAM"]
+
+# ═══════════════════════════════════════════════════════════════════
+#  OPEN ELECTIVE SCORING WEIGHTS
+# ═══════════════════════════════════════════════════════════════════
+
+OE_SUBJECT_WEIGHTS: Dict[str, Dict[str, float]] = {
+    "RE": {
+        "Engineering Mathematics-III": 3.5, "Engineering Mathematics-IV": 3.0,
+        "Data Structures and Algorithms": 1.5, "Software Engineering": 1.5,
+        "Operating Systems": 1.0,
+    },
+    "OR": {
+        "Engineering Mathematics-III": 3.5, "Engineering Mathematics-IV": 3.5,
+        "Data Structures and Algorithms": 2.0, "Design & Analysis of Algorithms": 2.0,
+        "Python": 1.0,
+    },
+    "CSL": {
+        "Computer Networks": 3.5, "Cryptography & Network Security": 3.5,
+        "Operating Systems": 2.0, "Software Engineering": 1.5,
+        "Database Management Systems": 1.0,
+    },
+    "DBM": {
+        "Database Management Systems": 2.5, "Software Engineering": 2.5,
+        "Full Stack Development": 2.5, "Python": 1.5,
+        "Data Structures and Algorithms": 1.0,
+    },
+    "EAM": {
+        "Engineering Mathematics-III": 2.0, "Engineering Mathematics-IV": 2.0,
+        "Microcontroller & Embedded Systems": 2.0, "IoT": 2.0,
+        "Software Engineering": 1.0,
+    },
+}
+
+OE_INTEREST_MAP = {
+    "RE": [("Network & Wireless Systems", 1.5), ("Cloud & Distributed Systems", 1.0)],
+    "OR": [("Data Science & Analytics", 2.0), ("Artificial Intelligence & Machine Learning", 1.0)],
+    "CSL": [("Network & Wireless Systems", 2.5), ("Cloud & Distributed Systems", 1.0)],
+    "DBM": [("Web Development", 2.0), ("Data Science & Analytics", 2.0), ("Cloud & Distributed Systems", 1.0)],
+    "EAM": [("Mobile & IoT Development", 1.5), ("Network & Wireless Systems", 1.0)],
+}
+
+OE_PROJECT_SKILL_MAP = {
+    "RE": [
+        "probability", "statistics", "reliability", "failure analysis", "fmea", "fault tree",
+        "weibull", "matlab", "simulation", "quality", "testing", "risk", "safety",
+        "markov", "maintenance", "statistical analysis", "mtbf", "mttf",
+        "system design", "redundancy", "hazard", "availability",
+    ],
+    "OR": [
+        "optimization", "linear programming", "simulation", "queue", "queuing",
+        "monte carlo", "scheduling", "inventory", "supply chain", "logistics",
+        "game theory", "dynamic programming", "operations", "simplex",
+        "python", "matlab", "scipy", "numpy", "decision", "mathematical model",
+        "cost optimization", "resource allocation", "planning",
+    ],
+    "CSL": [
+        "security", "cyber", "hacking", "penetration testing", "firewall",
+        "encryption", "phishing", "malware", "forensics", "compliance",
+        "vulnerability", "authentication", "authorization", "gdpr", "iso 27001",
+        "network security", "intrusion detection", "ids", "ips",
+        "sql injection", "xss", "ddos", "dos", "social engineering",
+        "password", "cryptography", "digital signature", "certificate",
+    ],
+    "DBM": [
+        "digital marketing", "seo", "sem", "social media", "analytics",
+        "ecommerce", "e-commerce", "crm", "a/b testing", "marketing",
+        "business", "strategy", "dashboard", "kpi", "product management",
+        "agile", "lean", "api", "platform", "marketplace",
+        "web", "react", "node", "fullstack", "full stack",
+        "recommendation", "personalization", "customer", "user experience",
+        "subscription", "saas", "startup", "growth",
+    ],
+    "EAM": [
+        "energy", "audit", "solar", "renewable", "sustainability",
+        "power", "electrical", "thermal", "hvac", "boiler",
+        "green building", "conservation", "efficiency", "carbon",
+        "iot", "smart grid", "monitoring", "sensor", "automation",
+        "led", "lighting", "motor", "vsd", "vfd",
+        "ecbc", "bee", "energy management", "insulation",
+        "heat exchanger", "furnace", "power factor",
+    ],
+}
+
+OE_CONCEPT_MAP = {
+    "RE": [
+        ("reliab", 0.6), ("fail", 0.5), ("hazard", 0.5), ("redundan", 0.5),
+        ("mainten", 0.4), ("availab", 0.4), ("probabili", 0.4),
+        ("bath tub", 0.6), ("weibull", 0.6), ("markov", 0.5),
+        ("fault", 0.5), ("safety", 0.3), ("risk", 0.3), ("qualit", 0.3),
+    ],
+    "OR": [
+        ("optimi", 0.5), ("linear", 0.4), ("simplex", 0.6), ("queue", 0.5),
+        ("simulat", 0.4), ("inventor", 0.5), ("schedul", 0.4),
+        ("game theor", 0.6), ("dynamic program", 0.6), ("logistic", 0.4),
+        ("supply chain", 0.5), ("cost", 0.3), ("resource", 0.3),
+    ],
+    "CSL": [
+        ("secur", 0.5), ("cyber", 0.5), ("hack", 0.5), ("phish", 0.6),
+        ("malwar", 0.5), ("encrypt", 0.5), ("firewall", 0.5),
+        ("complian", 0.5), ("forens", 0.5), ("vulnerab", 0.5),
+        ("authent", 0.4), ("privac", 0.4), ("gdpr", 0.6), ("iso", 0.4),
+    ],
+    "DBM": [
+        ("market", 0.4), ("digital", 0.4), ("ecommerce", 0.5), ("e-commerce", 0.5),
+        ("seo", 0.6), ("strateg", 0.4), ("customer", 0.4), ("brand", 0.4),
+        ("analytic", 0.4), ("dashboard", 0.4), ("kpi", 0.5), ("agile", 0.4),
+        ("startup", 0.4), ("platform", 0.3), ("subscript", 0.4),
+    ],
+    "EAM": [
+        ("energy", 0.5), ("audit", 0.5), ("solar", 0.5), ("renew", 0.5),
+        ("sustain", 0.4), ("green", 0.4), ("conserv", 0.5), ("efficienc", 0.4),
+        ("power", 0.3), ("thermal", 0.4), ("hvac", 0.6), ("boiler", 0.5),
+        ("carbon", 0.4), ("insulation", 0.5), ("lighting", 0.3),
+    ],
+}
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  PROGRAM ELECTIVE WEIGHTS (existing - unchanged)
+# ═══════════════════════════════════════════════════════════════════
 
 SUBJECT_WEIGHTS: Dict[str, Dict[str, float]] = {
     "ML": {
@@ -250,7 +480,7 @@ HONOURS_PROGRAMS = [
         "skills_gained": ["Deep Learning", "NLP", "Computer Vision", "MLOps"],
     },
     {
-        "program": "Data Science Honours", "type": "honours", "required_cgpa": 7.5,
+        "program": "Data Science minor", "type": "minor", "required_cgpa": 7.5,
         "relevant_subjects": ["Database Management Systems", "Python", "Data Structures and Algorithms"],
         "relevant_interests": ["Data Science & Analytics", "Artificial Intelligence & Machine Learning"],
         "project_keywords": ["sql", "data", "analytics", "pandas", "visualization", "database", "dashboard", "report"],
@@ -258,7 +488,7 @@ HONOURS_PROGRAMS = [
         "skills_gained": ["Statistical Analysis", "Big Data", "Data Visualisation"],
     },
     {
-        "program": "Cybersecurity Minor", "type": "minor", "required_cgpa": 7.0,
+        "program": "Cybersecurity Honours", "type": "honours", "required_cgpa": 7.0,
         "relevant_subjects": ["Computer Networks", "Operating Systems", "Cryptography & Network Security"],
         "relevant_interests": ["Network & Wireless Systems", "Cloud & Distributed Systems"],
         "project_keywords": ["security", "network", "firewall", "encryption", "penetration", "cyber", "authentication"],
@@ -325,6 +555,44 @@ CAREER_CATALOG = [
         "preparation_path": ["Master embedded C/C++", "Build IoT prototypes"],
     },
 ]
+
+
+CONCEPT_MAP = {
+    "ML": [
+        ("predict", 0.5), ("train", 0.4), ("model", 0.4),
+        ("accuracy", 0.5), ("dataset", 0.5), ("feature", 0.3),
+        ("neural", 0.6), ("intelligent", 0.4), ("automat", 0.3),
+        ("recogni", 0.5), ("detect", 0.4), ("classif", 0.5),
+        ("generat", 0.3), ("recommend", 0.4), ("cluster", 0.4),
+        ("sentiment", 0.6), ("chatbot", 0.5), ("smart", 0.2),
+        ("analys", 0.3), ("label", 0.3), ("supervis", 0.5),
+        ("optimi", 0.3), ("loss", 0.3), ("epoch", 0.6),
+    ],
+    "WT": [
+        ("sensor", 0.6), ("device", 0.3), ("hardware", 0.5),
+        ("circuit", 0.5), ("signal", 0.5), ("transmit", 0.5),
+        ("monitor", 0.3), ("remote", 0.3), ("smart home", 0.6),
+        ("track", 0.2), ("real-time", 0.3), ("wearable", 0.5),
+        ("temperatur", 0.4), ("humid", 0.4), ("motor", 0.4),
+        ("relay", 0.5), ("actuator", 0.5), ("gpio", 0.6),
+    ],
+    "DWM": [
+        ("database", 0.5), ("query", 0.4), ("stor", 0.3),
+        ("report", 0.4), ("insight", 0.4), ("trend", 0.3),
+        ("visualiz", 0.5), ("chart", 0.3), ("graph", 0.3),
+        ("metric", 0.3), ("pattern", 0.3), ("aggregat", 0.3),
+        ("warehouse", 0.6), ("pipeline", 0.4), ("extract", 0.3),
+        ("transform", 0.3), ("schema", 0.4), ("dimension", 0.4),
+    ],
+    "CCS": [
+        ("deploy", 0.5), ("host", 0.4), ("server", 0.4),
+        ("website", 0.4), ("app", 0.3), ("platform", 0.3),
+        ("login", 0.3), ("authenticat", 0.4), ("crud", 0.4),
+        ("responsive", 0.3), ("dashboard", 0.4), ("portal", 0.3),
+        ("containeriz", 0.5), ("scalab", 0.4), ("endpoint", 0.4),
+        ("route", 0.3), ("middlewar", 0.4), ("component", 0.3),
+    ],
+}
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -525,48 +793,218 @@ class ConfidenceMetrics:
             "factors": self.factors,
         }
 
+# ═══════════════════════════════════════════════════════════════════
+#  DATA AVAILABILITY PROFILES
+# ═══════════════════════════════════════════════════════════════════
+
+class DataAvailabilityProfile:
+    """Determines what data a student has and adjusts weights accordingly."""
+
+    def __init__(self, marks: Dict, interests: Any, projects: List):
+        self.has_marks = len(marks) > 0
+        self.has_interests = False
+        self.has_projects = len(projects) > 0
+        self.marks_count = len(marks)
+        self.project_count = len(projects)
+        self.interest_count = 0
+
+        if isinstance(interests, list):
+            self.interest_count = len(interests)
+            self.has_interests = len(interests) > 0
+        elif isinstance(interests, dict):
+            self.interest_count = len([v for v in interests.values() if v > 0])
+            self.has_interests = self.interest_count > 0
+
+        # Dynamic weights based on what's available
+        self.weights = self._compute_weights()
+        self.profile_type = self._classify()
+        self.recommendations_for_user: List[str] = self._generate_data_tips()
+
+    def _compute_weights(self) -> Dict[str, float]:
+        """
+        Redistribute weights based on available data.
+        
+        Full data:    Marks 40% + Interests 30% + Projects 30%
+        Marks only:   Marks 80% + Interests 0%  + Projects 0%  + Heuristic 20%
+        Marks+Int:    Marks 55% + Interests 35% + Projects 0%  + Heuristic 10%
+        Marks+Proj:   Marks 50% + Interests 0%  + Projects 40% + Heuristic 10%
+        No data:      All heuristic (CGPA-based)
+        """
+        has_m = self.has_marks
+        has_i = self.has_interests
+        has_p = self.has_projects
+
+        if has_m and has_i and has_p:
+            return {"marks": 40, "interests": 30, "projects": 30, "heuristic": 0}
+        elif has_m and has_i and not has_p:
+            return {"marks": 55, "interests": 35, "projects": 0, "heuristic": 10}
+        elif has_m and not has_i and has_p:
+            return {"marks": 50, "interests": 0, "projects": 40, "heuristic": 10}
+        elif has_m and not has_i and not has_p:
+            return {"marks": 80, "interests": 0, "projects": 0, "heuristic": 20}
+        elif not has_m and has_i and has_p:
+            return {"marks": 0, "interests": 45, "projects": 45, "heuristic": 10}
+        elif not has_m and has_i and not has_p:
+            return {"marks": 0, "interests": 70, "projects": 0, "heuristic": 30}
+        elif not has_m and not has_i and has_p:
+            return {"marks": 0, "interests": 0, "projects": 70, "heuristic": 30}
+        else:
+            return {"marks": 0, "interests": 0, "projects": 0, "heuristic": 100}
+
+    def _classify(self) -> str:
+        if self.has_marks and self.has_interests and self.has_projects:
+            return "full_profile"
+        elif self.has_marks and (self.has_interests or self.has_projects):
+            return "partial_profile"
+        elif self.has_marks:
+            return "marks_only"
+        elif self.has_interests or self.has_projects:
+            return "no_marks"
+        else:
+            return "empty_profile"
+
+    def _generate_data_tips(self) -> List[str]:
+        tips = []
+        if not self.has_interests:
+            tips.append("💡 Add your interests (AI/ML, Web Dev, etc.) for 30% better accuracy")
+        if not self.has_projects:
+            tips.append("🔧 Upload at least 2 projects to unlock project-based matching")
+        if self.marks_count < 5:
+            tips.append("📊 More subject marks = more accurate recommendations")
+        if self.interest_count == 1:
+            tips.append("💡 Adding a second interest area improves recommendation diversity")
+        if self.project_count == 1:
+            tips.append("🔧 One more project would significantly improve accuracy")
+        return tips
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "profile_type": self.profile_type,
+            "has_marks": self.has_marks,
+            "has_interests": self.has_interests,
+            "has_projects": self.has_projects,
+            "marks_count": self.marks_count,
+            "interest_count": self.interest_count,
+            "project_count": self.project_count,
+            "weights_used": self.weights,
+            "data_improvement_tips": self.recommendations_for_user,
+        }
+
 
 # ═══════════════════════════════════════════════════════════════════
-#  CONCEPT MAP (for description-level matching)
+#  WHAT-IF ANALYSIS (Student wants specific elective)
 # ═══════════════════════════════════════════════════════════════════
 
-CONCEPT_MAP = {
-    "ML": [
-        ("predict", 0.5), ("train", 0.4), ("model", 0.4),
-        ("accuracy", 0.5), ("dataset", 0.5), ("feature", 0.3),
-        ("neural", 0.6), ("intelligent", 0.4), ("automat", 0.3),
-        ("recogni", 0.5), ("detect", 0.4), ("classif", 0.5),
-        ("generat", 0.3), ("recommend", 0.4), ("cluster", 0.4),
-        ("sentiment", 0.6), ("chatbot", 0.5), ("smart", 0.2),
-        ("analys", 0.3), ("label", 0.3), ("supervis", 0.5),
-        ("optimi", 0.3), ("loss", 0.3), ("epoch", 0.6),
-    ],
-    "WT": [
-        ("sensor", 0.6), ("device", 0.3), ("hardware", 0.5),
-        ("circuit", 0.5), ("signal", 0.5), ("transmit", 0.5),
-        ("monitor", 0.3), ("remote", 0.3), ("smart home", 0.6),
-        ("track", 0.2), ("real-time", 0.3), ("wearable", 0.5),
-        ("temperatur", 0.4), ("humid", 0.4), ("motor", 0.4),
-        ("relay", 0.5), ("actuator", 0.5), ("gpio", 0.6),
-    ],
-    "DWM": [
-        ("database", 0.5), ("query", 0.4), ("stor", 0.3),
-        ("report", 0.4), ("insight", 0.4), ("trend", 0.3),
-        ("visualiz", 0.5), ("chart", 0.3), ("graph", 0.3),
-        ("metric", 0.3), ("pattern", 0.3), ("aggregat", 0.3),
-        ("warehouse", 0.6), ("pipeline", 0.4), ("extract", 0.3),
-        ("transform", 0.3), ("schema", 0.4), ("dimension", 0.4),
-    ],
-    "CCS": [
-        ("deploy", 0.5), ("host", 0.4), ("server", 0.4),
-        ("website", 0.4), ("app", 0.3), ("platform", 0.3),
-        ("login", 0.3), ("authenticat", 0.4), ("crud", 0.4),
-        ("responsive", 0.3), ("dashboard", 0.4), ("portal", 0.3),
-        ("containeriz", 0.5), ("scalab", 0.4), ("endpoint", 0.4),
-        ("route", 0.3), ("middlewar", 0.4), ("component", 0.3),
-    ],
-}
+class WhatIfAnalysis:
+    """Analyze what happens if student picks a specific elective they want."""
 
+    @staticmethod
+    def analyze(
+        chosen_elective: str,
+        all_recommendations: List[Dict[str, Any]],
+        canon_marks: Dict[str, float],
+        elective_meta: Dict,
+        subject_weights: Dict,
+    ) -> Dict[str, Any]:
+        """
+        Returns analysis of chosen elective vs recommendations.
+        """
+        # Find the chosen one in recommendations
+        chosen_rec = None
+        chosen_rank = 0
+        top_rec = all_recommendations[0] if all_recommendations else None
+
+        for i, rec in enumerate(all_recommendations):
+            code = rec.get("elective_code", "")
+            name = rec.get("elective_name", "")
+            if (chosen_elective.upper() in code.upper() or
+                chosen_elective.lower() in name.lower()):
+                chosen_rec = rec
+                chosen_rank = i + 1
+                break
+
+        if not chosen_rec:
+            return {
+                "found": False,
+                "message": f"'{chosen_elective}' not found in available electives",
+            }
+
+        # Determine risk level
+        score = chosen_rec.get("match_score", 0)
+        if score >= 65:
+            risk = "low"
+            risk_message = "Good fit! You're well-aligned with this elective."
+        elif score >= 45:
+            risk = "medium"
+            risk_message = "Moderate fit. Some preparation recommended."
+        elif score >= 25:
+            risk = "high"
+            risk_message = "Challenging choice. Significant preparation needed."
+        else:
+            risk = "very_high"
+            risk_message = "Very challenging. Consider your top recommendation instead."
+
+        # Find specific gaps
+        gaps = chosen_rec.get("skill_gaps", [])
+        weak_subjects = []
+        bd = chosen_rec.get("score_breakdown", {})
+        if bd:
+            acad = bd.get("academic_component", {})
+            weak_subjects = acad.get("weak_subjects", [])
+
+        # Generate preparation plan
+        prep_steps = []
+        if weak_subjects:
+            for subj in weak_subjects[:3]:
+                prep_steps.append(f"📚 Revise {subj} — focus on fundamentals")
+        if gaps:
+            for gap in gaps[:2]:
+                prep_steps.append(
+                    f"📈 Improve {gap.get('subject', 'subject')} from "
+                    f"{gap.get('current_score', 0)} to {gap.get('target_score', 60)}"
+                )
+
+        meta = elective_meta.get(chosen_elective, {})
+        if meta.get("skills"):
+            prep_steps.append(f"💻 Self-study: {', '.join(meta['skills'][:3])}")
+
+        # Comparison with top choice
+        comparison = {}
+        if top_rec and chosen_rank > 1:
+            diff = top_rec.get("match_score", 0) - score
+            comparison = {
+                "top_recommendation": top_rec.get("elective_name", ""),
+                "top_score": top_rec.get("match_score", 0),
+                "your_choice_score": score,
+                "score_difference": round(diff, 1),
+                "message": (
+                    f"Your choice scores {round(diff, 1)} points lower than "
+                    f"'{top_rec.get('elective_name', '')}'. "
+                    f"{'This is a small gap — your choice is still viable!' if diff < 15 else 'Consider the top recommendation for best results.'}"
+                ),
+            }
+
+        return {
+            "found": True,
+            "chosen_elective": chosen_rec.get("elective_name", ""),
+            "chosen_code": chosen_rec.get("elective_code", ""),
+            "your_rank": chosen_rank,
+            "total_options": len(all_recommendations),
+            "match_score": score,
+            "risk_level": risk,
+            "risk_message": risk_message,
+            "weak_subjects": weak_subjects,
+            "skill_gaps": gaps[:4],
+            "preparation_plan": prep_steps,
+            "comparison_with_top": comparison,
+            "can_succeed": risk in ("low", "medium"),
+            "advice": (
+                "Go for it! Your profile aligns well." if risk == "low"
+                else "Doable with some preparation. Follow the study plan." if risk == "medium"
+                else "Challenging but not impossible. Consider tutoring or extra study hours." if risk == "high"
+                else "We recommend reconsidering. Your top match is significantly better aligned."
+            ),
+        }
 
 # ═══════════════════════════════════════════════════════════════════
 #  ENGINE
@@ -575,6 +1013,7 @@ CONCEPT_MAP = {
 class CumulativeRecommendationEngine:
     MODEL_DIR = os.path.join(os.path.dirname(__file__), "saved")
     ELECTIVE_META = ELECTIVE_META
+    OPEN_ELECTIVE_META = OPEN_ELECTIVE_META
 
     def __init__(self, load_pretrained: bool = True):
         self.rf_clf: Optional[RandomForestClassifier] = None
@@ -582,6 +1021,11 @@ class CumulativeRecommendationEngine:
         self.scaler = StandardScaler()
         self.label_enc = LabelEncoder()
         self.is_trained = False
+        # Open elective ML models (separate from program elective models)
+        self.oe_rf_clf: Optional[RandomForestClassifier] = None
+        self.oe_scaler = StandardScaler()
+        self.oe_label_enc = LabelEncoder()
+        self.oe_is_trained = False
         self._sbert = None
         os.makedirs(self.MODEL_DIR, exist_ok=True)
         if load_pretrained:
@@ -629,12 +1073,47 @@ class CumulativeRecommendationEngine:
         feat.append(demo / max(n, 1))
         return np.array(feat, dtype=np.float32)
 
-    # ── Academic score ──────────────────────────────────────────
+    def extract_oe_features(
+        self, marks: Dict[str, float], interests: Any, projects: List[Dict[str, Any]]
+    ) -> np.ndarray:
+        """Extract features for open elective recommendation."""
+        canon_marks = _canonicalise_marks(marks)
+        feat: List[float] = []
+        # Subject scores
+        for subj in CANONICAL_SUBJECTS:
+            feat.append(canon_marks.get(subj, 0.0) / 100.0)
+        # Aggregates
+        vals = [v for v in canon_marks.values() if v > 0]
+        if vals:
+            feat += [np.mean(vals) / 100, np.std(vals) / 100, np.max(vals) / 100, np.min(vals) / 100]
+        else:
+            feat += [0.0, 0.0, 0.0, 0.0]
+        # Interests
+        ni = _normalise_interests(interests)
+        for area in INTEREST_AREAS:
+            feat.append(ni.get(area, 0.0))
+        # Project features for OE categories
+        n = len(projects)
+        feat.append(min(n / 10.0, 1.0))
+        for oe in OPEN_ELECTIVE_LABELS:
+            feat.append(min(_project_hits(projects, OE_PROJECT_SKILL_MAP[oe]) / 15.0, 1.0))
+        total_sk = sum(len(p.get("extracted_skills", [])) for p in projects)
+        feat.append(min(total_sk / 50.0, 1.0))
+        team = sum(1 for p in projects if p.get("is_team_project"))
+        feat.append(team / max(n, 1))
+        cmplx = np.mean([p.get("complexity_score", 0.5) for p in projects]) if projects else 0.5
+        feat.append(cmplx)
+        gh = sum(1 for p in projects if p.get("github_url"))
+        feat.append(gh / max(n, 1))
+        demo = sum(1 for p in projects if p.get("demo_url"))
+        feat.append(demo / max(n, 1))
+        return np.array(feat, dtype=np.float32)
 
-    def _calculate_academic_score(
-        self, canon_marks: Dict[str, float], elective: str
+    # ── Generic academic score (reusable for both PEC and OEC) ──
+
+    def _calculate_academic_score_generic(
+        self, canon_marks: Dict[str, float], weights: Dict[str, float]
     ) -> Tuple[float, ScoreBreakdown]:
-        weights = SUBJECT_WEIGHTS.get(elective, {})
         breakdown = ScoreBreakdown()
         total_weighted_score = 0.0
         total_weight = 0.0
@@ -669,12 +1148,19 @@ class CumulativeRecommendationEngine:
         breakdown.academic["percentage"] = round((score / 40) * 100, 1) if score > 0 else 0
         return score, breakdown
 
-    # ── Interest score ──────────────────────────────────────────
+    # ── Academic score (program electives) ──────────────────────
 
-    def _calculate_interest_score(
-        self, norm_interests: Dict[str, float], elective: str, raw_interests: Any
+    def _calculate_academic_score(
+        self, canon_marks: Dict[str, float], elective: str
+    ) -> Tuple[float, ScoreBreakdown]:
+        weights = SUBJECT_WEIGHTS.get(elective, {})
+        return self._calculate_academic_score_generic(canon_marks, weights)
+
+    # ── Interest score (generic) ────────────────────────────────
+
+    def _calculate_interest_score_generic(
+        self, norm_interests: Dict[str, float], mapping: List[Tuple[str, float]]
     ) -> Tuple[float, Dict[str, Any]]:
-        mapping = INTEREST_ELECTIVE_MAP.get(elective, [])
         score = 0.0
         matched = []
         unmatched = []
@@ -699,30 +1185,28 @@ class CumulativeRecommendationEngine:
             "matched_interests": matched, "unmatched_interests": unmatched,
         }
 
-    # ── Project score (FIXED) ───────────────────────────────────
-
-    def _calculate_project_score(
-        self, projects: List[Dict[str, Any]], elective: str
+    def _calculate_interest_score(
+        self, norm_interests: Dict[str, float], elective: str, raw_interests: Any
     ) -> Tuple[float, Dict[str, Any]]:
-        """
-        Project score with concept matching.
-        Keyword hits → up to 20, Concepts → up to 5,
-        Count bonus → up to 3, Quality → up to 2. Total max: 30.
-        """
-        keywords = PROJECT_SKILL_MAP.get(elective, [])
+        mapping = INTEREST_ELECTIVE_MAP.get(elective, [])
+        return self._calculate_interest_score_generic(norm_interests, mapping)
 
-        # 1. Direct keyword hits
+    # ── Project score (generic) ─────────────────────────────────
+
+    def _calculate_project_score_generic(
+        self, projects: List[Dict[str, Any]], keywords: List[str],
+        concept_map_key: Optional[str] = None
+    ) -> Tuple[float, Dict[str, Any]]:
         hits = _project_hits(projects, keywords)
         matched_projects = _matching_projects_detail(projects, keywords)
         keyword_score = min(hits * 3.5, 20.0)
 
-        # 2. Concept matching
-        concept_score = self._concept_match_score(projects, elective) if projects else 0.0
+        concept_score = 0.0
+        if concept_map_key and projects:
+            concept_score = self._concept_match_score_generic(projects, concept_map_key)
 
-        # 3. Count bonus
         count_bonus = min(len(projects) * 0.8, 3.0)
 
-        # 4. Quality bonus
         quality_bonus = 0.0
         for p in projects:
             if p.get("github_url") or p.get("githubUrl"):
@@ -734,7 +1218,6 @@ class CumulativeRecommendationEngine:
 
         score = min(round(keyword_score + concept_score + count_bonus + quality_bonus, 2), 30.0)
 
-        # Missing skills
         all_project_skills: set = set()
         for p in projects:
             for key in ("extracted_skills", "extractedSkills",
@@ -765,17 +1248,19 @@ class CumulativeRecommendationEngine:
             },
         }
 
-    # ── Concept matching ────────────────────────────────────────
-
-    def _concept_match_score(
+    def _calculate_project_score(
         self, projects: List[Dict[str, Any]], elective: str
+    ) -> Tuple[float, Dict[str, Any]]:
+        keywords = PROJECT_SKILL_MAP.get(elective, [])
+        return self._calculate_project_score_generic(projects, keywords, elective)
+
+    # ── Concept matching (generic) ──────────────────────────────
+
+    def _concept_match_score_generic(
+        self, projects: List[Dict[str, Any]], key: str
     ) -> float:
-        """
-        Semantic concept matching from project descriptions.
-        Catches cases like "predict house prices" → ML even without
-        the literal keyword "machine learning".
-        """
-        concepts = CONCEPT_MAP.get(elective, [])
+        # Check both maps
+        concepts = CONCEPT_MAP.get(key, OE_CONCEPT_MAP.get(key, []))
         if not concepts:
             return 0.0
         total = 0.0
@@ -792,6 +1277,11 @@ class CumulativeRecommendationEngine:
                     total += weight
         return min(total, 5.0)
 
+    def _concept_match_score(
+        self, projects: List[Dict[str, Any]], elective: str
+    ) -> float:
+        return self._concept_match_score_generic(projects, elective)
+
     # ── Semantic boost ──────────────────────────────────────────
 
     def _calculate_semantic_boost(self, interests: Any, projects: List, elective: str) -> float:
@@ -801,7 +1291,11 @@ class CumulativeRecommendationEngine:
             student_text = " ".join(interests if isinstance(interests, list) else [])
             for p in projects:
                 student_text += " " + p.get("description", "")
-            desc = ELECTIVE_META[elective]["description"]
+            # Look up description in either meta dict
+            meta = ELECTIVE_META.get(elective, OPEN_ELECTIVE_META.get(elective, {}))
+            desc = meta.get("description", "")
+            if not desc:
+                return 0.0
             embs = self.sbert.encode([student_text, desc])
             sim = cos_sim([embs[0]], [embs[1]])[0][0]
             return float(sim) * 10
@@ -812,7 +1306,7 @@ class CumulativeRecommendationEngine:
 
     def _generate_improvement_tips(self, breakdown: Dict[str, Any], elective: str) -> List[str]:
         tips = []
-        meta = ELECTIVE_META.get(elective, {})
+        meta = ELECTIVE_META.get(elective, OPEN_ELECTIVE_META.get(elective, {}))
         acad = breakdown.get("academic_component", {})
         if acad.get("missing_subjects"):
             m = acad["missing_subjects"][0]
@@ -831,7 +1325,85 @@ class CumulativeRecommendationEngine:
             tips.append("Upload more projects for better accuracy")
         return tips[:4]
 
-    # ── Main elective recommendation ────────────────────────────
+    # ── What-If Analysis endpoint ───────────────────────────────
+
+    def analyze_elective_choice(
+        self,
+        chosen_elective: str,
+        marks: Dict[str, float],
+        interests: Any,
+        projects: List[Dict[str, Any]],
+        cgpa: float = 0.0,
+        is_open_elective: bool = False,
+    ) -> Dict[str, Any]:
+        """
+        Analyze a student's specific elective choice.
+        Returns risk assessment, gaps, and preparation plan.
+        """
+        if is_open_elective:
+            recs = self.recommend_open_electives(marks, interests, projects, cgpa)
+            meta = OPEN_ELECTIVE_META
+            weights = OE_SUBJECT_WEIGHTS
+        else:
+            recs = self.recommend_electives(marks, interests, projects, cgpa)
+            meta = ELECTIVE_META
+            weights = SUBJECT_WEIGHTS
+
+        canon_marks = _canonicalise_marks(marks)
+
+        return WhatIfAnalysis.analyze(
+            chosen_elective=chosen_elective,
+            all_recommendations=recs,
+            canon_marks=canon_marks,
+            elective_meta=meta,
+            subject_weights=weights,
+        )
+
+    # ── Honours constraint check ────────────────────────────────
+
+    @staticmethod
+    def check_honours_constraints(
+        student_honours: Optional[str],
+        recommended_electives: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        """
+        Apply honours/minor constraints.
+        E.g., AIML Honours students should NOT be recommended ML as PEC.
+        """
+        if not student_honours:
+            return recommended_electives
+
+        constraints = {
+            "AIML": ["ML"],           # AIML honours → can't take ML elective
+            "AI/ML": ["ML"],
+            "AI & Machine Learning": ["ML"],
+            "Cybersecurity": ["CSL"],  # Cybersecurity honours → CSL overlap
+        }
+
+        blocked_keys = set()
+        for honours_name, blocked in constraints.items():
+            if honours_name.lower() in student_honours.lower():
+                blocked_keys.update(blocked)
+
+        if not blocked_keys:
+            return recommended_electives
+
+        filtered = []
+        for rec in recommended_electives:
+            code = rec.get("elective_code", "")
+            # Check if this elective's key is blocked
+            code_to_key = {
+                "ITPEC5012": "ML", "ITPEC5013": "WT",
+                "ITPEC5014": "DWM", "ITPEC5015": "CCS",
+            }
+            key = code_to_key.get(code, "")
+            if key in blocked_keys:
+                rec["_blocked"] = True
+                rec["_blocked_reason"] = f"Overlaps with your {student_honours} Honours programme"
+            filtered.append(rec)
+
+        return filtered
+    # ── Main elective recommendation (program electives) ────────
 
     def recommend_electives(
         self,
@@ -952,6 +1524,168 @@ class CumulativeRecommendationEngine:
                 "skill_gaps": skill_gaps[:4],
             })
         return results
+
+    # ═══════════════════════════════════════════════════════════
+    #  OPEN ELECTIVE RECOMMENDATION (Sem VII) — NEW
+    # ═══════════════════════════════════════════════════════════
+
+    def recommend_open_electives(
+        self,
+        marks: Dict[str, float],
+        interests: Any,
+        projects: List[Dict[str, Any]],
+        cgpa: float = 0.0,
+        use_ml: bool = True,
+    ) -> List[Dict[str, Any]]:
+        """Recommend from the 5 Semester-VII Open Electives."""
+        canon_marks = _canonicalise_marks(marks)
+        norm_interests = _normalise_interests(interests)
+        interest_list = interests if isinstance(interests, list) else list(interests.keys()) if isinstance(interests, dict) else []
+
+        confidence = ConfidenceMetrics()
+        confidence.calculate(marks, interests, projects)
+
+        # ML predictions for OE
+        ml_probs: Dict[str, float] = {}
+        if use_ml and self.oe_is_trained:
+            try:
+                feat = self.extract_oe_features(marks, interests, projects)
+                feat_scaled = self.oe_scaler.transform([feat])
+                probs = self.oe_rf_clf.predict_proba(feat_scaled)[0]
+                ml_probs = dict(zip(self.oe_label_enc.classes_, probs))
+            except Exception as e:
+                logger.warning(f"OE ML prediction failed: {e}")
+
+        scored = []
+        for oe in OPEN_ELECTIVE_LABELS:
+            weights = OE_SUBJECT_WEIGHTS.get(oe, {})
+            academic_score, breakdown = self._calculate_academic_score_generic(canon_marks, weights)
+
+            mapping = OE_INTEREST_MAP.get(oe, [])
+            interest_score, interest_details = self._calculate_interest_score_generic(norm_interests, mapping)
+
+            keywords = OE_PROJECT_SKILL_MAP.get(oe, [])
+            project_score, project_details = self._calculate_project_score_generic(projects, keywords, oe)
+
+            breakdown.interest = interest_details
+            breakdown.project = project_details
+
+            sem_boost = self._calculate_semantic_boost(interest_list, projects, oe)
+            breakdown.interest["semantic_similarity"] = round(sem_boost / 10, 2)
+
+            final = academic_score + interest_score + project_score
+            ml_boost = 0.0
+            if oe in ml_probs:
+                ml_boost = ml_probs[oe] * 15
+                final += ml_boost
+            final += sem_boost
+            final = round(min(max(final, 0), 100), 1)
+
+            scored.append({
+                "_key": oe, "_final": final,
+                "_breakdown": breakdown.to_dict(),
+                "_academic_score": academic_score,
+                "_interest_score": interest_score,
+                "_project_score": project_score,
+                "_ml_boost": ml_boost, "_sem_boost": sem_boost,
+            })
+
+        scored.sort(key=lambda x: x["_final"], reverse=True)
+
+        results = []
+        for rank, item in enumerate(scored, 1):
+            oe = item["_key"]
+            meta = OPEN_ELECTIVE_META[oe]
+
+            ranking = RankingExplanation()
+            ranking.rank = rank
+            ranking.total_options = len(scored)
+            if rank == 1:
+                ranking.why_this_rank = "Best overall alignment for your profile among open electives"
+                if len(scored) > 1:
+                    diff = item["_final"] - scored[1]["_final"]
+                    ranking.vs_other_electives.append({
+                        "compared_to": OPEN_ELECTIVE_META[scored[1]["_key"]]["name"],
+                        "score_difference": round(diff, 1),
+                        "message": f"{round(diff, 1)} points higher than second choice"
+                    })
+            elif rank == 2:
+                ranking.why_this_rank = "Strong alternative open elective"
+                diff = scored[0]["_final"] - item["_final"]
+                ranking.vs_other_electives.append({
+                    "compared_to": OPEN_ELECTIVE_META[scored[0]["_key"]]["name"],
+                    "score_difference": round(-diff, 1),
+                    "message": f"{round(diff, 1)} points below top choice"
+                })
+            else:
+                ranking.why_this_rank = "Lower alignment — consider based on personal interest or schedule"
+
+            ranking.improvement_tips = self._generate_improvement_tips(item["_breakdown"], oe)
+
+            skill_gaps = []
+            for subj in item["_breakdown"]["academic_component"].get("weak_subjects", []):
+                for contrib in item["_breakdown"]["academic_component"].get("contributing_subjects", []):
+                    if contrib["subject"] == subj:
+                        skill_gaps.append({
+                            "subject": subj, "current_score": contrib["score"],
+                            "target_score": 60, "gap": round(60 - contrib["score"], 1),
+                            "importance": "High" if contrib["weight"] >= 3.0 else "Medium"
+                        })
+                        break
+
+            text_explanation = self._build_oe_text_explanation(oe, item, rank, len(scored))
+
+            results.append({
+                "elective_code": meta["code"],
+                "elective_name": meta["name"],
+                "credits": meta["credits"],
+                "semester": meta["semester"],
+                "category": meta["category"],
+                "match_score": item["_final"],
+                "score_breakdown": item["_breakdown"],
+                "ranking_explanation": ranking.to_dict(),
+                "confidence": confidence.to_dict(),
+                "match_explanation": text_explanation,
+                "prerequisites_met": True,
+                "skill_alignment": meta["skills"][:6],
+                "career_relevance": meta["career_paths"],
+                "modules": meta.get("modules", []),
+                "recommendation_basis": {
+                    "interests_weight": round(item["_interest_score"], 1),
+                    "performance_weight": round(item["_academic_score"], 1),
+                    "projects_weight": round(item["_project_score"], 1),
+                },
+                "skill_gaps": skill_gaps[:4],
+            })
+        return results
+
+    def _build_oe_text_explanation(self, oe: str, item: Dict, rank: int, total: int) -> str:
+        meta = OPEN_ELECTIVE_META[oe]
+        bd = item["_breakdown"]
+        parts = [f"Ranked #{rank} of {total} open electives with a score of {item['_final']:.1f}%."]
+        acad = bd["academic_component"]
+        if acad["contributing_subjects"]:
+            parts.append(f"\n📊 Academic ({acad['score']:.1f}/40, {acad['percentage']}%):")
+            if acad["strong_subjects"]:
+                parts.append(f"  Strengths: {', '.join(acad['strong_subjects'][:3])}")
+            if acad["weak_subjects"]:
+                parts.append(f"  Needs work: {', '.join(acad['weak_subjects'][:2])}")
+        else:
+            parts.append("\n📊 Academic: No relevant marks data.")
+        intr = bd["interest_component"]
+        if intr["matched_interests"]:
+            names = [m["interest"] for m in intr["matched_interests"]]
+            parts.append(f"\n💡 Interests ({intr['score']:.1f}/30): Matches {', '.join(names)}")
+        else:
+            parts.append("\n💡 Interests: No matching interests declared.")
+        proj = bd["project_component"]
+        if proj["relevant_projects"]:
+            titles = [p["title"] for p in proj["relevant_projects"][:2]]
+            parts.append(f"\n🔧 Projects ({proj['score']:.1f}/30, {proj['keyword_hits']} keyword matches):")
+            parts.append(f"  Relevant: {', '.join(titles)}")
+        else:
+            parts.append(f"\n🔧 Projects: No matches. Build projects with {', '.join(meta['skills'][:3])}.")
+        return "\n".join(parts)
 
     def _build_text_explanation(self, elec: str, item: Dict, rank: int, total: int) -> str:
         meta = ELECTIVE_META[elec]
@@ -1094,7 +1828,7 @@ class CumulativeRecommendationEngine:
         results.sort(key=lambda x: x["match_score"], reverse=True)
         return results
 
-    # ── Training ────────────────────────────────────────────────
+    # ── Training (program electives) ────────────────────────────
 
     def train(self, training_data: List[Dict[str, Any]], test_size: float = 0.2) -> Dict[str, Any]:
         if len(training_data) < 20:
@@ -1138,16 +1872,66 @@ class CumulativeRecommendationEngine:
             "timestamp": datetime.utcnow().isoformat(),
         }
 
+    # ── Training (open electives) ───────────────────────────────
+
+    def train_open_electives(self, training_data: List[Dict[str, Any]], test_size: float = 0.2) -> Dict[str, Any]:
+        """Train the open elective recommendation model."""
+        if len(training_data) < 20:
+            raise ValueError(f"Need ≥20 OE samples, got {len(training_data)}")
+        X, y = [], []
+        for s in training_data:
+            X.append(self.extract_oe_features(s.get("marks", {}), s.get("interests", []), s.get("projects", [])))
+            y.append(s["label"])
+        X, y = np.array(X), np.array(y)
+        y_enc = self.oe_label_enc.fit_transform(y)
+        X_tr, X_te, y_tr, y_te = train_test_split(X, y_enc, test_size=test_size, random_state=42, stratify=y_enc)
+        X_tr_s = self.oe_scaler.fit_transform(X_tr)
+        X_te_s = self.oe_scaler.transform(X_te)
+        self.oe_rf_clf = RandomForestClassifier(n_estimators=200, max_depth=12, random_state=42, n_jobs=-1)
+        self.oe_rf_clf.fit(X_tr_s, y_tr)
+        pred = self.oe_rf_clf.predict(X_te_s)
+        acc = accuracy_score(y_te, pred)
+        f1w = f1_score(y_te, pred, average="weighted")
+        cv = cross_val_score(self.oe_rf_clf, X_tr_s, y_tr, cv=5)
+        self.oe_is_trained = True
+        self._save()
+        report = classification_report(y_te, pred, output_dict=True)
+        return {
+            "accuracy": round(acc, 4), "f1_weighted": round(f1w, 4),
+            "f1_macro": round(f1_score(y_te, pred, average="macro"), 4),
+            "cross_val_mean": round(cv.mean(), 4), "cross_val_std": round(cv.std(), 4),
+            "per_class": {
+                self.oe_label_enc.classes_[i]: {
+                    "precision": round(report[str(i)]["precision"], 4),
+                    "recall": round(report[str(i)]["recall"], 4),
+                    "f1": round(report[str(i)]["f1-score"], 4),
+                }
+                for i in range(len(self.oe_label_enc.classes_))
+                if str(i) in report
+            },
+            "confusion_matrix": confusion_matrix(y_te, pred).tolist(),
+            "n_training_samples": len(X_tr), "n_test_samples": len(X_te),
+            "model_type": "RandomForest(200) — Open Electives",
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
     def _save(self) -> None:
         try:
             joblib.dump(self.rf_clf, os.path.join(self.MODEL_DIR, "rf_clf.joblib"))
             joblib.dump(self.knn_clf, os.path.join(self.MODEL_DIR, "knn_clf.joblib"))
             joblib.dump(self.scaler, os.path.join(self.MODEL_DIR, "scaler.joblib"))
             joblib.dump(self.label_enc, os.path.join(self.MODEL_DIR, "label_enc.joblib"))
+            # Save OE models
+            if self.oe_rf_clf is not None:
+                joblib.dump(self.oe_rf_clf, os.path.join(self.MODEL_DIR, "oe_rf_clf.joblib"))
+                joblib.dump(self.oe_scaler, os.path.join(self.MODEL_DIR, "oe_scaler.joblib"))
+                joblib.dump(self.oe_label_enc, os.path.join(self.MODEL_DIR, "oe_label_enc.joblib"))
             meta = {
                 "is_trained": True, "timestamp": datetime.utcnow().isoformat(),
-                "model_version": "2.0.0", "feature_dimension": FEATURE_DIM,
+                "model_version": "3.0.0", "feature_dimension": FEATURE_DIM,
                 "labels": list(self.label_enc.classes_) if hasattr(self.label_enc, 'classes_') else ["ML", "WT", "DWM", "CCS"],
+                "oe_is_trained": self.oe_is_trained,
+                "oe_labels": list(self.oe_label_enc.classes_) if self.oe_is_trained and hasattr(self.oe_label_enc, 'classes_') else OPEN_ELECTIVE_LABELS,
             }
             with open(os.path.join(self.MODEL_DIR, "meta.json"), "w") as f:
                 json.dump(meta, f, indent=2)
@@ -1164,7 +1948,15 @@ class CumulativeRecommendationEngine:
                 self.scaler = joblib.load(os.path.join(self.MODEL_DIR, "scaler.joblib"))
                 self.label_enc = joblib.load(os.path.join(self.MODEL_DIR, "label_enc.joblib"))
                 self.is_trained = True
-                logger.info("Pre-trained models loaded successfully")
+                logger.info("Pre-trained PEC models loaded successfully")
+            # Load OE models
+            oe_rf_path = os.path.join(self.MODEL_DIR, "oe_rf_clf.joblib")
+            if os.path.exists(oe_rf_path):
+                self.oe_rf_clf = joblib.load(oe_rf_path)
+                self.oe_scaler = joblib.load(os.path.join(self.MODEL_DIR, "oe_scaler.joblib"))
+                self.oe_label_enc = joblib.load(os.path.join(self.MODEL_DIR, "oe_label_enc.joblib"))
+                self.oe_is_trained = True
+                logger.info("Pre-trained OEC models loaded successfully")
         except Exception as e:
             logger.info(f"No pre-trained models found: {e}")
 

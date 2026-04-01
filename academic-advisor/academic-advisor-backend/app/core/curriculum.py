@@ -192,7 +192,7 @@ ELECTIVE_OPTIONS: Dict[str, List[Dict[str, str]]] = {
         {"code": "ITPEC8054", "name": "Cyber Physical Systems"},
         {"code": "ITPEC8055", "name": "Blockchain Technology"},
     ],
-    # Open Elective I (Sem 7)
+        # Open Elective I (Sem 7) — Updated for SH-2026
     "OEC1": [
         {"code": "OEC7011", "name": "Product Lifecycle Management"},
         {"code": "OEC7012", "name": "Reliability Engineering"},
@@ -200,7 +200,7 @@ ELECTIVE_OPTIONS: Dict[str, List[Dict[str, str]]] = {
         {"code": "OEC7014", "name": "Design of Experiments"},
         {"code": "OEC7015", "name": "Operation Research"},
         {"code": "OEC7016", "name": "Cyber Security and Laws"},
-        {"code": "OEC7017", "name": "Disaster Management"},
+        {"code": "OEC7017", "name": "Digital Business Management"},
         {"code": "OEC7018", "name": "Energy Audit and Management"},
     ],
     # Open Elective II (Sem 8)

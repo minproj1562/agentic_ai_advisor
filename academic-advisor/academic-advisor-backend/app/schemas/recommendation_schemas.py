@@ -1,7 +1,7 @@
 # app/schemas/recommendation_schemas.py
 """
 Enhanced Pydantic schemas for recommendation API
-Includes structured score breakdown for frontend visualization
+Includes Open Elective support for Semester VII
 """
 
 from pydantic import BaseModel, Field
@@ -9,14 +9,14 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime
 
 
-# ==================== NEW: SCORE BREAKDOWN SCHEMAS ====================
+# ==================== SCORE BREAKDOWN SCHEMAS ====================
 
 class SubjectContributionSchema(BaseModel):
     subject: str
     score: float
     weight: float
     contribution: float
-    status: str  # "strong", "adequate", "weak"
+    status: str
 
 
 class AcademicComponentSchema(BaseModel):
@@ -74,6 +74,7 @@ class ConfidenceMetricsSchema(BaseModel):
 
 class GenerateRecommendationsRequest(BaseModel):
     include_electives: bool = True
+    include_open_electives: bool = True
     include_honours: bool = True
     include_career: bool = True
     use_transformer: bool = True
@@ -121,19 +122,35 @@ class ElectiveRecommendationResponse(BaseModel):
     elective_name: str
     credits: int = 3
     match_score: float
-    
-    # NEW: Structured breakdown
     score_breakdown: Optional[ScoreBreakdownSchema] = None
     ranking_explanation: Optional[RankingExplanationSchema] = None
     confidence: Optional[ConfidenceMetricsSchema] = None
-    
-    # Legacy fields
     match_explanation: str = ""
     prerequisites_met: bool = True
     skill_alignment: List[str] = Field(default_factory=list)
     career_relevance: List[str] = Field(default_factory=list)
     recommendation_basis: RecommendationBasisResponse = Field(default_factory=RecommendationBasisResponse)
     pair: Optional[str] = None
+    skill_gaps: List[SkillGapSchema] = Field(default_factory=list)
+
+
+class OpenElectiveRecommendationResponse(BaseModel):
+    """Response schema for Semester-VII Open Elective recommendations."""
+    elective_code: str
+    elective_name: str
+    credits: int = 3
+    semester: int = 7
+    category: str = "Open Elective"
+    match_score: float
+    score_breakdown: Optional[ScoreBreakdownSchema] = None
+    ranking_explanation: Optional[RankingExplanationSchema] = None
+    confidence: Optional[ConfidenceMetricsSchema] = None
+    match_explanation: str = ""
+    prerequisites_met: bool = True
+    skill_alignment: List[str] = Field(default_factory=list)
+    career_relevance: List[str] = Field(default_factory=list)
+    modules: List[str] = Field(default_factory=list)
+    recommendation_basis: RecommendationBasisResponse = Field(default_factory=RecommendationBasisResponse)
     skill_gaps: List[SkillGapSchema] = Field(default_factory=list)
 
 
@@ -182,6 +199,7 @@ class CareerRecommendationResponse(BaseModel):
 
 class CumulativeRecommendationResponse(BaseModel):
     electives: List[ElectiveRecommendationResponse] = Field(default_factory=list)
+    open_electives: List[OpenElectiveRecommendationResponse] = Field(default_factory=list)
     honours: List[HonoursRecommendationResponse] = Field(default_factory=list)
     careers: List[CareerRecommendationResponse] = Field(default_factory=list)
     model_info: Dict[str, Any] = Field(default_factory=dict)

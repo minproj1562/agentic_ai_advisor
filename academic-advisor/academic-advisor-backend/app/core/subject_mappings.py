@@ -641,7 +641,172 @@ ELECTIVE_REQUIREMENTS: Dict[str, List[SubjectRequirement]] = {
             source_name="Big Data Analytics"
         ),
     ],
-    
+        # ============== OPEN ELECTIVE PREREQUISITES (Sem VII) ==============
+
+    "Reliability Engineering": [
+        SubjectRequirement(
+            subject_name="Engineering Mathematics-III", min_score=65,
+            importance=ImportanceLevel.CRITICAL, weight=0.95,
+            source_type=RequirementSource.ELECTIVE, source_name="Reliability Engineering",
+            description="Probability theory and statistical foundations"
+        ),
+        SubjectRequirement(
+            subject_name="Engineering Mathematics-IV", min_score=60,
+            importance=ImportanceLevel.HIGH, weight=0.85,
+            source_type=RequirementSource.ELECTIVE, source_name="Reliability Engineering",
+            description="Probability distributions and Baye's theorem"
+        ),
+        SubjectRequirement(
+            subject_name="Software Engineering", min_score=55,
+            importance=ImportanceLevel.MEDIUM, weight=0.7,
+            source_type=RequirementSource.ELECTIVE, source_name="Reliability Engineering",
+            description="System design and quality assurance concepts"
+        ),
+    ],
+    "RE": [
+        SubjectRequirement(
+            subject_name="Engineering Mathematics-III", min_score=65,
+            importance=ImportanceLevel.CRITICAL, weight=0.95,
+            source_type=RequirementSource.ELECTIVE, source_name="RE",
+        ),
+        SubjectRequirement(
+            subject_name="Engineering Mathematics-IV", min_score=60,
+            importance=ImportanceLevel.HIGH, weight=0.85,
+            source_type=RequirementSource.ELECTIVE, source_name="RE",
+        ),
+    ],
+
+    "Operation Research": [
+        SubjectRequirement(
+            subject_name="Engineering Mathematics-III", min_score=70,
+            importance=ImportanceLevel.CRITICAL, weight=0.95,
+            source_type=RequirementSource.ELECTIVE, source_name="Operation Research",
+            description="Linear algebra for LP, matrix methods"
+        ),
+        SubjectRequirement(
+            subject_name="Engineering Mathematics-IV", min_score=65,
+            importance=ImportanceLevel.CRITICAL, weight=0.9,
+            source_type=RequirementSource.ELECTIVE, source_name="Operation Research",
+            description="Probability for queuing and simulation"
+        ),
+        SubjectRequirement(
+            subject_name="Design & Analysis of Algorithms", min_score=60,
+            importance=ImportanceLevel.HIGH, weight=0.8,
+            source_type=RequirementSource.ELECTIVE, source_name="Operation Research",
+            description="Optimization and dynamic programming"
+        ),
+    ],
+    "OR": [
+        SubjectRequirement(
+            subject_name="Engineering Mathematics-III", min_score=70,
+            importance=ImportanceLevel.CRITICAL, weight=0.95,
+            source_type=RequirementSource.ELECTIVE, source_name="OR",
+        ),
+        SubjectRequirement(
+            subject_name="Engineering Mathematics-IV", min_score=65,
+            importance=ImportanceLevel.CRITICAL, weight=0.9,
+            source_type=RequirementSource.ELECTIVE, source_name="OR",
+        ),
+    ],
+
+    "Cyber Security and Laws": [
+        SubjectRequirement(
+            subject_name="Computer Networks", min_score=70,
+            importance=ImportanceLevel.CRITICAL, weight=0.95,
+            source_type=RequirementSource.ELECTIVE, source_name="Cyber Security and Laws",
+            description="Network attacks, protocols, DoS/DDoS"
+        ),
+        SubjectRequirement(
+            subject_name="Cryptography & Network Security", min_score=65,
+            importance=ImportanceLevel.CRITICAL, weight=0.9,
+            source_type=RequirementSource.ELECTIVE, source_name="Cyber Security and Laws",
+            description="Encryption, digital signatures, security standards"
+        ),
+        SubjectRequirement(
+            subject_name="Operating Systems", min_score=60,
+            importance=ImportanceLevel.HIGH, weight=0.8,
+            source_type=RequirementSource.ELECTIVE, source_name="Cyber Security and Laws",
+            description="System-level security concepts"
+        ),
+    ],
+    "CSL": [
+        SubjectRequirement(
+            subject_name="Computer Networks", min_score=70,
+            importance=ImportanceLevel.CRITICAL, weight=0.95,
+            source_type=RequirementSource.ELECTIVE, source_name="CSL",
+        ),
+        SubjectRequirement(
+            subject_name="Cryptography & Network Security", min_score=65,
+            importance=ImportanceLevel.CRITICAL, weight=0.9,
+            source_type=RequirementSource.ELECTIVE, source_name="CSL",
+        ),
+    ],
+
+    "Digital Business Management": [
+        SubjectRequirement(
+            subject_name="Database Management Systems", min_score=60,
+            importance=ImportanceLevel.HIGH, weight=0.85,
+            source_type=RequirementSource.ELECTIVE, source_name="Digital Business Management",
+            description="Data-driven decision making, SQL, analytics"
+        ),
+        SubjectRequirement(
+            subject_name="Software Engineering", min_score=60,
+            importance=ImportanceLevel.HIGH, weight=0.8,
+            source_type=RequirementSource.ELECTIVE, source_name="Digital Business Management",
+            description="Agile/Lean methodologies, product management"
+        ),
+        SubjectRequirement(
+            subject_name="Full Stack Development", min_score=55,
+            importance=ImportanceLevel.MEDIUM, weight=0.7,
+            source_type=RequirementSource.ELECTIVE, source_name="Digital Business Management",
+            description="E-commerce platforms and web analytics"
+        ),
+    ],
+    "DBM": [
+        SubjectRequirement(
+            subject_name="Database Management Systems", min_score=60,
+            importance=ImportanceLevel.HIGH, weight=0.85,
+            source_type=RequirementSource.ELECTIVE, source_name="DBM",
+        ),
+        SubjectRequirement(
+            subject_name="Software Engineering", min_score=60,
+            importance=ImportanceLevel.HIGH, weight=0.8,
+            source_type=RequirementSource.ELECTIVE, source_name="DBM",
+        ),
+    ],
+
+    "Energy Audit and Management": [
+        SubjectRequirement(
+            subject_name="Engineering Mathematics-III", min_score=60,
+            importance=ImportanceLevel.HIGH, weight=0.8,
+            source_type=RequirementSource.ELECTIVE, source_name="Energy Audit and Management",
+            description="Financial analysis calculations (NPV, IRR)"
+        ),
+        SubjectRequirement(
+            subject_name="Microcontroller & Embedded Systems", min_score=60,
+            importance=ImportanceLevel.HIGH, weight=0.85,
+            source_type=RequirementSource.ELECTIVE, source_name="Energy Audit and Management",
+            description="Energy monitoring and sensor systems"
+        ),
+        SubjectRequirement(
+            subject_name="IoT", min_score=55,
+            importance=ImportanceLevel.MEDIUM, weight=0.7,
+            source_type=RequirementSource.ELECTIVE, source_name="Energy Audit and Management",
+            description="Smart grid and energy monitoring systems"
+        ),
+    ],
+    "EAM": [
+        SubjectRequirement(
+            subject_name="Engineering Mathematics-III", min_score=60,
+            importance=ImportanceLevel.HIGH, weight=0.8,
+            source_type=RequirementSource.ELECTIVE, source_name="EAM",
+        ),
+        SubjectRequirement(
+            subject_name="Microcontroller & Embedded Systems", min_score=60,
+            importance=ImportanceLevel.HIGH, weight=0.85,
+            source_type=RequirementSource.ELECTIVE, source_name="EAM",
+        ),
+    ],
     # Program Elective 3 Options (Semester 7)
     "Natural Language Processing": [
         SubjectRequirement(
@@ -1090,6 +1255,20 @@ SUBJECT_ALIASES: Dict[str, str] = {
     "toc": "Automata Theory",
     "automata": "Automata Theory",
     "daa": "Design & Analysis of Algorithms",
+
+        # Open Elective shortforms
+    "re": "Reliability Engineering",
+    "reliability": "Reliability Engineering",
+    "or": "Operation Research",
+    "operations research": "Operation Research",
+    "csl": "Cyber Security and Laws",
+    "cyber law": "Cyber Security and Laws",
+    "cyber laws": "Cyber Security and Laws",
+    "dbm": "Digital Business Management",
+    "digital business": "Digital Business Management",
+    "eam": "Energy Audit and Management",
+    "energy audit": "Energy Audit and Management",
+    "energy management": "Energy Audit and Management",
 }
 
 

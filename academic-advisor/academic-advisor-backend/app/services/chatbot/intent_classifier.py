@@ -56,6 +56,13 @@ ALL_KNOWN_SUBJECTS = [
     "research methodology", "embedded systems",
     "microcontroller and embedded systems", "wireless technology",
     "full stack development", "mini project",
+        # Open Electives (Sem VII)
+    "reliability engineering", "operation research", "operations research",
+    "cyber security and laws", "digital business management",
+    "energy audit and management", "energy audit",
+    "fmea", "fault tree", "weibull", "linear programming", "simplex",
+    "queuing theory", "game theory", "seo", "digital marketing",
+    "energy conservation", "hvac", "power factor",
 ]
 
 SUBJECT_QUERY_PATTERNS = [
@@ -64,6 +71,8 @@ SUBJECT_QUERY_PATTERNS = [
     (r'(?:syllabus|topics|units?)\s+(?:of|for|in)\s+(.+)', lambda m: m.group(1)),
     (r'(?:how to study|resources? for|notes? for)\s+(.+)', lambda m: m.group(1)),
     (r'(?:important topics? in|previous (?:year )?papers?)\s+(.+)', lambda m: m.group(1)),
+        (r'(?:what|which)\s+(?:open\s+)?elective', lambda m: "open elective"),
+    (r'(?:tell me about|explain)\s+(reliability engineering|operation research|cyber security|digital business|energy audit)', lambda m: m.group(1)),
 ]
 
 
@@ -163,6 +172,17 @@ class IntentClassifier:
         "mcl": "microcontroller lab",
         "ail": "ai laboratory",
         "dal": "data analytics lab",
+                # Open Elective shortforms
+        "re": "reliability engineering",
+        "or": "operation research",
+        "csl": "cyber security and laws",
+        "dbm": "digital business management",
+        "eam": "energy audit and management",
+        "fmea": "failure mode effects analysis",
+        "lpp": "linear programming problem",
+        "eoq": "economic order quantity",
+        "ecbc": "energy conservation building code",
+        "bee": "bureau of energy efficiency",
     }
 
     # ══════════════════════════════════════════════════════
@@ -314,6 +334,7 @@ class IntentClassifier:
             "graph", "linked list", "sql", "joins", "tcp", "udp", "osi",
             "semaphore", "mutex", "process", "thread", "scheduling",
             "paging", "segmentation", "neural network", "regression",
+            
         ]
 
     def _initialize_patterns(self):

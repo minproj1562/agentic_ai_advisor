@@ -202,14 +202,43 @@ class ReadinessSummaryResponse(BaseModel):
     timestamp: str = ""
 
 
+# app/models/readiness.py
+# ════════════════════════════════════════════════════════════════
+#  REPLACE the ElectiveReadinessResponse class with this:
+# ════════════════════════════════════════════════════════════════
+
+class PrerequisiteDetail(BaseModel):
+    """Detailed prerequisite status for a single subject."""
+    subject_name: str
+    subject_code: Optional[str] = None
+    current_score: float = 0
+    required_score: float = 60
+    gap: float = 0
+    importance: float = 0.5
+    importance_label: str = "Medium"
+    status: str = "missing"        # strong | adequate | weak | missing
+    is_taken: bool = False
+    confidence: float = 0.0
+
+
 class ElectiveReadinessResponse(BaseModel):
     student_id: str
     elective: str
+    elective_code: Optional[str] = None
     readiness_score: float = 0
+    readiness_level: str = "not_ready"   # ready | mostly_ready | needs_work | not_ready
     is_ready: bool = False
     recommendation: str = ""
+
+    # ── Detailed prerequisite breakdown ──
+    prerequisites: List[PrerequisiteDetail] = Field(default_factory=list)
+    strengths: List[str] = Field(default_factory=list)
+    gaps: List[str] = Field(default_factory=list)
+
     subjects_to_focus: List[str] = Field(default_factory=list)
+    preparation_plan: List[str] = Field(default_factory=list)
     preparation_time: str = ""
+    estimated_preparation_weeks: int = 0
 
 
 class HonoursReadinessResponse(BaseModel):

@@ -129,37 +129,148 @@ class ReadinessService:
     #  SINGLE-TARGET HELPERS
     # ════════════════════════════════════════════════════════════════
 
+    # ════════════════════════════════════════════════════════════════
+    #  REPLACE check_elective_readiness with this enhanced version
+    # ════════════════════════════════════════════════════════════════
+
     async def check_elective_readiness(
         self, student_id: str, elective_code: str
     ) -> ElectiveReadinessResponse:
+        """
+        Detailed readiness check for a specific elective.
+        Returns per-prerequisite scores, strengths, gaps, and preparation plan.
+        Uses ONLY data already in the student's profile (no manual input).
+        """
+        from app.models.readiness import PrerequisiteDetail
+
         await self._ensure_seeded()
         req_map = await self._find_map("elective", elective_code)
         if not req_map:
             return ElectiveReadinessResponse(
                 student_id=student_id,
                 elective=elective_code,
-                recommendation=f"No requirement map found for '{elective_code}'.",
+                recommendation=(
+                    f"No requirement map found for '{elective_code}'. "
+                    "Ask your faculty to add it, or try the full name."
+                ),
             )
 
         student = await self._load_student_scores(student_id)
+        subjects = student["subjects"]
+        is_first = student["is_first_semester"]
+
         matched = self._match_performance(
             self._convert_map_to_target(req_map, "elective"), student
         )
-        matched = self._identify_weaknesses(matched, student["is_first_semester"])
+        matched = self._identify_weaknesses(matched, is_first)
         matched = self._assign_severity(matched)
 
-        score = self._readiness_from_matched(matched, student["is_first_semester"])
+        score = self._readiness_from_matched(matched, is_first)
+
+        # ── Build detailed prerequisite breakdown ──
+        prerequisites: list = []
+        strengths: list = []
+        gaps: list = []
+        prep_plan: list = []
+
+        for m in matched:
+            current = m.student_score if m.student_score is not None else 0
+
+            if m.is_taken and current >= m.min_score + 10:
+                status = "strong"
+                strengths.append(f"{m.subject_name} ({current:.0f}%)")
+            elif m.is_taken and current >= m.min_score:
+                status = "adequate"
+                strengths.append(f"{m.subject_name} ({current:.0f}%)")
+            elif m.is_taken:
+                status = "weak"
+                gap_val = m.min_score - current
+                gaps.append(
+                    f"{m.subject_name}: need {m.min_score:.0f}%, "
+                    f"have {current:.0f}% (gap: {gap_val:.0f})"
+                )
+                prep_plan.append(
+                    f"📚 Revise {m.subject_name} — improve by "
+                    f"{gap_val:.0f} marks ({m.importance_label} priority)"
+                )
+            else:
+                status = "missing"
+                gaps.append(f"{m.subject_name}: not yet taken/recorded")
+                if not is_first:
+                    prep_plan.append(
+                        f"⚠️ {m.subject_name} not found in your records "
+                        f"— ensure marks are uploaded"
+                    )
+
+            prerequisites.append(PrerequisiteDetail(
+                subject_name=m.subject_name,
+                subject_code=m.subject_code,
+                current_score=round(current, 1),
+                required_score=m.min_score,
+                gap=round(max(0, m.min_score - current), 1),
+                importance=m.importance,
+                importance_label=m.importance_label,
+                status=status,
+                is_taken=m.is_taken,
+                confidence=m.confidence,
+            ))
+
+        # ── Determine readiness level ──
+        if score >= 80:
+            level = "ready"
+            rec = (
+                f"You're well-prepared for {req_map.target_name}! "
+                "Your prerequisites are strong."
+            )
+            weeks = 0
+        elif score >= 65:
+            level = "mostly_ready"
+            rec = (
+                f"Mostly ready for {req_map.target_name}. "
+                f"Minor revision in {len(gaps)} area(s) will help."
+            )
+            weeks = 2
+        elif score >= 40:
+            level = "needs_work"
+            rec = (
+                f"You can consider {req_map.target_name}, but "
+                "significant preparation is recommended first."
+            )
+            weeks = 6
+        else:
+            level = "not_ready"
+            rec = (
+                f"Prerequisites for {req_map.target_name} need "
+                "substantial work. Strengthen fundamentals first."
+            )
+            weeks = 10
+
+        if is_first:
+            rec += (
+                " (Note: As a first-semester student, some subjects "
+                "haven't been taken yet — this is expected.)"
+            )
+
         weak_subj = [m.subject_name for m in matched if m.is_weakness]
-        prep = self._estimate_preparation_time(self._prioritise_weaknesses(matched))
+        prep_time = self._estimate_preparation_time(
+            self._prioritise_weaknesses(matched)
+        )
 
         return ElectiveReadinessResponse(
             student_id=student_id,
             elective=req_map.target_name,
+            elective_code=req_map.target_code,
             readiness_score=round(score, 1),
+            readiness_level=level,
             is_ready=score >= 65,
-            recommendation=self._elective_rec_text(score, weak_subj),
+            recommendation=rec,
+            prerequisites=prerequisites,
+            strengths=strengths,
+            gaps=gaps,
             subjects_to_focus=weak_subj[:5],
-            preparation_time=prep,
+            preparation_plan=prep_plan[:5],
+            preparation_time=prep_time,
+            estimated_preparation_weeks=weeks,
         )
 
     async def check_honours_readiness(

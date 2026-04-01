@@ -1,0 +1,321 @@
+{
+  "training_timestamp": "2026-04-01T15:23:55.416024",
+  "program_elective_recommender": {
+    "model": "RandomForest(200) + KNN(5)",
+    "accuracy": 0.9833,
+    "f1_weighted": 0.9833,
+    "f1_macro": 0.9833,
+    "cross_val": "0.9926+/-0.0023",
+    "per_class": {
+      "CCS": {
+        "precision": 1.0,
+        "recall": 0.9926,
+        "f1": 0.9963
+      },
+      "DWM": {
+        "precision": 0.9921,
+        "recall": 0.9403,
+        "f1": 0.9655
+      },
+      "ML": {
+        "precision": 0.9441,
+        "recall": 1.0,
+        "f1": 0.9712
+      },
+      "WT": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0
+      }
+    },
+    "n_samples": 2688
+  },
+  "open_elective_recommender": {
+    "model": "RandomForest(200)",
+    "accuracy": 0.9873,
+    "f1_weighted": 0.9873,
+    "per_class": {
+      "CSL": {
+        "precision": 0.9818,
+        "recall": 0.9818,
+        "f1": 0.9818
+      },
+      "DBM": {
+        "precision": 0.9908,
+        "recall": 0.9818,
+        "f1": 0.9863
+      },
+      "EAM": {
+        "precision": 0.991,
+        "recall": 1.0,
+        "f1": 0.9955
+      },
+      "OR": {
+        "precision": 0.9909,
+        "recall": 0.9909,
+        "f1": 0.9909
+      },
+      "RE": {
+        "precision": 0.9818,
+        "recall": 0.9818,
+        "f1": 0.9818
+      }
+    },
+    "n_samples": 2750
+  },
+  "performance_predictor": {
+    "task": "performance_prediction",
+    "target": "next_sgpa",
+    "best_model": "RandomForest",
+    "best_rmse": 1.3712,
+    "all_results": {
+      "XGBoost": {
+        "rmse": 1.3868,
+        "mae": 0.9899,
+        "r2": 0.8415,
+        "cv_rmse": 1.3741,
+        "cv_std": 0.0326,
+        "train_time_s": 10.09
+      },
+      "RandomForest": {
+        "rmse": 1.3712,
+        "mae": 0.9756,
+        "r2": 0.845,
+        "cv_rmse": 1.3323,
+        "cv_std": 0.0333,
+        "train_time_s": 66.96
+      },
+      "GradientBoosting": {
+        "rmse": 1.4045,
+        "mae": 1.0034,
+        "r2": 0.8374,
+        "cv_rmse": 1.372,
+        "cv_std": 0.0375,
+        "train_time_s": 49.11
+      },
+      "LightGBM": {
+        "rmse": 1.3945,
+        "mae": 0.9953,
+        "r2": 0.8397,
+        "cv_rmse": 1.3764,
+        "cv_std": 0.0361,
+        "train_time_s": 5.65
+      }
+    },
+    "feature_importance": {
+      "avg_subject_score": 0.8163,
+      "current_sgpa": 0.0586,
+      "study_hours": 0.015,
+      "attendance": 0.0142,
+      "assignment_completion": 0.0093,
+      "sgpa_trend": 0.0091,
+      "project_score": 0.0075,
+      "participation_score": 0.0064,
+      "extracurricular": 0.0062,
+      "min_subject_score": 0.006,
+      "theory_avg": 0.0059,
+      "quiz_average": 0.0059,
+      "dept_avg": 0.0057,
+      "lab_performance": 0.0054,
+      "max_subject_score": 0.0049
+    },
+    "features": [
+      "current_cgpa",
+      "current_sgpa",
+      "previous_sgpa",
+      "sgpa_trend",
+      "attendance",
+      "assignment_completion",
+      "quiz_average",
+      "lab_performance",
+      "project_score",
+      "study_hours",
+      "participation_score",
+      "extracurricular",
+      "dept_avg",
+      "num_subjects",
+      "num_backlogs",
+      "num_strong_subjects",
+      "num_weak_subjects",
+      "avg_subject_score",
+      "min_subject_score",
+      "max_subject_score",
+      "std_subject_score",
+      "practical_avg",
+      "theory_avg",
+      "credits_completed_ratio",
+      "semester"
+    ],
+    "n_train": 4800,
+    "n_test": 1200,
+    "timestamp": "2026-04-01T15:01:05.166954"
+  },
+  "weakness_detector": {
+    "task": "weakness_detection",
+    "severity_best_model": "XGBoost",
+    "severity_best_f1_weighted": 0.8532,
+    "severity_results": {
+      "XGBoost": {
+        "accuracy": 0.8523,
+        "f1_weighted": 0.8532,
+        "f1_macro": 0.8384,
+        "cv_f1_mean": 0.852,
+        "cv_f1_std": 0.0046,
+        "train_time_s": 33.46
+      },
+      "LightGBM": {
+        "accuracy": 0.8473,
+        "f1_weighted": 0.8479,
+        "f1_macro": 0.8321,
+        "cv_f1_mean": 0.8501,
+        "cv_f1_std": 0.0052,
+        "train_time_s": 30.7
+      },
+      "RandomForest": {
+        "accuracy": 0.8494,
+        "f1_weighted": 0.8512,
+        "f1_macro": 0.836,
+        "cv_f1_mean": 0.8487,
+        "cv_f1_std": 0.0059,
+        "train_time_s": 32.22
+      },
+      "GradientBoosting": {
+        "accuracy": 0.8494,
+        "f1_weighted": 0.8504,
+        "f1_macro": 0.8352,
+        "cv_f1_mean": 0.8533,
+        "cv_f1_std": 0.0034,
+        "train_time_s": 347.33
+      }
+    },
+    "severity_per_class": {
+      "none": {
+        "precision": 0.9348659003831418,
+        "recall": 0.9037037037037037,
+        "f1-score": 0.919020715630885,
+        "support": 1080.0
+      },
+      "low": {
+        "precision": 0.7474226804123711,
+        "recall": 0.7956104252400549,
+        "f1-score": 0.7707641196013288,
+        "support": 729.0
+      },
+      "medium": {
+        "precision": 0.78328611898017,
+        "recall": 0.7691237830319889,
+        "f1-score": 0.776140350877193,
+        "support": 719.0
+      },
+      "high": {
+        "precision": 0.7794336810730254,
+        "recall": 0.8009188361408882,
+        "f1-score": 0.7900302114803626,
+        "support": 653.0
+      },
+      "critical": {
+        "precision": 0.9431372549019608,
+        "recall": 0.9285714285714286,
+        "f1-score": 0.9357976653696498,
+        "support": 1036.0
+      }
+    },
+    "severity_confusion_matrix": [
+      [
+        976,
+        104,
+        0,
+        0,
+        0
+      ],
+      [
+        68,
+        580,
+        81,
+        0,
+        0
+      ],
+      [
+        0,
+        92,
+        553,
+        74,
+        0
+      ],
+      [
+        0,
+        0,
+        72,
+        523,
+        58
+      ],
+      [
+        0,
+        0,
+        0,
+        74,
+        962
+      ]
+    ],
+    "intervention_accuracy": 0.9329,
+    "intervention_f1": 0.9244,
+    "feature_importance": {
+      "subject_score": 0.4525,
+      "score_vs_class_avg": 0.1276,
+      "attendance": 0.0856,
+      "assignment_score": 0.0576,
+      "is_practical": 0.0482,
+      "quiz_average": 0.0454,
+      "class_avg_score": 0.0279,
+      "lab_performance": 0.0218,
+      "difficulty_factor": 0.0206,
+      "credits": 0.0201,
+      "cgpa": 0.02,
+      "study_hours": 0.019,
+      "previous_related_score": 0.0187,
+      "semester": 0.0178,
+      "trend_indicator": 0.0172
+    },
+    "features": [
+      "subject_score",
+      "attendance",
+      "assignment_score",
+      "quiz_average",
+      "lab_performance",
+      "previous_related_score",
+      "study_hours",
+      "difficulty_factor",
+      "cgpa",
+      "credits",
+      "is_practical",
+      "class_avg_score",
+      "score_vs_class_avg",
+      "trend_indicator",
+      "semester"
+    ],
+    "n_train": 16867,
+    "n_test": 4217,
+    "timestamp": "2026-04-01T15:23:55.372119"
+  },
+  "fresh_evaluation": {
+    "program_electives": {
+      "accuracy": 0.994,
+      "per_class_accuracy": {
+        "ML": 0.994,
+        "WT": 1.0,
+        "DWM": 0.9881,
+        "CCS": 0.994
+      }
+    },
+    "open_electives": {
+      "accuracy": 0.9818,
+      "per_class_accuracy": {
+        "RE": 0.9318,
+        "OR": 0.9924,
+        "CSL": 1.0,
+        "DBM": 0.9848,
+        "EAM": 1.0
+      }
+    }
+  }
+}
