@@ -55,8 +55,10 @@ SAVE_DIR = os.path.join(
 
 PERFORMANCE_FEATURES = [
     "current_cgpa", "current_sgpa", "previous_sgpa", "sgpa_trend",
-    "attendance", "assignment_completion", "quiz_average",
-    "lab_performance", "project_score", "study_hours",
+    "attendance", 
+    #"assignment_completion", "quiz_average",
+    "lab_performance", "project_score", 
+    #"study_hours",
     "participation_score", "extracurricular", "dept_avg",
     "num_subjects", "num_backlogs", "num_strong_subjects", "num_weak_subjects",
     "avg_subject_score", "min_subject_score", "max_subject_score", "std_subject_score",
@@ -64,10 +66,15 @@ PERFORMANCE_FEATURES = [
 ]
 
 WEAKNESS_FEATURES = [
-    "subject_score", "attendance", "assignment_score", "quiz_average",
-    "lab_performance", "previous_related_score", "study_hours",
-    "difficulty_factor", "cgpa", "credits", "is_practical",
-    "class_avg_score", "score_vs_class_avg", "trend_indicator", "semester",
+    "subject_score", "attendance", 
+    #"assignment_score", "quiz_average",
+    "lab_performance", "previous_related_score", 
+    #"study_hours",
+    #"difficulty_factor", 
+    "cgpa", "credits", "is_practical",
+    "class_avg_score", 
+    #"score_vs_class_avg", 
+    "trend_indicator", "semester",
 ]
 
 

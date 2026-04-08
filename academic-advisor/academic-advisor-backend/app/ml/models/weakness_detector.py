@@ -46,9 +46,12 @@ class WeaknessDetector:
         try:
             # Prepare features
             feature_columns = [
-                'subject_score', 'attendance', 'assignment_score',
-                'quiz_average', 'lab_performance', 'previous_score',
-                'study_hours', 'difficulty_rating'
+                'subject_score', 'attendance',
+                'lab_performance', 'previous_related_score', 'difficulty_factor'
+                #'assignment_score',
+                #'quiz_average', 
+                # #'study_hours',
+        
             ]
             
             X = training_data[feature_columns]

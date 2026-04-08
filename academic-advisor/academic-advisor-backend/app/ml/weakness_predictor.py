@@ -19,10 +19,13 @@ logger = logging.getLogger(__name__)
 MODEL_DIR = os.path.join(os.path.dirname(__file__), "saved")
 
 FEATURE_COLUMNS = [
-    "subject_score", "attendance", "assignment_score", "quiz_average",
-    "lab_performance", "previous_related_score", "study_hours",
-    "difficulty_factor", "cgpa", "credits", "is_practical",
-    "class_avg_score", "score_vs_class_avg", "trend_indicator", "semester",
+    "subject_score", "attendance", #"assignment_score", "quiz_average",
+    "lab_performance", "previous_related_score", #"study_hours",
+    #"difficulty_factor", 
+    "cgpa", "credits", "is_practical",
+    "class_avg_score", 
+    #"score_vs_class_avg", 
+    "trend_indicator", "semester",
 ]
 
 SEVERITY_NAMES = {0: "none", 1: "low", 2: "medium", 3: "high", 4: "critical"}
@@ -42,11 +45,15 @@ SUBJECT_DIFFICULTY = {
 }
 
 _DEFAULTS = {
-    "subject_score": 50, "attendance": 70, "assignment_score": 60,
-    "quiz_average": 50, "lab_performance": 55, "previous_related_score": 55,
-    "study_hours": 3, "difficulty_factor": 0.65, "cgpa": 6.0,
+    "subject_score": 50, "attendance": 70, 
+    #"assignment_score": 60,
+    #"quiz_average": 50, 
+    "lab_performance": 55, "previous_related_score": 55,
+    #"study_hours": 3, "difficulty_factor": 0.65,
+    "cgpa": 6.0,
     "credits": 3, "is_practical": 0, "class_avg_score": 55,
-    "score_vs_class_avg": 0, "trend_indicator": 0, "semester": 4,
+    #"score_vs_class_avg": 0, 
+    "trend_indicator": 0, "semester": 4,
 }
 
 
@@ -116,17 +123,17 @@ class WeaknessDetector:
         return {
             "subject_score": score,
             "attendance": attendance,
-            "assignment_score": assignment_score,
-            "quiz_average": quiz_average,
+            #"assignment_score": assignment_score,
+            #"quiz_average": quiz_average,
             "lab_performance": lab_performance,
             "previous_related_score": previous_score,
-            "study_hours": student_data.get("study_hours", 3),
-            "difficulty_factor": difficulty,
+            #"study_hours": student_data.get("study_hours", 3),
+            #"difficulty_factor": difficulty,
             "cgpa": cgpa,
             "credits": 4 if not is_practical else 1,
             "is_practical": is_practical,
             "class_avg_score": class_avg,
-            "score_vs_class_avg": score - class_avg,
+            #"score_vs_class_avg": score - class_avg,
             "trend_indicator": trend,
             "semester": semester,
         }
