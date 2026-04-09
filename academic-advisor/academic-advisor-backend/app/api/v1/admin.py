@@ -241,3 +241,156 @@ async def get_user_counts(
     except Exception as e:
         logger.error(f"Error fetching user counts: {e}")
         raise HTTPException(status_code=500, detail="Failed to fetch user counts")
+    
+# app/api/v1/admin.py
+# ADD these endpoints
+
+from fastapi import UploadFile, File
+import pandas as pd
+import io
+
+@router.post("/students/bulk-upload")
+async def bulk_upload_students(
+    file: UploadFile = File(...),
+    current_user: FirebaseUser = Depends(get_admin_user)
+):
+    """
+    Bulk upload students from Excel file.
+    
+    Expected columns:
+    - Name (required)
+    - Roll Number (required)
+    - Email (required)
+    - Department/Branch (required)
+    - Admission Year (optional, extracted from roll if missing)
+    - Current Semester (optional, calculated if missing)
+    - Seat Number (optional)
+    """
+    try:
+        # Validate file type
+        if not file.filename.endswith(('.xlsx', '.xls', '.csv')):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="File must be Excel (.xlsx, .xls) or CSV (.csv)"
+            )
+        
+        # Read file
+        contents = await file.read()
+        
+        # Parse based on file type
+        if file.filename.endswith('.csv'):
+            df = pd.read_csv(io.BytesIO(contents))
+        else:
+            df = pd.read_excel(io.BytesIO(contents))
+        
+        # Normalize column names (case-insensitive, strip spaces)
+        df.columns = df.columns.str.strip().str.lower().str.replace(' ', '_')
+        
+        # Map common column variations
+        column_mapping = {
+            'roll_no': 'roll_number',
+            'rollno': 'roll_number',
+            'roll': 'roll_number',
+            'dept': 'branch',
+            'department': 'branch',
+            'sem': 'current_semester',
+            'semester': 'current_semester',
+            'year': 'admission_year',
+            'adm_year': 'admission_year',
+        }
+        
+        df.rename(columns=column_mapping, inplace=True)
+        
+        # Convert DataFrame to list of dicts
+        students_data = df.to_dict('records')
+        
+        # Clean None/NaN values
+        for student in students_data:
+            for key, value in list(student.items()):
+                if pd.isna(value):
+                    student[key] = None
+        
+        # Bulk create
+        result = await admin_service.bulk_create_students(students_data)
+        
+        return {
+            "message": f"Processed {result['total_processed']} students",
+            "summary": {
+                "created": result['created'],
+                "skipped": result['skipped'],
+                "errors": result['errors'],
+            },
+            "details": result
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Bulk upload error: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to process file: {str(e)}"
+        )
+
+
+@router.get("/students/export-template")
+async def download_student_template(
+    current_user: FirebaseUser = Depends(get_admin_user)
+):
+    """
+    Download Excel template for bulk student upload.
+    """
+    try:
+        import pandas as pd
+        from fastapi.responses import StreamingResponse
+        
+        # Create template DataFrame
+        template_data = {
+            "Name": ["John Doe", "Jane Smith"],
+            "Roll Number": ["5023152", "5023153"],
+            "Email": ["john@college.edu", "jane@college.edu"],
+            "Branch": ["IT", "COMP"],
+            "Admission Year": [2023, 2023],
+            "Current Semester": [3, 3],
+            "Seat Number": ["69261", "69262"]  # Optional
+        }
+        
+        df = pd.DataFrame(template_data)
+        
+        # Create Excel file in memory
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df.to_excel(writer, index=False, sheet_name='Students')
+            
+            # Add instructions sheet
+            instructions = pd.DataFrame({
+                "Field": ["Name", "Roll Number", "Email", "Branch", "Admission Year", "Current Semester", "Seat Number"],
+                "Required": ["Yes", "Yes", "Yes", "Yes", "No*", "No*", "No"],
+                "Description": [
+                    "Full name of student",
+                    "7-digit roll number (e.g., 5023152)",
+                    "College email address",
+                    "Department code (IT, COMP, EXTC, MECH, ELEC)",
+                    "Year of admission (auto-extracted from roll if not provided)",
+                    "Current semester (1-8) (auto-calculated if not provided)",
+                    "5-digit seat number for exam (changes each semester)"
+                ]
+            })
+            instructions.to_excel(writer, index=False, sheet_name='Instructions')
+        
+        output.seek(0)
+        
+        return StreamingResponse(
+            output,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={
+                "Content-Disposition": "attachment; filename=student_upload_template.xlsx"
+            }
+        )
+        
+    except Exception as e:
+        logger.error(f"Template download error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to generate template"
+        )

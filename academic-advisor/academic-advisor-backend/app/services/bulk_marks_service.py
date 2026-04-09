@@ -27,6 +27,7 @@ from app.models.pending_marks import PendingStudentMarks
 from app.core.curriculum import (
     get_semester_subjects, get_elective_options, SubjectDefinition,
 )
+from app.utils.password import generate_student_password, hash_password
 
 logger = logging.getLogger(__name__)
 
@@ -2418,6 +2419,78 @@ class BulkMarksService:
                 for c2 in range(1, 4):
                     ws.cell(row=row, column=c2).fill = PatternFill("solid", fgColor="E2EFDA")
 
+async def auto_register_student_from_marks(
+    self,
+    roll_number: str,
+    name: str,
+    seat_number: str,
+    branch: str,
+    semester: int,
+    admission_year: int,
+    academic_year: str
+) -> Dict[str, Any]:
+    """
+    Auto-register a student when marks are uploaded.
+    Called internally when a new roll number is found in marks Excel.
+    """
+    from app.database.connection import get_mongo_database
+    
+    db = get_mongo_database()
+    if not db:
+        return {"success": False, "error": "Database unavailable"}
+    
+    try:
+        # Check if already exists
+        existing = await db.student_profiles.find_one({"roll_number": roll_number})
+        if existing:
+            return {"success": True, "student_id": str(existing["_id"]), "already_exists": True}
+        
+        # Generate password
+        default_password = generate_student_password(roll_number, admission_year)
+        password_hash = hash_password(default_password)
+        
+        # Extract email from college pattern
+        email = f"{roll_number}@college.edu"
+        
+        # Create profile
+        profile_doc = {
+            "name": name,
+            "roll_number": roll_number,
+            "seat_number": seat_number if seat_number else None,
+            "email": email,
+            "branch": branch.upper(),
+            "admission_year": admission_year,
+            "current_semester": semester,
+            "current_academic_year": academic_year,
+            "password_hash": password_hash,
+            "password_changed": False,
+            "cgpa": 0.0,
+            "total_credits_earned": 0,
+            "total_credits_required": 160,
+            "semester_records": [],
+            "created_at": datetime.utcnow(),
+            "last_updated": datetime.utcnow(),
+            "created_by": "auto_marks_upload",
+            "auto_registered": True,  # Flag for tracking
+        }
+        
+        result = await db.student_profiles.insert_one(profile_doc)
+        
+        logger.info(f"✅ Auto-registered student: {roll_number} ({name})")
+        
+        return {
+            "success": True,
+            "student_id": str(result.inserted_id),
+            "roll_number": roll_number,
+            "name": name,
+            "default_password": default_password,
+            "email": email,
+            "auto_registered": True
+        }
+        
+    except Exception as e:
+        logger.error(f"Auto-registration failed for {roll_number}: {e}")
+        return {"success": False, "error": str(e)}
 
 # ══════════════════════════════════════════════════════════
 bulk_marks_service = BulkMarksService()
