@@ -1,4 +1,5 @@
-# app/api/v1/endpoints/student_analysis.py
+# academic-advisor-backend/app/api/v1/endpoints/student_analysis.py
+
 """
 Student Analysis Endpoints - Fetches from MongoDB student_profiles collection
 Returns data in same format as admin endpoints for consistency
@@ -19,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 
 # ══════════════════════════════════════════════════════════
-# HELPER FUNCTIONS
+# HELPER FUNCTIONS (unchanged)
 # ══════════════════════════════════════════════════════════
 
 def _derive_name_from_email(email: str) -> str:
@@ -285,15 +286,16 @@ async def _get_projects_list(user_id: str) -> List[Dict[str, Any]]:
 
 
 # ══════════════════════════════════════════════════════════
-# STATIC ROUTES (must come BEFORE /{student_id})
+# MAIN ENDPOINT - FIXED with proper filters
 # ══════════════════════════════════════════════════════════
-
 
 @router.get("/list")
 async def get_students_list(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
     department: Optional[str] = None,
+    semester: Optional[int] = Query(None, ge=1, le=8),  # ✅ ADD semester filter
+    batch: Optional[str] = None,  # ✅ ADD batch filter  
     search: Optional[str] = None,
     cgpa_min: Optional[float] = None,
     cgpa_max: Optional[float] = None,
@@ -303,27 +305,48 @@ async def get_students_list(
     """
     Get list of students with analysis data.
     Returns { students: [...], total: N } format matching admin pattern.
+    
+    ✅ FIXED: Now properly filters by semester and batch like admin endpoint
     """
     try:
-        query: Dict[str, Any] = {}
+        # ✅ Build MongoDB query filters (same as admin_service.py pattern)
+        query_filters: Dict[str, Any] = {}
+        
         if department:
-            query["branch"] = department
+            query_filters["branch"] = department
+        
+        # ✅ FIX: Add semester filter  
+        if semester:
+            query_filters["current_semester"] = semester
+        
+        # ✅ FIX: Add batch filter
+        if batch:
+            try:
+                query_filters["admission_year"] = int(batch)
+            except ValueError:
+                logger.warning(f"Invalid batch value: {batch}")
+
+        logger.info(f"🔍 Query filters applied: {query_filters}")
+
+        # ✅ Build Beanie query 
+        if query_filters:
+            query = StudentProfile.find(query_filters)
+            total_query = StudentProfile.find(query_filters)
+        else:
+            query = StudentProfile.find_all()
+            total_query = StudentProfile.find_all()
 
         # Get total count first
-        if query:
-            total = await StudentProfile.find(query).count()
-        else:
-            total = await StudentProfile.find_all().count()
-
-        # Fetch profiles
-        if query:
-            profiles = await StudentProfile.find(query).skip(skip).limit(limit).to_list()
-        else:
-            profiles = await StudentProfile.find_all().skip(skip).limit(limit).to_list()
+        total = await total_query.count()
+        
+        # Fetch profiles with pagination
+        profiles = await query.skip(skip).limit(limit).to_list()
 
         students = []
+        filtered_count = 0  # Track how many pass post-filtering
+        
         for profile in profiles:
-            # Apply CGPA filters
+            # Apply CGPA filters (post-query filtering)
             if cgpa_min is not None and profile.cgpa < cgpa_min:
                 continue
             if cgpa_max is not None and profile.cgpa > cgpa_max:
@@ -331,7 +354,7 @@ async def get_students_list(
 
             risk_score, r_level = calculate_risk_score(profile)
 
-            # Apply risk filter
+            # Apply risk filter  
             if risk_level and risk_level != "all" and r_level != risk_level:
                 continue
 
@@ -345,6 +368,9 @@ async def get_students_list(
                     search_lower not in (profile.email or "").lower()):
                     continue
 
+            # ✅ This student passed all filters
+            filtered_count += 1
+            
             weaknesses = identify_weaknesses(profile)
             sorted_sems = sorted(
                 [s for s in profile.semester_records if s.is_complete],
@@ -388,18 +414,24 @@ async def get_students_list(
                 },
             })
 
-        logger.info(f"✅ Student analysis list: returning {len(students)} students out of {total} total")
+        logger.info(f"✅ Student analysis list: returning {len(students)} students (filtered from {total} total)")
+        logger.info(f"📊 Filters applied - Semester: {semester}, Batch: {batch}, Department: {department}")
 
         return {
             "students": students,
-            "total": total,
+            "total": total,  # Total matching query filters
+            "filtered_total": len(students),  # Total after all filtering
             "has_more": (skip + limit) < total,
         }
 
     except Exception as e:
-        logger.error(f"Error fetching students list: {e}", exc_info=True)
+        logger.error(f"❌ Error fetching students list: {e}", exc_info=True)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
+
+# ══════════════════════════════════════════════════════════
+# OTHER ENDPOINTS (unchanged)
+# ══════════════════════════════════════════════════════════
 
 @router.get("/dashboard/realtime")
 async def get_realtime_dashboard(
@@ -463,11 +495,6 @@ async def record_analytics_batch(
     """Record analytics events (batch)"""
     event_count = len(events.get("events", []))
     return {"status": "success", "events_recorded": event_count}
-
-
-# ══════════════════════════════════════════════════════════
-# PARAMETERISED ROUTES (/{student_id} ...)
-# ══════════════════════════════════════════════════════════
 
 
 @router.get("/{student_id}")
