@@ -9,7 +9,8 @@ import {
   User as FirebaseUser,
   GoogleAuthProvider,
   signInWithPopup,
-  sendPasswordResetEmail
+  sendPasswordResetEmail,
+  signInWithCustomToken,
 } from 'firebase/auth';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { auth, db } from '../services/firebase.config';
@@ -27,10 +28,11 @@ interface User {
 }
 
 interface LoginCredentials {
-  email: string;
+  email?: string;
+  roll_number?: string;
   password: string;
   rememberMe?: boolean;
-  userType?: 'student' | 'faculty' | 'admin';  // ← FIXED: added 'admin'
+  userType?: 'student' | 'faculty' | 'admin';
 }
 
 interface AuthContextType {
@@ -109,43 +111,80 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const login = async (credentials: LoginCredentials) => {
     try {
-      const { email, password, rememberMe, userType } = credentials;
+      const { email, roll_number, password, rememberMe, userType } = credentials;
       
-      console.log('Login attempt:', { email, userType });
+      console.log('Login attempt:', { email, roll_number, userType });
       
-      // Sign in with Firebase Auth
-      const userCredential = await signInWithEmailAndPassword(auth, email, password);
-      
+      let firebaseUser: FirebaseUser;
+
+      // ===== STUDENT LOGIN (roll_number) =====
+      if (userType === 'student' && roll_number) {
+        try {
+          // Call backend to authenticate student with roll_number
+          const response = await apiClient.post('/auth/login-student', {
+            roll_number,
+            password,
+          });
+
+          // Sign in with Firebase custom token
+          await signInWithCustomToken(auth, response.data.token);
+          firebaseUser = auth.currentUser!;
+
+          if (!firebaseUser) {
+            throw new Error('Failed to authenticate with Firebase');
+          }
+        } catch (error: any) {
+          console.error('Student login error:', error);
+          if (error.response?.status === 401) {
+            toast.error('Invalid roll number or password');
+            throw new Error('Invalid roll number or password');
+          } else if (error.response?.data?.message) {
+            toast.error(error.response.data.message);
+            throw new Error(error.response.data.message);
+          } else {
+            toast.error('Student authentication failed');
+            throw new Error('Student authentication failed');
+          }
+        }
+      }
+      // ===== EMAIL/PASSWORD LOGIN (faculty/admin) =====
+      else if (email && (userType === 'faculty' || userType === 'admin')) {
+        const userCredential = await signInWithEmailAndPassword(auth, email, password);
+        firebaseUser = userCredential.user;
+      } else {
+        throw new Error('Invalid credentials provided');
+      }
+
       // Get user data from Firestore
-      const userDoc = await getDoc(doc(db, 'users', userCredential.user.uid));
-      
+      const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
+
       if (!userDoc.exists()) {
         await signOut(auth);
         toast.error('Account not properly registered. Please complete registration.');
         navigate('/register');
         throw new Error('Account not properly registered');
       }
-      
+
       const userData = userDoc.data() as User;
       console.log('User data from Firestore:', { role: userData.role, name: userData.name });
-      
+
       // ===== ROLE MISMATCH CHECK =====
       if (userType && userData.role !== userType) {
         await signOut(auth);
-        
+
         const actualRole = getRoleLabel(userData.role);
         const attemptedRole = getRoleLabel(userType);
-        
+
         toast.error(
           `You are registered as ${actualRole}. Please switch to the ${actualRole} login tab.`
         );
-        
+
         throw new Error('Wrong login portal');
       }
-      
+
       // ===== SET USER STATE =====
       setUser(userData);
-      
+
       // ===== NAVIGATE BASED ON ROLE =====
       if (userData.role === 'faculty') {
         // Check faculty profile setup
@@ -159,27 +198,27 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         } catch (error) {
           console.log('Setup status check failed, continuing to dashboard');
         }
-        
+
         navigate('/faculty/dashboard', { replace: true });
         toast.success(`Welcome back, Professor ${userData.name}!`);
-        
+
       } else if (userData.role === 'admin') {
         navigate('/admin/dashboard', { replace: true });
         toast.success(`Welcome, Admin ${userData.name}!`);
-        
+
       } else if (userData.role === 'student') {
         navigate('/student/dashboard', { replace: true });
         toast.success(`Welcome back, ${userData.name}!`);
-        
+
       } else {
         // Unknown role fallback
         navigate('/student/dashboard', { replace: true });
         toast.success(`Welcome, ${userData.name}!`);
       }
-    
+
     } catch (error: any) {
       console.error('Login error:', error);
-      
+
       if (error.code === 'auth/user-not-found') {
         toast.error('No account found with this email. Please register first.');
         setTimeout(() => navigate('/register'), 2000);
@@ -193,6 +232,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         // Already handled above with toast
       } else if (error.message === 'Account not properly registered') {
         // Already handled above
+      } else if (error.message === 'Invalid roll number or password') {
+        // Already handled above
+      } else if (error.message === 'Student authentication failed') {
+        // Already handled above
       } else {
         toast.error(error.message || 'Login failed');
       }
@@ -203,7 +246,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const register = async (email: string, password: string, userData: Partial<User>) => {
     try {
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-      
+
       const completeUserData = {
         ...userData,
         uid: userCredential.user.uid,
@@ -215,16 +258,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       await setDoc(doc(db, 'users', userCredential.user.uid), completeUserData);
 
       await signOut(auth);
-      
-      const roleMessage = userData.role === 'faculty' 
-        ? 'Faculty registration successful!' 
+
+      const roleMessage = userData.role === 'faculty'
+        ? 'Faculty registration successful!'
         : 'Registration successful!';
       toast.success(`${roleMessage} Please login to continue.`);
-      
+
       setTimeout(() => {
         navigate('/login');
       }, 2000);
-      
+
     } catch (error: any) {
       if (error.code === 'auth/email-already-in-use') {
         toast.error('This email is already registered. Please login.');
@@ -240,9 +283,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const provider = new GoogleAuthProvider();
       const userCredential = await signInWithPopup(auth, provider);
-      
+
       const userDoc = await getDoc(doc(db, 'users', userCredential.user.uid));
-      
+
       if (!userDoc.exists()) {
         const userData: Partial<User> = {
           uid: userCredential.user.uid,
@@ -250,24 +293,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           name: userCredential.user.displayName || '',
           role: 'student',
         };
-        
+
         await setDoc(doc(db, 'users', userCredential.user.uid), {
           ...userData,
           createdAt: new Date(),
           profileComplete: false
         });
-        
+
         toast('Please complete your profile to continue.', { icon: 'ℹ️' });
         navigate('/complete-profile');
       } else {
         const userData = userDoc.data() as User;
         setUser(userData);
-        
+
         navigate(getDashboardPath(userData.role));
         toast.success('Google sign-in successful!');
       }
     } catch (error: any) {
-      toast.error(error.message || 'Google sign-in failed');
+      if (error.code === 'auth/popup-closed-by-user') {
+        toast.error('Sign-in cancelled');
+      } else if (error.code === 'auth/popup-blocked') {
+        toast.error('Popup blocked. Please allow popups for this site.');
+      } else {
+        toast.error(error.message || 'Google sign-in failed');
+      }
       throw error;
     }
   };
@@ -299,16 +348,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   return (
-    <AuthContext.Provider value={{ 
-      user, 
-      loading, 
-      isAuthenticated: !!user, 
-      login, 
-      register, 
-      logout, 
-      googleSignIn,
-      resetPassword 
-    }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        loading,
+        isAuthenticated: !!user,
+        login,
+        register,
+        logout,
+        googleSignIn,
+        resetPassword
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );

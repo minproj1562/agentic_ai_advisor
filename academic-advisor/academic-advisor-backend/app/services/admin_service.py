@@ -1,6 +1,6 @@
 # academic-advisor-backend/app/services/admin_service.py
 """
-Admin Service
+Admin Service - Complete & Conflict-Free
 Business logic for admin operations — queries MongoDB and Firestore.
 """
 
@@ -27,13 +27,7 @@ logger = logging.getLogger(__name__)
 
 
 def _get_db():
-    """
-    Get direct MongoDB database handle.
-
-    We use a direct Motor client here (instead of Beanie) for
-    collections that don't have Beanie models (student_profiles,
-    weakness_analysis, student_projects).
-    """
+    """Get direct MongoDB database handle."""
     mongo_url = os.getenv("MONGODB_URL", "mongodb://localhost:27017")
     db_name   = os.getenv("MONGODB_DATABASE", "academic_advisor")
     client    = AsyncIOMotorClient(mongo_url)
@@ -47,12 +41,8 @@ def _get_db():
 FACULTY_EMAIL_DOMAIN = "@fcrit.ac.in"
 
 # Regex: must be firstname.lastname@fcrit.ac.in
-# - Only lowercase letters (no digits, no special chars)
-# - At least one char before and after the dot
 _FACULTY_EMAIL_RE = re.compile(r"^[a-z]+\.[a-z]+@fcrit\.ac\.in$")
 
-# Pre-approved emails — used only for the warning log.
-# The real source of truth is MongoDB (Faculty collection).
 APPROVED_FACULTY_EMAILS: set = {
     "poonam.bari@fcrit.ac.in",
     "shubhangi.vaikole@fcrit.ac.in",
@@ -70,9 +60,6 @@ APPROVED_FACULTY_EMAILS: set = {
     "archana.shirke@fcrit.ac.in",
 }
 
-# ✅ Default password assigned to every new faculty account.
-# Faculty MUST change this on first login.
-# The must_change_password flag in Firestore enforces this.
 DEFAULT_FACULTY_PASSWORD = "Fcrit@123"
 
 
@@ -88,7 +75,7 @@ def _name_from_email(email: str) -> str:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Allowed-field constants (single source of truth for update endpoints)
+# Allowed-field constants
 # ─────────────────────────────────────────────────────────────────────────────
 
 STUDENT_EDITABLE_FIELDS = {
@@ -123,16 +110,13 @@ MEETING_EDITABLE_FIELDS = {
 }
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# AdminService
-# ─────────────────────────────────────────────────────────────────────────────
-
 class AdminService:
     """Service for admin dashboard operations"""
 
     # ==================== DASHBOARD STATS ====================
 
     async def get_dashboard_stats(self) -> Dict[str, Any]:
+        """Get overall dashboard statistics"""
         try:
             db = _get_db()
 
@@ -209,7 +193,7 @@ class AdminService:
         skip:  int = 0,
         limit: int = 25,
     ) -> Dict[str, Any]:
-        """Retrieve students from student_profiles collection"""
+        """Retrieve students from student_profiles collection with filtering"""
         try:
             db         = _get_db()
             collection = db.student_profiles
@@ -320,7 +304,7 @@ class AdminService:
             }
 
     async def get_student_detail(self, uid: str) -> Optional[Dict[str, Any]]:
-        """Get comprehensive student data from student_profiles"""
+        """Get comprehensive student data"""
         try:
             db = _get_db()
 
@@ -450,6 +434,7 @@ class AdminService:
     async def update_student(
         self, uid: str, update_data: Dict[str, Any]
     ) -> Dict[str, Any]:
+        """Update a student's profile"""
         db         = _get_db()
         collection = db.student_profiles
 
@@ -496,6 +481,7 @@ class AdminService:
         semester_number: int,
         record_data:     Dict[str, Any],
     ) -> Dict[str, Any]:
+        """Update a student's semester record"""
         db         = _get_db()
         collection = db.student_profiles
 
@@ -517,7 +503,6 @@ class AdminService:
             "subjects":        record_data.get("subjects", []),
         }
 
-        # Remove old record for this semester (if exists) then push new one
         await collection.update_one(
             {"_id": doc_id},
             {"$pull": {"semester_records": {"semester_number": semester_number}}},
@@ -539,6 +524,7 @@ class AdminService:
         }
 
     async def delete_student(self, uid: str) -> Dict[str, Any]:
+        """Delete a student and related data"""
         db         = _get_db()
         collection = db.student_profiles
 
@@ -585,6 +571,7 @@ class AdminService:
         skip:  int = 0,
         limit: int = 25,
     ) -> Dict[str, Any]:
+        """Get paginated list of faculty"""
         try:
             query_filter: Dict[str, Any] = {}
             if department:
@@ -659,6 +646,7 @@ class AdminService:
             }
 
     async def get_faculty_detail(self, uid: str) -> Optional[Dict[str, Any]]:
+        """Get faculty detail information"""
         try:
             faculty = await Faculty.find_one(Faculty.user_id == uid)
             if not faculty:
@@ -715,8 +703,6 @@ class AdminService:
             logger.error(f"Error getting faculty detail: {e}")
             return None
 
-    # ──────────── CREATE FACULTY ACCOUNT ────────────────────────────────────
-
     async def create_faculty_account(
         self,
         email:       str,
@@ -726,35 +712,12 @@ class AdminService:
     ) -> Dict[str, Any]:
         """
         Create a complete faculty account in 5 atomic steps.
-
-        Step 1 — Validate email format (firstname.lastname@fcrit.ac.in)
-        Step 2 — Check MongoDB for duplicate faculty record
-        Step 3 — Create Firebase Auth user with DEFAULT_FACULTY_PASSWORD
-        Step 4 — Create Firestore 'users' document
-                  ✅ Sets must_change_password = True
-                  ✅ Stores the default password hint
-        Step 5 — Create MongoDB Faculty document via Beanie
-
-        Rollback strategy
-        -----------------
-        If Step 4 fails → delete Firebase Auth user (Step 3 rollback)
-        If Step 5 fails → delete Firebase Auth user + Firestore doc
-
-        Password
-        --------
-        DEFAULT_FACULTY_PASSWORD = "Fcrit@123"
-        The faculty MUST change this on first login.
-        The must_change_password flag in Firestore triggers the
-        amber banner + forced password change in FacultyDashboard.
-
-        Returns
-        -------
-        dict with uid, email, name, department, designation,
-             is_approved_email, mongo_id, status
+        
+        Default password: Fcrit@123 (must be changed on first login)
         """
         email_lower = email.lower().strip()
 
-        # ── Step 1: Validate email format ────────────────────────────────────
+        # Step 1: Validate email format
         if not _is_valid_faculty_email(email_lower):
             raise ValueError(
                 f"Faculty email must be in the format "
@@ -769,26 +732,24 @@ class AdminService:
                 email_lower,
             )
 
-        # ── Step 2: Check MongoDB for duplicate ──────────────────────────────
+        # Step 2: Check MongoDB for duplicate
         existing_mongo = await Faculty.find_one(Faculty.email == email_lower)
         if existing_mongo:
             raise ValueError(
                 f"A faculty record already exists for {email_lower}"
             )
 
-        # ── Step 3: Create Firebase Auth user ────────────────────────────────
-        # Password is always DEFAULT_FACULTY_PASSWORD ("Fcrit@123")
-        # Faculty must change it on first login.
+        # Step 3: Create Firebase Auth user
         uid: Optional[str] = None
         try:
             firebase_user = await firebase_manager.create_firebase_user(
                 email=email_lower,
-                password=DEFAULT_FACULTY_PASSWORD,  # ← Fcrit@123
+                password=DEFAULT_FACULTY_PASSWORD,
                 display_name=name,
             )
             uid = firebase_user["uid"]
             logger.info(
-                "Firebase Auth user created: %s (%s) with default password",
+                "Firebase Auth user created: %s (%s)",
                 uid, email_lower,
             )
         except Exception as e:
@@ -797,17 +758,7 @@ class AdminService:
             )
             raise ValueError(f"Failed to create Firebase account: {str(e)}")
 
-        # ── Step 4: Create Firestore 'users' document ────────────────────────
-        #
-        # Key fields written here:
-        #   must_change_password = True
-        #       → FacultyDashboard reads this and shows the amber banner
-        #       → Settings.tsx reads this and shows the password tab warning
-        #       → After faculty changes password, this is set to False
-        #
-        #   default_password_hint = "Fcrit@123"
-        #       → Shown in the Settings banner so faculty knows what to type
-        #         as their "current password" when changing it
+        # Step 4: Create Firestore 'users' document
         try:
             now_iso = datetime.utcnow().isoformat()
             await firebase_manager.set_document(
@@ -819,11 +770,8 @@ class AdminService:
                     "displayName": name,
                     "role":        "faculty",
                     "emailVerified": False,
-
-                    # ✅ Password change enforcement
                     "must_change_password":  True,
                     "default_password_hint": DEFAULT_FACULTY_PASSWORD,
-
                     "metadata": {
                         "createdAt":   now_iso,
                         "lastLoginAt": None,
@@ -841,24 +789,22 @@ class AdminService:
                         "language": "en",
                     },
                 },
-                merge=False,  # fresh document — overwrite, do not merge
+                merge=False,
             )
             logger.info(
-                "Firestore 'users' document created for %s "
-                "(must_change_password=True)",
+                "Firestore 'users' document created for %s",
                 uid,
             )
         except Exception as e:
             logger.error(
                 "Firestore document creation failed for %s: %s", uid, e
             )
-            # Rollback Step 3
             await self._rollback_firebase_user(uid)
             raise ValueError(
                 f"Failed to create user document in Firestore: {str(e)}"
             )
 
-        # ── Step 5: Create MongoDB Faculty document (Beanie) ─────────────────
+        # Step 5: Create MongoDB Faculty document
         try:
             faculty_doc = Faculty(
                 user_id=uid,
@@ -900,7 +846,6 @@ class AdminService:
             logger.error(
                 "MongoDB Faculty document creation failed for %s: %s", uid, e,
             )
-            # Rollback both Firebase Auth and Firestore
             await self._rollback_firebase_user(uid)
             await self._rollback_firestore_user(uid)
             raise ValueError(
@@ -908,7 +853,7 @@ class AdminService:
             )
 
     async def _rollback_firebase_user(self, uid: str) -> None:
-        """Delete a Firebase Auth user — used for rollbacks only."""
+        """Delete Firebase Auth user on rollback"""
         try:
             await firebase_manager.delete_firebase_user(uid)
             logger.info("Rollback: Firebase Auth user deleted: %s", uid)
@@ -918,7 +863,7 @@ class AdminService:
             )
 
     async def _rollback_firestore_user(self, uid: str) -> None:
-        """Delete a Firestore 'users' document — used for rollbacks only."""
+        """Delete Firestore user doc on rollback"""
         try:
             await firebase_manager.delete_document(
                 collection="users", document_id=uid
@@ -931,11 +876,10 @@ class AdminService:
                 "Rollback FAILED for Firestore user doc %s: %s", uid, rb_err,
             )
 
-    # ──────────── EDIT FACULTY ────────────────────────────────────────────────
-
     async def update_faculty(
         self, uid: str, update_data: Dict[str, Any]
     ) -> Dict[str, Any]:
+        """Update faculty profile"""
         faculty = await Faculty.find_one(Faculty.user_id == uid)
         if not faculty:
             raise ValueError(f"Faculty not found: {uid}")
@@ -969,6 +913,7 @@ class AdminService:
         new_status: str,
         reason:     Optional[str] = None,
     ) -> Dict[str, Any]:
+        """Update faculty status"""
         faculty = await Faculty.find_one(Faculty.user_id == uid)
         if not faculty:
             raise ValueError(f"Faculty not found: {uid}")
@@ -1002,6 +947,7 @@ class AdminService:
     async def add_faculty_mentee(
         self, faculty_uid: str, student_uid: str
     ) -> Dict[str, Any]:
+        """Add mentee to faculty"""
         faculty = await Faculty.find_one(Faculty.user_id == faculty_uid)
         if not faculty:
             raise ValueError(f"Faculty not found: {faculty_uid}")
@@ -1029,6 +975,7 @@ class AdminService:
     async def remove_faculty_mentee(
         self, faculty_uid: str, student_uid: str
     ) -> Dict[str, Any]:
+        """Remove mentee from faculty"""
         faculty = await Faculty.find_one(Faculty.user_id == faculty_uid)
         if not faculty:
             raise ValueError(f"Faculty not found: {faculty_uid}")
@@ -1050,6 +997,7 @@ class AdminService:
         }
 
     async def delete_faculty(self, uid: str) -> Dict[str, Any]:
+        """Delete faculty member"""
         faculty = await Faculty.find_one(Faculty.user_id == uid)
         if not faculty:
             raise ValueError(f"Faculty not found: {uid}")
@@ -1086,6 +1034,7 @@ class AdminService:
         skip:  int = 0,
         limit: int = 25,
     ) -> Dict[str, Any]:
+        """Get paginated meetings"""
         try:
             conditions = []
             if status:
@@ -1122,6 +1071,7 @@ class AdminService:
                         if hasattr(m, "scheduled_date") and m.scheduled_date
                         else None
                     ),
+                    "scheduled_time": getattr(m, "scheduled_time", ""),
                     "meeting_link": getattr(m, "meeting_link", ""),
                     "location":     getattr(m, "location", ""),
                     "notes":        getattr(m, "notes", ""),
@@ -1150,6 +1100,7 @@ class AdminService:
     async def update_meeting(
         self, meeting_id: str, update_data: Dict[str, Any]
     ) -> Dict[str, Any]:
+        """Update meeting"""
         meeting = await MeetingRequest.get(PydanticObjectId(meeting_id))
         if not meeting:
             raise ValueError(f"Meeting not found: {meeting_id}")
@@ -1179,6 +1130,7 @@ class AdminService:
         }
 
     async def delete_meeting(self, meeting_id: str) -> Dict[str, Any]:
+        """Delete meeting"""
         meeting = await MeetingRequest.get(PydanticObjectId(meeting_id))
         if not meeting:
             raise ValueError(f"Meeting not found: {meeting_id}")
@@ -1193,6 +1145,7 @@ class AdminService:
         semester:       Optional[int] = None,
         admission_year: int = 2024,
     ) -> Dict[str, Any]:
+        """Get curriculum"""
         try:
             result: Dict[str, Any] = {}
             semesters_to_fetch = (
@@ -1246,6 +1199,7 @@ class AdminService:
             return {"curriculum": {}, "error": str(e)}
 
     async def get_all_elective_options(self) -> Dict[str, Any]:
+        """Get electives"""
         try:
             static_options = ELECTIVE_OPTIONS
             db_electives   = await Elective.find().to_list()
@@ -1289,6 +1243,7 @@ class AdminService:
     async def update_elective(
         self, elective_id: str, update_data: dict
     ) -> Dict[str, Any]:
+        """Update elective"""
         try:
             elective = await Elective.get(PydanticObjectId(elective_id))
             if not elective:
@@ -1320,6 +1275,7 @@ class AdminService:
             raise
 
     async def create_elective(self, data: dict) -> Dict[str, Any]:
+        """Create elective"""
         try:
             elective = Elective(**data)
             await elective.insert()
@@ -1334,6 +1290,7 @@ class AdminService:
             raise
 
     async def delete_elective(self, elective_id: str) -> Dict[str, Any]:
+        """Delete elective"""
         try:
             elective = await Elective.get(PydanticObjectId(elective_id))
             if not elective:
@@ -1355,6 +1312,7 @@ class AdminService:
         skip:  int = 0,
         limit: int = 25,
     ) -> Dict[str, Any]:
+        """Get projects"""
         try:
             db             = _get_db()
             query_filter: Dict[str, Any] = {}
@@ -1403,6 +1361,7 @@ class AdminService:
     async def update_project(
         self, project_id: str, update_data: Dict[str, Any]
     ) -> Dict[str, Any]:
+        """Update project"""
         db = _get_db()
         allowed = {
             "title", "description", "technologies",
@@ -1436,6 +1395,7 @@ class AdminService:
         }
 
     async def delete_project(self, project_id: str) -> Dict[str, Any]:
+        """Delete project"""
         db     = _get_db()
         result = await db.student_projects.delete_one(
             {"_id": ObjectId(project_id)}
@@ -1451,6 +1411,7 @@ class AdminService:
         role:   Optional[str] = None,
         search: Optional[str] = None,
     ) -> Dict[str, Any]:
+        """Get Firestore users"""
         try:
             users    = await firebase_manager.get_collection("users")
             filtered = []
@@ -1483,6 +1444,7 @@ class AdminService:
     async def update_user_role(
         self, uid: str, new_role: str
     ) -> Dict[str, Any]:
+        """Update user role"""
         valid_roles = {"student", "faculty", "admin"}
         if new_role not in valid_roles:
             raise ValueError(
@@ -1496,7 +1458,7 @@ class AdminService:
             old_role = user_doc.get("role", "student")
             await firebase_manager.set_document(
                 "users", uid,
-                {"role": new_role, "roleUpdatedAt": datetime.utcnow()},
+                {"role": new_role, "roleUpdatedAt": datetime.utcnow().isoformat()},
                 merge=True,
             )
             logger.info("User %s role changed %s → %s", uid, old_role, new_role)
@@ -1515,6 +1477,7 @@ class AdminService:
     async def disable_user(
         self, uid: str, disabled: bool = True
     ) -> Dict[str, Any]:
+        """Disable/enable user"""
         try:
             user_doc = await firebase_manager.get_document("users", uid)
             if not user_doc:
@@ -1541,6 +1504,7 @@ class AdminService:
     # ==================== ANALYTICS ====================
 
     async def get_analytics_overview(self) -> Dict[str, Any]:
+        """Get analytics overview"""
         try:
             db           = _get_db()
             all_students = await db.student_profiles.find().to_list(length=1000)
@@ -1624,6 +1588,7 @@ class AdminService:
             return {"error": str(e)}
 
     async def get_department_comparison(self) -> Dict[str, Any]:
+        """Get department comparison"""
         try:
             db           = _get_db()
             all_students = await db.student_profiles.find().to_list(length=1000)
@@ -1654,9 +1619,8 @@ class AdminService:
             logger.error(f"Error getting department comparison: {e}")
             return {"departments": []}
 
-    # ==================== USER COUNTS ====================
-
     async def get_user_counts(self) -> Dict[str, Any]:
+        """Get user counts"""
         try:
             users  = await firebase_manager.get_collection("users")
             counts = {"student": 0, "faculty": 0, "admin": 0, "total": 0}
@@ -1674,6 +1638,7 @@ class AdminService:
     async def bulk_update_students(
         self, updates: List[Dict[str, Any]]
     ) -> Dict[str, Any]:
+        """Bulk update students"""
         succeeded: List[str]           = []
         failed:    List[Dict[str, str]] = []
 
@@ -1701,6 +1666,7 @@ class AdminService:
         new_status: str,
         reason:     Optional[str] = None,
     ) -> Dict[str, Any]:
+        """Bulk update faculty status"""
         succeeded: List[str]           = []
         failed:    List[Dict[str, str]] = []
 
@@ -1717,4 +1683,154 @@ class AdminService:
             "new_status": new_status,
             "succeeded":  succeeded,
             "failed":     failed,
+        }
+
+    async def bulk_create_students(
+        self,
+        students_data: List[Dict[str, Any]]
+    ) -> Dict[str, Any]:
+        """Bulk create students from Excel upload"""
+        from app.utils.password import (
+            generate_student_password,
+            hash_password,
+            validate_roll_number,
+            extract_admission_year_from_roll
+        )
+        
+        db = _get_db()
+        collection = db.student_profiles
+        
+        created = []
+        skipped = []
+        errors = []
+        
+        for idx, student_data in enumerate(students_data, start=1):
+            try:
+                # Validate required fields
+                roll_number = student_data.get("roll_number", "").strip()
+                name = student_data.get("name", "").strip()
+                email = student_data.get("email", "").strip()
+                branch = (
+                    student_data.get("branch") or 
+                    student_data.get("department", "").strip()
+                )
+                
+                if not all([roll_number, name, email, branch]):
+                    errors.append({
+                        "row": idx,
+                        "error": (
+                            "Missing required fields "
+                            "(name, roll_number, email, branch)"
+                        )
+                    })
+                    continue
+                
+                # Validate roll number
+                is_valid, error_msg = validate_roll_number(roll_number)
+                if not is_valid:
+                    errors.append({
+                        "row": idx,
+                        "error": f"Invalid roll number: {error_msg}"
+                    })
+                    continue
+                
+                # Check if student already exists
+                existing = await collection.find_one(
+                    {"roll_number": roll_number}
+                )
+                if existing:
+                    skipped.append({
+                        "roll_number": roll_number,
+                        "reason": "Already exists"
+                    })
+                    continue
+                
+                # Extract/get admission year
+                admission_year = student_data.get("admission_year")
+                if not admission_year:
+                    try:
+                        admission_year = (
+                            extract_admission_year_from_roll(roll_number)
+                        )
+                    except Exception:
+                        admission_year = datetime.utcnow().year
+                
+                # Calculate current semester if not provided
+                current_semester = student_data.get("current_semester")
+                if not current_semester:
+                    now = datetime.utcnow()
+                    years_passed = now.year - admission_year
+                    current_semester = years_passed * 2 + (
+                        1 if now.month >= 7 else 0
+                    )
+                    current_semester = max(1, min(current_semester, 8))
+                
+                # Calculate academic year
+                now = datetime.utcnow()
+                if now.month >= 7:
+                    academic_year = f"{now.year}-{str(now.year + 1)[2:]}"
+                else:
+                    academic_year = f"{now.year - 1}-{str(now.year)[2:]}"
+                
+                # Generate default password
+                default_password = generate_student_password(
+                    roll_number, admission_year
+                )
+                password_hash = hash_password(default_password)
+                
+                # Create student profile
+                profile_doc = {
+                    "name": name,
+                    "roll_number": roll_number,
+                    "email": email,
+                    "branch": branch.upper(),
+                    "admission_year": admission_year,
+                    "current_semester": current_semester,
+                    "current_academic_year": academic_year,
+                    "password_hash": password_hash,
+                    "password_changed": False,
+                    "cgpa": 0.0,
+                    "total_credits_earned": 0,
+                    "total_credits_required": 160,
+                    "semester_records": [],
+                    "interests": student_data.get("interests", []),
+                    "career_goals": student_data.get("career_goals", []),
+                    "skills": student_data.get("skills", []),
+                    "created_at": datetime.utcnow(),
+                    "last_updated": datetime.utcnow(),
+                    "created_by": "admin_bulk_upload",
+                    "marks_synced": False,
+                }
+                
+                # Add seat number if provided
+                if student_data.get("seat_number"):
+                    profile_doc["seat_number"] = student_data["seat_number"]
+                
+                # Insert into MongoDB
+                result = await collection.insert_one(profile_doc)
+                
+                created.append({
+                    "roll_number": roll_number,
+                    "name": name,
+                    "default_password": default_password,
+                    "_id": str(result.inserted_id)
+                })
+                
+            except Exception as e:
+                logger.error(f"Error creating student at row {idx}: {e}")
+                errors.append({
+                    "row": idx,
+                    "error": str(e),
+                    "roll_number": student_data.get("roll_number", "N/A")
+                })
+        
+        return {
+            "success": True,
+            "total_processed": len(students_data),
+            "created": len(created),
+            "skipped": len(skipped),
+            "errors": len(errors),
+            "created_students": created,
+            "skipped_students": skipped,
+            "errors_list": errors,
         }
