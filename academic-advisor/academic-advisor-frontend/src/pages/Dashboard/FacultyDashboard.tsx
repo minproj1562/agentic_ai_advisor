@@ -3,12 +3,14 @@ import React, { useState, useCallback, useEffect, lazy, Suspense } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Toaster } from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
-import { Edit3 } from 'lucide-react';
+import { Edit3, AlertCircle } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
+import { doc, getDoc } from 'firebase/firestore';
 
 import { useTheme } from '../../hooks/useTheme';
 import { useAuth } from '../../contexts/AuthContext';
 import apiClient from '../../services/api.service';
+import { db } from '../../services/firebase.config';
 
 // Core Components
 import FacultyHeader from '../../components/dashboard/FacultyHeader';
@@ -16,49 +18,74 @@ import FacultySidebar from '../../components/dashboard/FacultySidebar';
 import LoadingSkeleton from '../../components/dashboard/common/LoadingSkeleton';
 
 // Lazy load sections
-const FacultyOverview = lazy(() => import('../../components/dashboard/sections/FacultyOverview'));
+const FacultyOverview        = lazy(() => import('../../components/dashboard/sections/FacultyOverview'));
 const StudentAnalysisSection = lazy(() => import('../../components/dashboard/sections/StudentAnalysisSection'));
-const MeetingManagement = lazy(() => import('../../components/meetings/FacultyMeetingManagement'));
-const MeetingsCalendar = lazy(() => import('../../components/meetings/MeetingsCalendar'));
-const FacultyProfileView = lazy(() => import('../../components/dashboard/sections/FacultyProfileView'));
-const CVAnalysisSection = lazy(() => import('../../components/dashboard/sections/CVAnalysisSection'));
-const MessagesSection = lazy(() => import('../../components/dashboard/sections/Messages'));
-const NotificationsSection = lazy(() => import('../../components/dashboard/sections/NotificationsSection'));
-const SettingsSection = lazy(() => import('../../components/dashboard/sections/Settings'));
+const MeetingManagement      = lazy(() => import('../../components/meetings/FacultyMeetingManagement'));
+const MeetingsCalendar       = lazy(() => import('../../components/meetings/MeetingsCalendar'));
+const FacultyProfileView     = lazy(() => import('../../components/dashboard/sections/FacultyProfileView'));
+const CVAnalysisSection      = lazy(() => import('../../components/dashboard/sections/CVAnalysisSection'));
+const MessagesSection        = lazy(() => import('../../components/dashboard/sections/Messages'));
+const NotificationsSection   = lazy(() => import('../../components/dashboard/sections/NotificationsSection'));
+const SettingsSection        = lazy(() => import('../../components/dashboard/sections/Settings'));
+
 const FacultyDashboard: React.FC = () => {
   const navigate = useNavigate();
   const { user, logout, loading: authLoading } = useAuth();
   const { theme, toggleTheme } = useTheme();
-  
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-  const [activeSection, setActiveSection] = useState<string>('overview');
-  const [isMobile, setIsMobile] = useState(false);
 
-  // Check if mobile
+  const [isSidebarOpen, setIsSidebarOpen]   = useState(true);
+  const [activeSection, setActiveSection]   = useState<string>('overview');
+  const [isMobile, setIsMobile]             = useState(false);
+
+  // ✅ NEW: must change password state
+  const [mustChangePassword, setMustChangePassword]   = useState(false);
+  const [passwordBannerDismissed, setPasswordBannerDismissed] = useState(false);
+
+  // ── Mobile check ───────────────────────────────────────────────────────────
   useEffect(() => {
     const checkMobile = () => {
       const mobile = window.innerWidth < 768;
       setIsMobile(mobile);
       if (mobile) setIsSidebarOpen(false);
     };
-    
     checkMobile();
     window.addEventListener('resize', checkMobile);
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
-  // Fetch faculty profile data
-  const { data: facultyData, isLoading: profileLoading, error: profileError } = useQuery({
+  // ✅ NEW: Check must_change_password flag from Firestore
+  useEffect(() => {
+    const checkPasswordFlag = async () => {
+      if (!user?.uid) return;
+      try {
+        const userDoc = await getDoc(doc(db, 'users', user.uid));
+        if (userDoc.exists()) {
+          const data = userDoc.data();
+          setMustChangePassword(data?.must_change_password === true);
+        }
+      } catch (error) {
+        console.error('Error checking password flag:', error);
+      }
+    };
+    checkPasswordFlag();
+  }, [user?.uid]);
+
+  // ── Queries ────────────────────────────────────────────────────────────────
+
+  const {
+    data: facultyData,
+    isLoading: profileLoading,
+    error: profileError,
+  } = useQuery({
     queryKey: ['faculty-profile', user?.uid],
     queryFn: async () => {
       const response = await apiClient.get('/faculty-profile/me');
       return response.data;
     },
     enabled: !!user?.uid,
-    staleTime: 5 * 60 * 1000, // 5 minutes
+    staleTime: 5 * 60 * 1000,
   });
 
-  // Fetch meeting requests count
   const { data: meetingData } = useQuery({
     queryKey: ['faculty-meetings', user?.uid],
     queryFn: async () => {
@@ -66,10 +93,9 @@ const FacultyDashboard: React.FC = () => {
       return response.data;
     },
     enabled: !!user?.uid,
-    staleTime: 60 * 1000, // 1 minute
+    staleTime: 60 * 1000,
   });
 
-  // Fetch notifications count
   const { data: notificationData } = useQuery({
     queryKey: ['notifications-count', user?.uid],
     queryFn: async () => {
@@ -77,17 +103,22 @@ const FacultyDashboard: React.FC = () => {
       return response.data;
     },
     enabled: !!user?.uid,
-    staleTime: 30 * 1000, // 30 seconds
+    staleTime: 30 * 1000,
   });
 
+  // ── Handlers ───────────────────────────────────────────────────────────────
+
   const handleSidebarToggle = useCallback(() => {
-    setIsSidebarOpen(prev => !prev);
+    setIsSidebarOpen((prev) => !prev);
   }, []);
 
-  const handleSectionChange = useCallback((section: string) => {
-    setActiveSection(section);
-    if (isMobile) setIsSidebarOpen(false);
-  }, [isMobile]);
+  const handleSectionChange = useCallback(
+    (section: string) => {
+      setActiveSection(section);
+      if (isMobile) setIsSidebarOpen(false);
+    },
+    [isMobile]
+  );
 
   const handleLogout = async () => {
     try {
@@ -99,39 +130,47 @@ const FacultyDashboard: React.FC = () => {
   };
 
   const handleEditProfile = () => {
-    navigate('/faculty/profile-edit', { 
-      state: { 
-        editMode: true, 
-        profile: facultyData 
-      } 
+    navigate('/faculty/profile-edit', {
+      state: { editMode: true, profile: facultyData },
     });
   };
 
-  // Prepare faculty data for header
-  const headerFacultyData = facultyData ? {
-    id: facultyData.user_id,
-    name: facultyData.name,
-    email: facultyData.email,
-    department: facultyData.department,
-    profilePhoto: facultyData.uniform_profile?.personal_info?.photo_url,
-    role: facultyData.designation || 'Professor',
-    expertise: facultyData.uniform_profile?.research_expertise?.primary_areas || [],
-    joinedDate: new Date(facultyData.created_at),
-    totalMentees: facultyData.mentee_count || 0,
-  } : undefined;
+  // ✅ NEW: Go to password tab in settings
+  const handleGoToChangePassword = () => {
+    setActiveSection('settings');
+    setPasswordBannerDismissed(false);
+    if (isMobile) setIsSidebarOpen(false);
+  };
+
+  // ── Derived data ───────────────────────────────────────────────────────────
+
+  const headerFacultyData = facultyData
+    ? {
+        id:           facultyData.user_id,
+        name:         facultyData.name,
+        email:        facultyData.email,
+        department:   facultyData.department,
+        profilePhoto: facultyData.uniform_profile?.personal_info?.photo_url,
+        role:         facultyData.designation || 'Professor',
+        expertise:    facultyData.uniform_profile?.research_expertise?.primary_areas || [],
+        joinedDate:   new Date(facultyData.created_at),
+        totalMentees: facultyData.mentee_count || 0,
+      }
+    : undefined;
 
   const stats = {
-    totalMentees: facultyData?.mentee_count || 0,
-    atRiskStudents: 0, // Would come from analytics
-    improvingStudents: 0,
-    upcomingSlots: meetingData?.accepted?.length || 0,
+    totalMentees:        facultyData?.mentee_count || 0,
+    atRiskStudents:      0,
+    improvingStudents:   0,
+    upcomingSlots:       meetingData?.accepted?.length || 0,
     unreadNotifications: notificationData?.unread_count || 0,
   };
 
-  // Render content based on active section
+  // ── Section renderer ───────────────────────────────────────────────────────
+
   const renderContent = () => {
     const sectionProps = {
-      facultyId: user?.uid || '',
+      facultyId:   user?.uid || '',
       facultyData,
     };
 
@@ -207,20 +246,18 @@ const FacultyDashboard: React.FC = () => {
       default:
         return (
           <div className="flex items-center justify-center h-64">
-            <p className="text-gray-500 dark:text-gray-400">
-              Section not found
-            </p>
+            <p className="text-gray-500 dark:text-gray-400">Section not found</p>
           </div>
         );
     }
   };
 
-  // Loading state
+  // ── Guards ─────────────────────────────────────────────────────────────────
+
   if (authLoading || profileLoading) {
     return <LoadingSkeleton />;
   }
 
-  // Error state
   if (profileError) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
@@ -242,17 +279,19 @@ const FacultyDashboard: React.FC = () => {
     );
   }
 
+  // ── Render ─────────────────────────────────────────────────────────────────
+
   return (
     <div className={`min-h-screen ${theme === 'dark' ? 'dark' : ''}`}>
       <div className="bg-gradient-to-br from-gray-50 via-white to-gray-50 dark:from-gray-900 dark:via-gray-900 dark:to-gray-800 transition-colors duration-300">
-        <Toaster 
+        <Toaster
           position="top-right"
           toastOptions={{
             className: 'dark:bg-gray-800 dark:text-white',
             duration: 4000,
           }}
         />
-        
+
         {/* Header */}
         <FacultyHeader
           faculty={headerFacultyData}
@@ -264,6 +303,7 @@ const FacultyDashboard: React.FC = () => {
         />
 
         <div className="flex h-[calc(100vh-64px)] relative">
+
           {/* Mobile overlay */}
           {isMobile && isSidebarOpen && (
             <div
@@ -300,6 +340,60 @@ const FacultyDashboard: React.FC = () => {
 
           {/* Main Content */}
           <main className="flex-1 overflow-y-auto bg-gradient-to-br from-gray-50 to-white dark:from-gray-900 dark:to-gray-800">
+
+            {/* ✅ Amber password alert banner */}
+            <AnimatePresence>
+              {mustChangePassword &&
+                !passwordBannerDismissed &&
+                activeSection !== 'settings' && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: 'auto' }}
+                    exit={{ opacity: 0, height: 0 }}
+                    transition={{ duration: 0.3 }}
+                    className="mx-6 mt-4"
+                  >
+                    <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-300 dark:border-amber-700 rounded-xl p-4 flex items-center justify-between gap-4">
+                      {/* Left: icon + text */}
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="flex-shrink-0 w-9 h-9 bg-amber-100 dark:bg-amber-900/40 rounded-lg flex items-center justify-center">
+                          <AlertCircle className="w-5 h-5 text-amber-600 dark:text-amber-400" />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">
+                            Security Alert: Change your default password
+                          </p>
+                          <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5 truncate">
+                            Your account uses the default password{' '}
+                            <code className="font-mono bg-amber-100 dark:bg-amber-900/40 px-1 py-0.5 rounded">
+                              Fcrit@2025
+                            </code>
+                            . Please update it to secure your account.
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Right: action buttons */}
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <button
+                          onClick={handleGoToChangePassword}
+                          className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-medium transition-colors whitespace-nowrap"
+                        >
+                          Change Now →
+                        </button>
+                        <button
+                          onClick={() => setPasswordBannerDismissed(true)}
+                          className="px-3 py-2 text-amber-700 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-900/30 rounded-lg text-xs transition-colors whitespace-nowrap"
+                        >
+                          Dismiss
+                        </button>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+            </AnimatePresence>
+
+            {/* Page content */}
             <div className="p-6 max-w-7xl mx-auto">
               <AnimatePresence mode="wait">
                 <motion.div

@@ -47,7 +47,7 @@ class WeaknessDetector:
             # Prepare features
             feature_columns = [
                 'subject_score', 'attendance',
-                'lab_performance', 'previous_related_score', 'difficulty_factor'
+                'lab_performance', 'previous_related_score', #'difficulty_factor'
                 #'assignment_score',
                 #'quiz_average', 
                 # #'study_hours',
