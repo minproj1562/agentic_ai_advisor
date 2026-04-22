@@ -1,7 +1,6 @@
 # app/api/v1/api.py
 """
 API v1 Router - Aggregates all endpoint routers
-FIXED: Uses MongoDB-based student analysis endpoints (same pattern as admin)
 """
 
 from fastapi import APIRouter
@@ -19,6 +18,20 @@ api_router.include_router(auth_router, prefix="/auth", tags=["Authentication"])
 from app.api.v1.endpoints.students import router as students_router
 api_router.include_router(students_router, prefix="/students", tags=["Students"])
 
+# ✅ IMPORTANT: faculty_emails MUST be registered BEFORE faculty
+# Reason: faculty router has /{uid} which would catch "approved-emails"
+# as a uid string if registered first.
+#
+# URL produced: GET /api/v1/faculty/approved-emails
+# No auth required — called by Login page before user is authenticated
+# Data source: MongoDB Faculty collection (NO hardcoded emails)
+from app.api.v1.faculty_emails import router as faculty_emails_router
+api_router.include_router(
+    faculty_emails_router,
+    prefix="/faculty",
+    tags=["Faculty - Public"],
+)
+
 from app.api.v1.faculty import router as faculty_router
 api_router.include_router(faculty_router, prefix="/faculty", tags=["Faculty"])
 
@@ -31,10 +44,6 @@ api_router.include_router(resources_router, prefix="/resources", tags=["Resource
 from app.api.v1.messages import router as messages_router
 api_router.include_router(messages_router, prefix="/messages", tags=["Messages"])
 
-# ──────────────────────────────────────────────────────────────
-# CHANGED: Use the MongoDB/Beanie endpoints.student_analysis
-# instead of the Firebase-based app.api.v1.student_analysis
-# ──────────────────────────────────────────────────────────────
 from app.api.v1.endpoints.student_analysis import router as student_analysis_router
 api_router.include_router(student_analysis_router, prefix="/student-analysis", tags=["Student Analysis"])
 
@@ -73,28 +82,39 @@ api_router.include_router(readiness_endpoints.router, prefix="/readiness", tags=
 from app.api.v1.endpoints.chatbot import router as chatbot_router
 api_router.include_router(chatbot_router, prefix="/chatbot", tags=["Chatbot"])
 
-# Find this existing line:
+# ==================== ADMIN ROUTERS ====================
+
 from app.api.v1.admin import router as admin_router
 api_router.include_router(admin_router, prefix="/admin", tags=["Admin"])
 
-# ADD these 3 lines RIGHT AFTER:
 from app.api.v1.endpoints.bulk_marks import router as bulk_marks_router
 api_router.include_router(
-    bulk_marks_router, prefix="/admin/bulk-marks", tags=["Admin - Bulk Marks Upload"]
+    bulk_marks_router,
+    prefix="/admin/bulk-marks",
+    tags=["Admin - Bulk Marks Upload"],
 )
+
 # ==================== OPTIONAL ROUTERS ====================
 
 def _safe_include(module_path: str, attr: str, prefix: str, tags: list):
+    """
+    Safely mount an optional router.
+    If the module fails to import the error is logged
+    but the server still starts normally.
+    """
     try:
         import importlib
-        mod = importlib.import_module(module_path)
+        mod    = importlib.import_module(module_path)
         router = getattr(mod, attr)
         api_router.include_router(router, prefix=prefix, tags=tags)
         logger.info(f"✅ Router mounted: {prefix}")
     except Exception as e:
-        logger.error(f"❌ Failed to mount {prefix}: {type(e).__name__}: {e}", exc_info=True)
+        logger.error(
+            f"❌ Failed to mount {prefix}: {type(e).__name__}: {e}",
+            exc_info=True,
+        )
 
-_safe_include("app.api.v1.endpoints.ml_insights", "router", "/ml-insights", ["ML Insights"])
+_safe_include("app.api.v1.endpoints.ml_insights",    "router", "/ml-insights",    ["ML Insights"])
 _safe_include("app.api.v1.endpoints.faculty_profile", "router", "/faculty-profile", ["Faculty Profile"])
-_safe_include("app.api.v1.endpoints.publications", "router", "/publications", ["Publications"])
-_safe_include("app.api.v1.endpoints.research_area", "router", "/research-areas", ["Research Areas"])
+_safe_include("app.api.v1.endpoints.publications",    "router", "/publications",    ["Publications"])
+_safe_include("app.api.v1.endpoints.research_area",   "router", "/research-areas", ["Research Areas"])

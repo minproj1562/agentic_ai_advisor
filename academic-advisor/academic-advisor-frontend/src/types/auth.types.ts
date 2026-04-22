@@ -1,5 +1,4 @@
 // academic-advisor/academic-advisor-frontend/src/types/auth.types.ts
-// src/types/auth.types.ts
 export interface User {
   uid: string;
   email: string;
@@ -15,6 +14,16 @@ export interface User {
     createdAt: string;
     lastLoginAt: string;
     lastActiveAt: string;
+    loginCount?: number;
+  };
+  preferences?: {
+    notifications: {
+      email: boolean;
+      push: boolean;
+      sms: boolean;
+    };
+    theme: 'system' | 'light' | 'dark';
+    language: string;
   };
 }
 
@@ -30,7 +39,6 @@ export interface LoginCredentials {
   roll_number?: string;     // ✅ ADD: For student login
   password: string;
   rememberMe: boolean;
-  userType?: 'student' | 'faculty' | 'admin';
 }
 
 export interface AuthContextType extends AuthState {
