@@ -1,4 +1,5 @@
 // academic-advisor/academic-advisor-frontend/src/types/auth.types.ts
+
 export interface User {
   uid: string;
   email: string;
@@ -39,6 +40,7 @@ export interface LoginCredentials {
   roll_number?: string;     // ✅ ADD: For student login
   password: string;
   rememberMe: boolean;
+  userType?: 'student' | 'faculty' | 'admin'; // ← Added: optional to avoid breaking existing callers
 }
 
 export interface AuthContextType extends AuthState {
