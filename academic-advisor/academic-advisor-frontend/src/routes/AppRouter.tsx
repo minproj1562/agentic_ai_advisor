@@ -128,21 +128,14 @@ const AppRouter: React.FC = () => {
   }
 />
 
-{/* Faculty Profile Setup - New */}
 <Route 
-  path="/faculty/profile-setup" 
+  path="/faculty/profile-edit" 
   element={
     <ProtectedRoute role="faculty">
-      <FacultyProfileSetup />
+      <FacultyProfileEdit />
     </ProtectedRoute>
   } 
 />
-
-<Route path="/faculty/profile-edit" element={
-  <ProtectedRoute>
-    <FacultyProfileEdit />
-  </ProtectedRoute>
-} />
 <Route
   path="/student/dashboard/*"
   element={

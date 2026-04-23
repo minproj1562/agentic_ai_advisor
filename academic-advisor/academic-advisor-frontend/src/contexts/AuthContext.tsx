@@ -6,10 +6,10 @@ import {
   createUserWithEmailAndPassword,
   signOut,
   onAuthStateChanged,
-  User as FirebaseUser,
   GoogleAuthProvider,
   signInWithPopup,
-  sendPasswordResetEmail
+  sendPasswordResetEmail,
+  signInWithCustomToken
 } from 'firebase/auth';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { auth, db } from '../services/firebase.config';
@@ -27,10 +27,11 @@ interface User {
 }
 
 interface LoginCredentials {
-  email: string;
+  email?: string;
+  roll_number?: string;
   password: string;
   rememberMe?: boolean;
-  userType?: 'student' | 'faculty' | 'admin';  // ← FIXED: added 'admin'
+  userType?: 'student' | 'faculty' | 'admin';
 }
 
 interface AuthContextType {
@@ -109,9 +110,52 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const login = async (credentials: LoginCredentials) => {
     try {
-      const { email, password, rememberMe, userType } = credentials;
+      const { email, roll_number, password, userType } = credentials;
       
-      console.log('Login attempt:', { email, userType });
+      // ==================== STUDENT LOGIN ====================
+      if (userType === 'student') {
+        if (!roll_number) {
+          throw new Error('Roll number is required for student login');
+        }
+
+        console.log('Student login attempt:', roll_number);
+        
+        // Call backend student login API
+        const response = await apiClient.post('/auth/student/login', {
+          roll_number: roll_number,
+          password: password
+        });
+
+        if (!response.data.success) {
+          throw new Error(response.data.message || 'Login failed');
+        }
+
+        const { token, user: userData, requires_password_change } = response.data;
+
+        // Sign in to Firebase with custom token
+        await signInWithCustomToken(auth, token);
+
+        // Set user state
+        setUser(userData);
+
+        // Navigate
+        if (requires_password_change) {
+toast('Please change your default password', { icon: 'ℹ️' });
+          navigate('/student/change-password', { replace: true });
+        } else {
+          navigate('/student/dashboard', { replace: true });
+          toast.success(`Welcome back, ${userData.name}!`);
+        }
+
+        return;
+      }
+
+      // ==================== FACULTY/ADMIN LOGIN ====================
+      if (!email) {
+        throw new Error('Email is required for faculty/admin login');
+      }
+
+      console.log('Faculty/Admin login attempt:', email);
       
       // Sign in with Firebase Auth
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
@@ -167,10 +211,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         navigate('/admin/dashboard', { replace: true });
         toast.success(`Welcome, Admin ${userData.name}!`);
         
-      } else if (userData.role === 'student') {
-        navigate('/student/dashboard', { replace: true });
-        toast.success(`Welcome back, ${userData.name}!`);
-        
       } else {
         // Unknown role fallback
         navigate('/student/dashboard', { replace: true });
@@ -180,22 +220,27 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch (error: any) {
       console.error('Login error:', error);
       
+      // Handle specific errors
       if (error.code === 'auth/user-not-found') {
-        toast.error('No account found with this email. Please register first.');
-        setTimeout(() => navigate('/register'), 2000);
+        toast.error('No account found. Please check your credentials.');
       } else if (error.code === 'auth/wrong-password') {
         toast.error('Incorrect password. Please try again.');
       } else if (error.code === 'auth/invalid-credential') {
-        toast.error('Invalid credentials. Please check your email and password.');
+        toast.error('Invalid credentials. Please check and try again.');
       } else if (error.code === 'auth/invalid-email') {
         toast.error('Invalid email format.');
       } else if (error.message === 'Wrong login portal') {
-        // Already handled above with toast
+        // Already handled with toast above
       } else if (error.message === 'Account not properly registered') {
-        // Already handled above
+        // Already handled
+      } else if (error.response?.status === 401) {
+        toast.error('Invalid roll number or password.');
+      } else if (error.response?.data?.detail) {
+        toast.error(error.response.data.detail);
       } else {
-        toast.error(error.message || 'Login failed');
+        toast.error(error.message || 'Login failed. Please try again.');
       }
+      
       throw error;
     }
   };
@@ -321,7 +366,6 @@ export const AuthRedirect: React.FC = () => {
 
   useEffect(() => {
     if (!loading && user) {
-      // If user is on login/register page but already authenticated, redirect to dashboard
       if (location.pathname === '/login' || location.pathname === '/register') {
         navigate(getDashboardPath(user.role), { replace: true });
       }

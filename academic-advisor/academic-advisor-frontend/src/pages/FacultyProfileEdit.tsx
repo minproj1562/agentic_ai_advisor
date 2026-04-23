@@ -11,7 +11,7 @@ import {
   Loader2, ChevronLeft, ChevronRight, Plus, Trash2,
   Calendar, Check, AlertCircle
 } from 'lucide-react';
-import apiClient from '../services/api.service';
+import facultyService from '../services/faculty.service';
 import { useAuth } from '../contexts/AuthContext';
 
 // Types
@@ -177,16 +177,17 @@ const FacultyProfileEdit: React.FC = () => {
     }
   }, [initialStep]);
 
-  // Fetch current profile
-  const { data: profileData, isLoading } = useQuery({
-    queryKey: ['faculty-profile-edit', user?.uid],
-    queryFn: async () => {
-      const response = await apiClient.get('/faculty-profile/me');
-      return response.data;
-    },
-    initialData: initialProfile,
-    staleTime: 0, // Always fetch fresh for editing
-  });
+// Fetch current profile
+const { data: profileData, isLoading } = useQuery({
+  queryKey: ['faculty-profile-edit', user?.uid],
+  queryFn: async () => {
+    const data = await facultyService.getMyProfile();
+    return data;
+  },
+  initialData: initialProfile,
+  staleTime: 0, // Always fetch fresh for editing
+  enabled: !!user?.uid,
+});
 
   // Transform profile data to form data
   const getDefaultValues = (): ProfileFormData => {
@@ -266,35 +267,38 @@ const FacultyProfileEdit: React.FC = () => {
     name: 'available_slots',
   });
 
-  // Update mutation
-  const updateMutation = useMutation({
-    mutationFn: async (data: ProfileFormData) => {
-      // Transform available_slots to match backend schema
-      const payload = {
-        ...data,
-        available_slots: data.available_slots?.map(slot => ({
-          day: slot.day,
-          start_time: slot.start_time,
-          end_time: slot.end_time,
-          venue: slot.venue || profileData?.uniform_profile?.availability?.office_location || '',
-        })),
-        // Ensure null values are sent as null, not undefined
-        graduation_year: data.graduation_year || null,
-        joining_year: data.joining_year || null,
-        h_index: data.h_index || null,
-      };
-      const response = await apiClient.put('/faculty-profile/update', payload);
-      return response.data;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['faculty-profile'] });
-      toast.success('Profile updated successfully!');
-      navigate('/faculty/dashboard');
-    },
-    onError: (error: any) => {
-      toast.error(error.response?.data?.detail || 'Failed to update profile');
-    },
-  });
+// Update mutation
+const updateMutation = useMutation({
+  mutationFn: async (data: ProfileFormData) => {
+    // Transform available_slots to match backend schema
+    const payload = {
+      ...data,
+      available_slots: data.available_slots?.map(slot => ({
+        day: slot.day,
+        start_time: slot.start_time,
+        end_time: slot.end_time,
+        venue: slot.venue || profileData?.uniform_profile?.availability?.office_location || '',
+      })),
+      // Ensure null values are sent as null, not undefined
+      graduation_year: data.graduation_year || null,
+      joining_year: data.joining_year || null,
+      h_index: data.h_index || null,
+    };
+    
+    // ✅ Use faculty service
+    return await facultyService.updateProfile(payload);
+  },
+  onSuccess: (response) => {
+    queryClient.invalidateQueries({ queryKey: ['faculty-profile'] });
+    queryClient.invalidateQueries({ queryKey: ['faculty-profile-edit'] });
+    toast.success(response.message || 'Profile updated successfully!');
+    navigate('/faculty/dashboard');
+  },
+  onError: (error: any) => {
+    console.error('Update error:', error);
+    toast.error(error.response?.data?.detail || 'Failed to update profile');
+  },
+});
 
   const onSubmit = async (data: ProfileFormData) => {
     setIsSubmitting(true);

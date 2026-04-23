@@ -52,7 +52,7 @@ function validateForm(form: CreateFacultyForm): FormErrors {
     errors.email = 'Email is required';
   } else if (!FCRIT_EMAIL_RE.test(form.email.toLowerCase())) {
     errors.email =
-      'Must be firstname.lastname@fcrit.ac.in (e.g. poonam.bari@fcrit.ac.in)';
+      'Must be firstname.lastname@fcrit.ac.in (e.g. joe.smith@fcrit.ac.in)';
   }
 
   if (!form.name.trim())    errors.name        = 'Name is required';

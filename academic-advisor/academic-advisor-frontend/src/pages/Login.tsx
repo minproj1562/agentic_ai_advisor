@@ -6,7 +6,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Mail, Lock, Eye, EyeOff, Loader2,
+  Mail, Lock, Eye, EyeOff, Loader2, Hash,
   AlertCircle, UserCheck, Users, Shield,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
@@ -35,17 +35,24 @@ const isFacultyEmail = (email: string): boolean => {
   return /^[a-z]+\.[a-z]+$/.test(local);
 };
 
-// ─── Zod schemas ──────────────────────────────────────────────────────────────
+// ─── Conditional Zod schemas ────────────────────────────────────────────────
 
-const baseSchema = z.object({
-  email:      z.string().min(1, 'Email is required').email('Invalid email format'),
-  password:   z.string().min(1, 'Password is required').min(8, 'Password must be at least 8 characters'),
+// Student schema - expects "identifier" field with roll number validation
+const studentSchema = z.object({
+  identifier: z
+    .string()
+    .min(1, 'Roll number is required')
+    .regex(/^[0-9]{7}$/, 'Roll number must be exactly 7 digits'),
+  password: z
+    .string()
+    .min(1, 'Password is required')
+    .min(8, 'Password must be at least 8 characters'),
   rememberMe: z.boolean(),
 });
 
-// Faculty gets extra email format validation on top of base
-const facultySchema = baseSchema.extend({
-  email: z
+// Faculty schema - expects "identifier" field with email validation
+const facultySchema = z.object({
+  identifier: z
     .string()
     .min(1, 'Email is required')
     .email('Invalid email format')
@@ -57,9 +64,27 @@ const facultySchema = baseSchema.extend({
       (val) => isFacultyEmail(val),
       { message: 'Faculty email must be: firstname.lastname@fcrit.ac.in' }
     ),
+  password: z
+    .string()
+    .min(1, 'Password is required')
+    .min(8, 'Password must be at least 8 characters'),
+  rememberMe: z.boolean(),
 });
 
-type LoginFormData = z.infer<typeof baseSchema>;
+// Admin schema - expects "identifier" field with email validation
+const adminSchema = z.object({
+  identifier: z
+    .string()
+    .min(1, 'Email is required')
+    .email('Invalid email format'),
+  password: z
+    .string()
+    .min(1, 'Password is required')
+    .min(8, 'Password must be at least 8 characters'),
+  rememberMe: z.boolean(),
+});
+
+type LoginFormData = z.infer<typeof studentSchema> | z.infer<typeof facultySchema> | z.infer<typeof adminSchema>;
 type UserType = 'student' | 'faculty' | 'admin';
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -73,7 +98,6 @@ const Login: React.FC = () => {
   const [userType, setUserType]               = useState<UserType>('student');
 
   // ✅ Fetch faculty emails from MongoDB — replaces ALL hardcoded lists
-  // This runs automatically and caches for 5 minutes
   const {
     data:      facultyEmailsData,
     isLoading: emailsLoading,
@@ -87,9 +111,21 @@ const Login: React.FC = () => {
     );
   }, [facultyEmailsData]);
 
-  // ── Form setup ────────────────────────────────────────────────────────────
+  // ── Form setup with dynamic schema ───────────────────────────────────────
 
-  const activeSchema = userType === 'faculty' ? facultySchema : baseSchema;
+  const getSchemaForUserType = (type: UserType) => {
+    switch (type) {
+      case 'student': return studentSchema;
+      case 'faculty': return facultySchema;
+      case 'admin':   return adminSchema;
+      default:        return studentSchema;
+    }
+  };
+
+  const form = useForm<LoginFormData>({
+    resolver: zodResolver(getSchemaForUserType(userType)),
+    defaultValues: { identifier: '', password: '', rememberMe: false },
+  });
 
   const {
     register,
@@ -98,17 +134,23 @@ const Login: React.FC = () => {
     setError,
     watch,
     reset,
-  } = useForm<LoginFormData>({
-    resolver: zodResolver(activeSchema),
-    defaultValues: { email: '', password: '', rememberMe: false },
-  });
+    clearErrors,
+  } = form;
 
-  const emailValue = watch('email');
+  const identifierValue = watch('identifier');
+
+  // ✅ Update resolver when userType changes
+  React.useEffect(() => {
+    const newSchema = getSchemaForUserType(userType);
+    form._resolver = zodResolver(newSchema);
+    clearErrors();
+  }, [userType, form, clearErrors]);
 
   // Reset form when switching tabs
   const handleTabChange = (type: UserType) => {
     setUserType(type);
-    reset({ email: '', password: '', rememberMe: false });
+    reset({ identifier: '', password: '', rememberMe: false });
+    clearErrors();
   };
 
   // ── Helpers ───────────────────────────────────────────────────────────────
@@ -141,11 +183,11 @@ const Login: React.FC = () => {
     message: string;
   } => {
     // Only show for faculty tab, only when something is typed
-    if (!emailValue || userType !== 'faculty') {
+    if (!identifierValue || userType !== 'faculty') {
       return { type: null, message: '' };
     }
 
-    const lower = emailValue.toLowerCase().trim();
+    const lower = identifierValue.toLowerCase().trim();
 
     // Check 1: Must end with @fcrit.ac.in
     if (!lower.endsWith(FACULTY_EMAIL_DOMAIN)) {
@@ -254,8 +296,8 @@ const Login: React.FC = () => {
 
   const onSubmit: SubmitHandler<LoginFormData> = async (data) => {
     // Extra guard before hitting Firebase
-    if (userType === 'faculty' && !isFacultyEmail(data.email)) {
-      setError('email', {
+    if (userType === 'faculty' && !isFacultyEmail(data.identifier)) {
+      setError('identifier', {
         message: 'Faculty email must be: firstname.lastname@fcrit.ac.in',
       });
       return;
@@ -263,50 +305,48 @@ const Login: React.FC = () => {
 
     setIsSubmitting(true);
     try {
-      await login({
-        email:      data.email,
+      // ✅ Build credentials based on user type
+      const credentials: any = {
         password:   data.password,
         rememberMe: data.rememberMe ?? false,
         userType,
-      });
+      };
 
-      const user = auth.currentUser;
-      if (user) {
-        const userDoc = await getDoc(doc(db, 'users', user.uid));
-        if (userDoc.exists()) {
-          const userData = userDoc.data();
-          const userRole = userData.role || 'student';
-
-          if (userRole !== userType) {
-            setError('root', { message: mismatchMessage(userRole) });
-            await auth.signOut();
-            return;
-          }
-
-          toast.success('Login successful!');
-          navigate(dashboardPathForRole(userRole), { replace: true });
-        }
+      if (userType === 'student') {
+        credentials.roll_number = data.identifier;  // ✅ Pass as roll_number for students
+      } else {
+        credentials.email = data.identifier;        // ✅ Pass as email for faculty/admin
       }
+
+      console.log('Login attempt:', { userType, credentials });
+
+      await login(credentials);
+
+      // If we get here, login was successful
+      console.log('Login successful');
+
     } catch (error: any) {
       console.error('Login error:', error);
 
       if (error.code === 'auth/user-not-found') {
         setError('root', {
-          message: 'No account found with this email. Please register first.',
+          message: 'No account found. Please check your credentials.',
         });
-        setTimeout(() => navigate('/register'), 3000);
       } else if (
         error.code === 'auth/wrong-password' ||
         error.code === 'auth/invalid-credential'
       ) {
         setError('password', { message: 'Incorrect password' });
       } else if (error.code === 'auth/invalid-email') {
-        setError('email', { message: 'Invalid email format' });
+        setError('identifier', { message: 'Invalid email format' });
       } else if (error.code === 'auth/too-many-requests') {
         setError('root', {
-          message:
-            'Too many failed attempts. Please try again later or reset your password.',
+          message: 'Too many failed attempts. Please try again later.',
         });
+      } else if (error.message === 'Wrong login portal') {
+        setError('root', { message: error.message });
+      } else if (error.response?.data?.detail) {
+        setError('root', { message: error.response.data.detail });
       } else {
         setError('root', {
           message: error.message || 'Login failed. Please try again.',
@@ -320,16 +360,22 @@ const Login: React.FC = () => {
   // ── Forgot Password ───────────────────────────────────────────────────────
 
   const handleForgotPassword = async () => {
-    if (!emailValue) {
-      setError('email', { message: 'Please enter your email first' });
+    if (userType === 'student') {
+      toast.error('Students: Please contact your administrator to reset your password.');
       return;
     }
+
+    if (!identifierValue) {
+      setError('identifier', { message: 'Please enter your email first' });
+      return;
+    }
+    
     try {
-      await resetPassword(emailValue);
+      await resetPassword(identifierValue);
       toast.success('Password reset email sent! Check your inbox.');
     } catch (error: any) {
       if (error.code === 'auth/user-not-found') {
-        setError('email', { message: 'No account found with this email' });
+        setError('identifier', { message: 'No account found with this email' });
       } else {
         toast.error('Failed to send reset email. Please try again.');
       }
@@ -354,9 +400,15 @@ const Login: React.FC = () => {
   };
 
   const placeholders: Record<UserType, string> = {
-    student: 'student@university.edu',
+    student: '2021001',  // ✅ Roll number example
     faculty: 'firstname.lastname@fcrit.ac.in',
     admin:   'admin@university.edu',
+  };
+
+  const inputLabels: Record<UserType, string> = {
+    student: 'Roll Number',  // ✅ Different label for students
+    faculty: 'Email Address',
+    admin:   'Email Address',
   };
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -412,11 +464,12 @@ const Login: React.FC = () => {
                 key={type}
                 type="button"
                 onClick={() => handleTabChange(type)}
+                disabled={isSubmitting}
                 className={`flex-1 py-3 px-4 rounded-lg font-medium transition-all duration-200 flex items-center justify-center space-x-2 ${
                   userType === type
                     ? activeColors[type]
                     : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
+                } ${isSubmitting ? 'opacity-50 cursor-not-allowed' : ''}`}
               >
                 {icons[type]}
                 <span className="capitalize">{type}</span>
@@ -424,6 +477,32 @@ const Login: React.FC = () => {
             );
           })}
         </motion.div>
+
+        {/* ── Student info box — shown only on student tab ── */}
+        <AnimatePresence>
+          {userType === 'student' && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 text-sm text-blue-700"
+            >
+              <p className="font-medium mb-1">Student Login</p>
+              <p className="text-xs text-blue-600">
+                Enter your 7-digit roll number (e.g., 2021001)
+              </p>
+              <div className="mt-2 pt-2 border-t border-blue-200">
+                <p className="text-xs text-blue-600">
+                  🔐 First time logging in? Your default password is{' '}
+                  <code className="font-mono font-semibold bg-blue-100 px-1 py-0.5 rounded">
+                    RollNo@AdmissionYear
+                  </code>{' '}
+                  (e.g., 2021001@2021). You'll be asked to change it after login.
+                </p>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* ── Faculty info box — shown only on faculty tab ── */}
         <AnimatePresence>
@@ -442,9 +521,8 @@ const Login: React.FC = () => {
                 </span>
               </p>
               <p className="text-xs text-purple-500 mt-1">
-                Example: poonam.bari@fcrit.ac.in
+                Example: joe.smith@fcrit.ac.in
               </p>
-              {/* ✅ Default password reminder for first-time faculty login */}
               <div className="mt-2 pt-2 border-t border-purple-200">
                 <p className="text-xs text-purple-600">
                   🔐 First time logging in? Your default password is{' '}
@@ -487,13 +565,13 @@ const Login: React.FC = () => {
           </AnimatePresence>
 
           <div className="space-y-4">
-            {/* ── Email field ── */}
+            {/* ── Identifier field (Email or Roll Number) ── */}
             <div>
               <label
-                htmlFor="email"
+                htmlFor="identifier"
                 className="block text-sm font-medium text-gray-700 mb-1"
               >
-                Email Address
+                {inputLabels[userType]}
                 {userType === 'faculty' && (
                   <span className="ml-2 text-xs text-purple-500 font-normal">
                     (firstname.lastname@fcrit.ac.in)
@@ -502,19 +580,19 @@ const Login: React.FC = () => {
               </label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <Mail
-                    className={`h-5 w-5 ${
-                      errors.email ? 'text-red-500' : 'text-gray-400'
-                    }`}
-                  />
+                  {userType === 'student' ? (
+                    <Hash className={`h-5 w-5 ${errors.identifier ? 'text-red-500' : 'text-gray-400'}`} />
+                  ) : (
+                    <Mail className={`h-5 w-5 ${errors.identifier ? 'text-red-500' : 'text-gray-400'}`} />
+                  )}
                 </div>
                 <input
-                  {...register('email')}
-                  id="email"
-                  type="email"
-                  autoComplete="email"
+                  {...register('identifier')}
+                  id="identifier"
+                  type={userType === 'student' ? 'text' : 'email'}
+                  autoComplete={userType === 'student' ? 'username' : 'email'}
                   className={`block w-full pl-10 pr-3 py-3 border rounded-lg focus:outline-none focus:ring-2 transition-colors ${
-                    errors.email
+                    errors.identifier
                       ? 'border-red-300 focus:ring-red-500 focus:border-red-500'
                       : `border-gray-300 ${accentClasses[userType].ring}`
                   }`}
@@ -523,18 +601,18 @@ const Login: React.FC = () => {
               </div>
 
               {/* Zod validation error */}
-              {errors.email && (
+              {errors.identifier && (
                 <motion.p
                   initial={{ opacity: 0, y: -10 }}
                   animate={{ opacity: 1, y: 0 }}
                   className="mt-1 text-sm text-red-600"
                 >
-                  {errors.email.message}
+                  {errors.identifier.message}
                 </motion.p>
               )}
 
               {/* Live hint — only shown when no zod error and on faculty tab */}
-              {!errors.email && emailHint.type && (
+              {!errors.identifier && emailHint.type && (
                 <motion.p
                   initial={{ opacity: 0, y: -5 }}
                   animate={{ opacity: 1, y: 0 }}
