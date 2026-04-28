@@ -45,11 +45,28 @@ export interface RealtimeDashboard {
 // ==================== Auth Helper ====================
 
 async function getAuthHeaders(): Promise<Record<string, string>> {
-  const currentUser = auth.currentUser;
-  if (!currentUser) throw new Error('Not authenticated');
-  const token = await currentUser.getIdToken();
-  return { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
+  // 1. Try Firebase (faculty/admin)
+  if (auth.currentUser) {
+    try {
+      const token = await auth.currentUser.getIdToken(false);
+      return { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+    } catch (e) {
+      console.warn('Firebase token failed, trying stored token');
+    }
+  }
+
+  // 2. Stored JWT (students)
+  const stored = 
+    localStorage.getItem('auth_token') || 
+    sessionStorage.getItem('auth_token');
+
+  if (!stored) {
+    throw new Error('Not authenticated');
+  }
+
+  return { Authorization: `Bearer ${stored}`, 'Content-Type': 'application/json' };
 }
+
 
 async function apiFetch(path: string): Promise<any> {
   const headers = await getAuthHeaders();

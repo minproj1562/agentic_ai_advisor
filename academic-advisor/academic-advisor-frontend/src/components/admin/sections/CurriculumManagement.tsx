@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { BookOpen, Edit3, Save, X, Plus, Trash2 } from 'lucide-react';
+import { BookOpen, Edit3, Save, X, Plus, Trash2, RefreshCw, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
 import apiClient from '../../../services/api.service';
 import toast from 'react-hot-toast';
 
@@ -54,6 +54,32 @@ const CurriculumManagement: React.FC = () => {
       queryClient.invalidateQueries({ queryKey: ['admin-electives'] });
     },
     onError: () => toast.error('Delete failed'),
+  });
+
+  // ── Model Training Status ──────────────────────────────────────
+  const { data: trainingStatus, refetch: refetchTraining } = useQuery({
+    queryKey: ['model-training-status'],
+    queryFn: async () => {
+      const res = await apiClient.get('/admin/model/training-status');
+      return res.data;
+    },
+    enabled: tab === 'electives',
+    refetchInterval: (query) => {
+      const status = query.state.data?.status;
+      return status === 'training' || status === 'generating' ? 3000 : false;
+    },
+  });
+
+  const retrainMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiClient.post('/admin/model/retrain');
+      return res.data;
+    },
+    onSuccess: (data) => {
+      toast.success(data.message || 'Retraining started');
+      refetchTraining();
+    },
+    onError: () => toast.error('Failed to trigger retraining'),
   });
 
   const subjects = curriculumData?.curriculum?.[`semester_${selectedSemester}`] || [];
@@ -156,6 +182,56 @@ const CurriculumManagement: React.FC = () => {
 
       {tab === 'electives' && (
         <div className="space-y-4">
+          {/* Model Training Status Card */}
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-5 border border-gray-200 dark:border-gray-700"
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                {trainingStatus?.status === 'training' || trainingStatus?.status === 'generating' ? (
+                  <div className="w-10 h-10 bg-amber-100 dark:bg-amber-900/30 rounded-xl flex items-center justify-center">
+                    <Loader2 className="w-5 h-5 text-amber-600 dark:text-amber-400 animate-spin" />
+                  </div>
+                ) : trainingStatus?.status === 'done' ? (
+                  <div className="w-10 h-10 bg-green-100 dark:bg-green-900/30 rounded-xl flex items-center justify-center">
+                    <CheckCircle className="w-5 h-5 text-green-600 dark:text-green-400" />
+                  </div>
+                ) : trainingStatus?.status === 'error' ? (
+                  <div className="w-10 h-10 bg-red-100 dark:bg-red-900/30 rounded-xl flex items-center justify-center">
+                    <AlertCircle className="w-5 h-5 text-red-600 dark:text-red-400" />
+                  </div>
+                ) : (
+                  <div className="w-10 h-10 bg-gray-100 dark:bg-gray-700 rounded-xl flex items-center justify-center">
+                    <RefreshCw className="w-5 h-5 text-gray-500" />
+                  </div>
+                )}
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-900 dark:text-white">
+                    ML Recommendation Model
+                  </h3>
+                  <p className="text-xs text-gray-500">
+                    {trainingStatus?.status === 'training' || trainingStatus?.status === 'generating'
+                      ? `Status: ${trainingStatus.status === 'generating' ? 'Generating training data...' : 'Training model...'}`
+                      : trainingStatus?.status === 'done'
+                      ? `Last trained: ${trainingStatus.last_trained ? new Date(trainingStatus.last_trained).toLocaleString() : 'Unknown'}`
+                      : trainingStatus?.status === 'error'
+                      ? `Error: ${trainingStatus.last_error || 'Unknown error'}`
+                      : 'Status: Idle — Model uses real student marks data'}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => retrainMutation.mutate()}
+                disabled={retrainMutation.isPending || trainingStatus?.status === 'training' || trainingStatus?.status === 'generating'}
+                className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-400 text-white rounded-lg text-xs font-medium transition-colors"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${retrainMutation.isPending ? 'animate-spin' : ''}`} />
+                Retrain Model
+              </button>
+            </div>
+          </motion.div>
           {electivesLoading ? (
             <div className="animate-pulse space-y-3">
               {Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-20 bg-gray-200 dark:bg-gray-600 rounded-xl" />)}

@@ -48,6 +48,11 @@ from app.models.recommendation import (
 from app.models.chatbot import ChatSession, ChatMessage, ChatFeedback, ChatbotAnalyticsDoc
 from app.models.career import CareerPath
 
+# Phase 3 models — Improvement, Faculty Resources, Remedial
+from app.models.improvement import ImprovementPlan, StudentProgress
+from app.models.faculty_resource import FacultyResource
+from app.models.remedial import RemedialEntry
+
 # Syllabus models - IMPORTANT for chatbot to work
 from app.models.syllabus import (
     Department,
@@ -117,6 +122,12 @@ document_models = [
     LiberalLearningCourse,
     MDMCourse,
     CreditStructure,
+
+    # Phase 3 — Improvement, Resources, Remedial
+    ImprovementPlan,
+    StudentProgress,
+    FacultyResource,
+    RemedialEntry,
 ]
 
 

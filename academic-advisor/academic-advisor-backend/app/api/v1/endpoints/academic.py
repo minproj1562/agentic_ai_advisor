@@ -1,3 +1,4 @@
+#academic-advisor-backend/app/api/v1/endpoints/academic.py
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Body
 from typing import List, Optional
 from pydantic import BaseModel, Field
@@ -262,23 +263,56 @@ async def add_scores(
         )
 
 
+# academic-advisor-backend/app/api/v1/endpoints/academic.py
+
 @router.get("/scores")
 async def get_scores(
     semester_number: Optional[int] = Query(None),
+    strict: bool = Query(False, description="Only return subjects that belong to this semester in curriculum"),
     current_user: FirebaseUser = Depends(get_current_user)
 ):
-    """Get subject scores"""
+    """
+    Get subject scores.
+    
+    - **semester_number**: Filter by semester
+    - **strict**: If True, validates that subjects belong to this semester in curriculum
+    """
     try:
         service = AcademicService()
         scores = await service.get_semester_scores(current_user, semester_number)
         
-        # Get study hours if available
+        # Strict filtering: validate against curriculum
+        if strict and semester_number:
+            profile = await service.get_student_profile(current_user)
+            if profile:
+                from app.core.curriculum import get_semester_subjects
+                curriculum_subjects = get_semester_subjects(
+                    semester_number, 
+                    profile.admission_year
+                )
+                curriculum_codes = {s.subject_code.upper() for s in curriculum_subjects}
+                
+                # Filter out subjects not in curriculum for this semester
+                original_count = len(scores)
+                scores = [
+                    s for s in scores
+                    if s.subject_code.upper() in curriculum_codes
+                ]
+                
+                if len(scores) < original_count:
+                    logger.warning(
+                        f"Filtered {original_count - len(scores)} subjects not in "
+                        f"Semester {semester_number} curriculum for {current_user.uid}"
+                    )
+        
+        # Get study hours
         profile = await service.get_student_profile(current_user)
         study_hours = profile.study_hours if profile else None
 
         return {
             "semester_number": semester_number,
             "count": len(scores),
+            "strict_mode": strict,
             "study_hours": study_hours,
             "scores": [
                 {
@@ -788,7 +822,7 @@ async def get_subjects_by_semester(
             detail=str(e)
         )    
 
-# In app/api/v1/endpoints/academic.py, add this endpoint:
+# academic-advisor-backend/app/api/v1/endpoints/academic.py
 
 @router.post("/profile/force-sync")
 async def force_sync_marks(
@@ -796,7 +830,7 @@ async def force_sync_marks(
 ):
     """Force re-sync marks from pending_marks collection"""
     try:
-        from app.models.student_profile import StudentProfile  # ← THE FIX
+        from app.models.student_profile import StudentProfile
         
         service = AcademicService()
         profile = await StudentProfile.find_one(
@@ -816,17 +850,31 @@ async def force_sync_marks(
         # Force re-fetch
         linked = await service._auto_fetch_pending_marks(profile)
         
-        # Re-fetch latest
+        # ✅ FIX: Re-fetch profile to get updated semester_records
         profile = await StudentProfile.find_one(
             StudentProfile.user_id == current_user.uid
         )
         
+        if not profile:
+            raise HTTPException(500, "Profile disappeared after sync")
+        
         return {
-            "message": f"Sync complete. {linked} new semester(s) linked.",
+            "message": f"✅ Sync complete! Linked {linked} new semester(s).",
             "semesters_linked": linked,
-            "total_semesters": len(profile.semester_records) if profile else 0,
-            "cgpa": profile.cgpa if profile else 0,
-            "marks_synced_at": str(profile.marks_synced_at) if profile and profile.marks_synced_at else None,
+            "total_semesters": len(profile.semester_records),
+            "cgpa": profile.cgpa,
+            "total_credits_earned": profile.total_credits_earned,
+            "marks_synced_at": str(profile.marks_synced_at) if profile.marks_synced_at else None,
+            "semesters": [
+                {
+                    "semester_number": sr.semester_number,
+                    "sgpa": sr.sgpa,
+                    "credits_earned": sr.credits_earned,
+                    "total_credits": sr.total_credits,
+                    "subjects_count": len(sr.subjects),
+                }
+                for sr in sorted(profile.semester_records, key=lambda x: x.semester_number)
+            ],
         }
     except HTTPException:
         raise

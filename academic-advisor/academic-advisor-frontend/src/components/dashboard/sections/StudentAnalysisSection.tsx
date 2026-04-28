@@ -388,12 +388,12 @@ const StudentAnalysisSection: React.FC<StudentAnalysisSectionProps> = ({ faculty
               ) : (
                 students.map((student: any, index: number) => (
                   <motion.tr
-                    key={student.student_id || student.id || index}
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    transition={{ delay: index * 0.03 }}
-                    className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
-                  >
+  key={`student-${student.student_id || student.id || student.uid || student.email || index}-${index}`}
+  initial={{ opacity: 0 }}
+  animate={{ opacity: 1 }}
+  transition={{ delay: index * 0.03 }}
+  className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
+>
                     {/* Student */}
                     <td className="px-4 py-3 whitespace-nowrap">
                       <div className="flex items-center gap-3">

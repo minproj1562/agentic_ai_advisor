@@ -659,3 +659,12 @@ python -m scripts.generate_full_marks_export --dry-run
 
 # Custom output path
 python -m scripts.generate_full_marks_export -o ./my_marks.xlsx
+
+# 1. Clear out old synthetic student data
+python scripts/clear_student_profiles.py
+
+# 2. Ingest real students from IT_COPY.xlsx
+python scripts/generate_student_roster_xlsx.py
+
+# 3. Generate ML data using real marks and retrain the model
+python scripts/generate_real_training_data.py

@@ -82,8 +82,21 @@ export const AcademicDataEntry: React.FC = () => {
   // ==================== Helpers ====================
 
   const getToken = async (): Promise<string | null> => {
+    // Firebase users (faculty/admin)
     const u = auth.currentUser;
-    return u ? u.getIdToken(true) : null;
+    if (u) {
+      try {
+        return await u.getIdToken(false);
+      } catch (e) {
+        console.warn('Firebase getIdToken failed:', e);
+      }
+    }
+    // Student users (JWT stored in localStorage)
+    return (
+      localStorage.getItem('auth_token') ||
+      sessionStorage.getItem('auth_token') ||
+      null
+    );
   };
 
   const calcAcademicDetails = (year: number) => {
@@ -190,7 +203,7 @@ export const AcademicDataEntry: React.FC = () => {
     try {
       setProfileLoading(true);
       const token = await getToken();
-      if (!token) return;
+      if (!token) { toast.error('Not authenticated'); return; }
 
       const res = await fetch(`${BACKEND_URL}/api/v1/academic/profile`, {
         headers: {
@@ -237,7 +250,7 @@ export const AcademicDataEntry: React.FC = () => {
     if (!user) return;
     try {
       const token = await getToken();
-      if (!token) return;
+      if (!token) return; // silent for background fetch
 
       const res = await fetch(`${BACKEND_URL}/api/v1/academic/semesters`, {
         headers: {
@@ -258,37 +271,46 @@ export const AcademicDataEntry: React.FC = () => {
     }
   };
 
-  const fetchSemesterScores = async (semesterNumber: number) => {
-    if (!user) return;
-    try {
-      setLoadingScores(true);
-      const token = await getToken();
-      if (!token) return;
+// academic-advisor-frontend/src/components/dashboard/AcademicDataEntry.tsx
 
-      const res = await fetch(
-        `${BACKEND_URL}/api/v1/academic/scores?semester_number=${semesterNumber}`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          }
+const fetchSemesterScores = async (semesterNumber: number) => {
+  if (!user) return;
+  try {
+    setLoadingScores(true);
+    const token = await getToken();
+    if (!token) return; // silent for background fetch
+
+    // ✅ FIX: Add strict=true to only get subjects for this semester
+    const res = await fetch(
+      `${BACKEND_URL}/api/v1/academic/scores?semester_number=${semesterNumber}&strict=true`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json'
         }
-      );
-
-      if (res.ok) {
-        const data = await res.json();
-        setSelectedSemesterScores(data.scores || []);
-        setSelectedSemester(semesterNumber);
-      } else {
-        toast.error('Failed to load semester scores');
       }
-    } catch (e) {
-      console.error('Error fetching scores:', e);
-      toast.error('Error loading scores');
-    } finally {
-      setLoadingScores(false);
+    );
+
+    if (res.ok) {
+      const data = await res.json();
+      setSelectedSemesterScores(data.scores || []);
+      setSelectedSemester(semesterNumber);
+      
+      // ✅ Log for debugging
+      console.log(`Loaded ${data.scores?.length || 0} subjects for semester ${semesterNumber}`);
+      if (data.strict_mode) {
+        console.log('✓ Strict curriculum filtering applied');
+      }
+    } else {
+      toast.error('Failed to load semester scores');
     }
-  };
+  } catch (e) {
+    console.error('Error fetching scores:', e);
+    toast.error('Error loading scores');
+  } finally {
+    setLoadingScores(false);
+  }
+};
 
   const toggleSemesterDetail = async (semesterNumber: number) => {
     if (expandedSemester === semesterNumber) {
@@ -318,7 +340,7 @@ export const AcademicDataEntry: React.FC = () => {
     try {
       setLoading(true);
       const token = await getToken();
-      if (!token) return;
+      if (!token) { toast.error('Not authenticated. Please log in again.'); return; }
 
       const payload: any = {
         name: profileForm.name,
@@ -382,7 +404,7 @@ export const AcademicDataEntry: React.FC = () => {
     try {
       setLoading(true);
       const token = await getToken();
-      if (!token) return;
+      if (!token) { toast.error('Not authenticated. Please log in again.'); return; }
 
       const res = await fetch(`${BACKEND_URL}/api/v1/academic/profile/seat-number`, {
         method: 'PUT',
@@ -439,7 +461,7 @@ const forceSync = async () => {
     try {
       setLoading(true);
       const token = await getToken();
-      if (!token) return;
+      if (!token) { toast.error('Not authenticated. Please log in again.'); return; }
 
       const res = await fetch(`${BACKEND_URL}/api/v1/academic/profile/force-sync`, {
         method: 'POST',

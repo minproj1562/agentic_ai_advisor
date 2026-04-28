@@ -168,6 +168,7 @@ const FacultyProfileEdit: React.FC = () => {
   
   const [currentStep, setCurrentStep] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [hasInitialized, setHasInitialized] = useState(false); // ✅ ADD THIS LINE
 
   // Set initial step based on navigation state
   useEffect(() => {
@@ -249,12 +250,14 @@ const { data: profileData, isLoading } = useQuery({
   });
 
   // ── FIX: Reset form when profile data loads from API ──
+  // ✅ FIX: Only reset form ONCE when profile loads initially
   useEffect(() => {
-    if (profileData && !isLoading) {
+    if (profileData && !isLoading && !hasInitialized) {
       const freshValues = getDefaultValues();
       reset(freshValues);
+      setHasInitialized(true);
     }
-  }, [profileData, isLoading]);
+  }, [profileData, isLoading, hasInitialized]);
 
   // Field arrays for dynamic lists
   const { fields: degreeFields, append: appendDegree, remove: removeDegree } = useFieldArray({
@@ -270,33 +273,112 @@ const { data: profileData, isLoading } = useQuery({
 // Update mutation
 const updateMutation = useMutation({
   mutationFn: async (data: ProfileFormData) => {
-    // Transform available_slots to match backend schema
-    const payload = {
-      ...data,
-      available_slots: data.available_slots?.map(slot => ({
+    // ✅ Clean up data before sending
+    const payload: any = {
+      name: data.name || undefined,
+      phone: data.phone || undefined,
+      photo_url: data.photo_url || undefined,
+      
+      highest_degree: data.highest_degree || undefined,
+      specialization: data.specialization || undefined,
+      graduation_university: data.graduation_university || undefined,
+      graduation_year: data.graduation_year || undefined,
+      
+      designation: data.designation || undefined,
+      department: data.department || undefined,
+      institution: data.institution || undefined,
+      years_of_experience: data.years_of_experience || 0,
+      joining_year: data.joining_year || undefined,
+      
+      primary_research_areas: data.primary_research_areas?.length ? data.primary_research_areas : undefined,
+      secondary_interests: data.secondary_interests?.length ? data.secondary_interests : undefined,
+      research_keywords: data.research_keywords?.length ? data.research_keywords : undefined,
+      
+      current_subjects: data.current_subjects?.length ? data.current_subjects : undefined,
+      past_subjects: data.past_subjects?.length ? data.past_subjects : undefined,
+      preferred_teaching_areas: data.preferred_teaching_areas?.length ? data.preferred_teaching_areas : undefined,
+      
+      office_location: data.office_location || undefined,
+      office_hours: data.office_hours || undefined,
+      preferred_meeting_duration: data.preferred_meeting_duration || 30,
+      
+      total_publications: data.total_publications || 0,
+      journal_papers: data.journal_papers || 0,
+      conference_papers: data.conference_papers || 0,
+      notable_works: data.notable_works?.length ? data.notable_works : undefined,
+      h_index: data.h_index || undefined,
+      
+      awards: data.awards?.length ? data.awards : undefined,
+      certifications: data.certifications?.length ? data.certifications : undefined,
+      languages: data.languages?.length ? data.languages : undefined,
+      professional_memberships: data.professional_memberships?.length ? data.professional_memberships : undefined,
+    };
+    
+    // ✅ Handle all_degrees array
+    if (data.all_degrees?.length) {
+      payload.all_degrees = data.all_degrees.map(d => ({
+        degree: d.degree || '',
+        field: d.field || '',
+        institution: d.institution || '',
+        year: d.year || undefined,
+        thesis_title: d.thesis_title || undefined,
+      }));
+    }
+    
+    // ✅ Handle available_slots - FIXED FORMAT
+    if (data.available_slots?.length) {
+      payload.available_slots = data.available_slots.map(slot => ({
         day: slot.day,
         start_time: slot.start_time,
         end_time: slot.end_time,
-        venue: slot.venue || profileData?.uniform_profile?.availability?.office_location || '',
-      })),
-      // Ensure null values are sent as null, not undefined
-      graduation_year: data.graduation_year || null,
-      joining_year: data.joining_year || null,
-      h_index: data.h_index || null,
-    };
+        venue: slot.venue || '',
+        slot_type: 'recurring',  // ✅ Required by schema
+      }));
+    }
     
-    // ✅ Use faculty service
+    // ✅ Remove undefined fields
+    Object.keys(payload).forEach(key => {
+      if (payload[key] === undefined) {
+        delete payload[key];
+      }
+    });
+    
+    console.log('📤 Sending profile update:', JSON.stringify(payload, null, 2));
+    
     return await facultyService.updateProfile(payload);
   },
+  
   onSuccess: (response) => {
     queryClient.invalidateQueries({ queryKey: ['faculty-profile'] });
     queryClient.invalidateQueries({ queryKey: ['faculty-profile-edit'] });
     toast.success(response.message || 'Profile updated successfully!');
     navigate('/faculty/dashboard');
   },
+  
   onError: (error: any) => {
-    console.error('Update error:', error);
-    toast.error(error.response?.data?.detail || 'Failed to update profile');
+    console.error('❌ Update error:', error);
+    console.error('❌ Response:', error.response?.data);
+    
+    let errorMessage = 'Failed to update profile';
+    
+    if (error.response?.data?.detail) {
+      const detail = error.response.data.detail;
+      
+      if (Array.isArray(detail)) {
+        // FastAPI validation errors
+        const messages = detail.map((err: any) => {
+          const field = Array.isArray(err.loc) ? err.loc.join(' → ') : 'field';
+          const msg = err.msg || 'validation error';
+          return `${field}: ${msg}`;
+        });
+        errorMessage = messages.join('\n');
+        console.table(detail);
+      } else if (typeof detail === 'string') {
+        errorMessage = detail;
+      }
+    }
+    
+    toast.error(errorMessage, { duration: 6000 });
   },
 });
 

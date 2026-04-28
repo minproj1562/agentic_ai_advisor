@@ -110,6 +110,7 @@ import { useStudentInterests, useSyncInterests } from '../../hooks/useEngineerin
 import ReadinessIndicator from '../../components/dashboard/ReadinessIndicator';
 import { getWeaknessService } from '../../services/weakness.service';
 import AcademicChatbot from '../../components/dashboard/AcademicChatbot';
+// import ImprovementHub from '../../components/dashboard/ImprovementHub'; // ❌ GAMING HUB COMMENTED OUT
 
 // ==================== Interfaces ====================
 
@@ -1187,6 +1188,7 @@ const StudentDashboardContent: React.FC = () => {
     | 'meetings'
     | 'readiness'
     | 'chatbot'
+    // | 'improvement' // ❌ GAMING HUB COMMENTED OUT
   >('overview');
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -1360,8 +1362,13 @@ const StudentDashboardContent: React.FC = () => {
     }
     try {
       const currentUser = auth.currentUser;
-      if (!currentUser) return;
-      const token = await currentUser.getIdToken(true);
+      let token: string | null = null;
+      if (currentUser) {
+        token = await currentUser.getIdToken(true);
+      } else {
+        // Student users: use stored JWT
+        token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
+      }
       if (!token) return;
 
       let response = await fetch(`${BACKEND_URL}/api/v1/student-profile/me`, {
@@ -2167,6 +2174,59 @@ const StudentDashboardContent: React.FC = () => {
                   ))}
                 </ul>
               </div>
+
+              {/* Growth Section */}
+              {/* ❌ GAMING HUB (IMPROVEMENT HUB) COMMENTED OUT - START */}
+              {/* <div className="mb-6">
+                <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-3 px-3">
+                  Growth
+                </p>
+                <ul className="space-y-1" role="list">
+                  {[
+                    { id: 'improvement', icon: Rocket, label: 'Improvement Hub', badge: 'XP', badgeColor: 'bg-gradient-to-r from-amber-500 to-orange-500', description: 'Games, roadmaps & badges' },
+                  ].map((item) => (
+                    <li key={item.id}>
+                      <motion.button
+                        variants={animationVariants.navItem}
+                        initial="rest"
+                        whileHover="hover"
+                        onClick={() => handleTabChange(item.id)}
+                        className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl transition-all group focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 relative overflow-hidden ${
+                          activeTab === item.id
+                            ? 'bg-gradient-to-r from-blue-50 to-purple-50 text-blue-600 shadow-sm border border-blue-100'
+                            : 'hover:bg-gray-50 text-gray-700'
+                        }`}
+                        aria-current={activeTab === item.id ? 'page' : undefined}
+                      >
+                        {activeTab === item.id && (
+                          <motion.div
+                            layoutId="activeNavIndicator"
+                            className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-gradient-to-b from-blue-500 to-purple-500 rounded-r-full"
+                            transition={{ type: 'spring', stiffness: 350, damping: 30 }}
+                          />
+                        )}
+                        <div className="flex items-center space-x-3">
+                          <div className={`p-1.5 rounded-lg transition-all duration-200 ${
+                            activeTab === item.id
+                              ? 'bg-blue-100'
+                              : 'bg-gray-100 group-hover:bg-gray-200 group-hover:scale-110'
+                          }`}>
+                            <item.icon className="h-4 w-4" />
+                          </div>
+                          <div className="text-left">
+                            <span className="font-medium text-sm block">{item.label}</span>
+                            <span className="text-[10px] text-gray-400">{item.description}</span>
+                          </div>
+                        </div>
+                        <span className={`${item.badgeColor} text-white text-[10px] px-1.5 py-0.5 rounded-full font-semibold`}>
+                          {item.badge}
+                        </span>
+                      </motion.button>
+                    </li>
+                  ))}
+                </ul>
+              </div> */}
+              {/* ❌ GAMING HUB (IMPROVEMENT HUB) COMMENTED OUT - END */}
 
               {/* Resources Section */}
               <div>
@@ -3519,6 +3579,21 @@ const StudentDashboardContent: React.FC = () => {
                   )}
                 </motion.div>
               )}
+
+              {/* ==================== IMPROVEMENT HUB TAB - ❌ COMMENTED OUT ==================== */}
+              {/* {activeTab === 'improvement' && (
+                <motion.div
+                  key="improvement"
+                  variants={animationVariants.fadeIn}
+                  initial="initial"
+                  animate="animate"
+                  exit="exit"
+                  transition={{ duration: 0.3 }}
+                  className="max-w-7xl mx-auto"
+                >
+                  <ImprovementHub />
+                </motion.div>
+              )} */}
 
             </AnimatePresence>
             </LayoutGroup>

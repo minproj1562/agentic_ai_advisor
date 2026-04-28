@@ -116,6 +116,11 @@ from .recommendation import (
     CareerDetail,
 )
 
+# Phase 3 — Improvement, Resources, Remedial
+from .improvement import ImprovementPlan, StudentProgress
+from .faculty_resource import FacultyResource
+from .remedial import RemedialEntry
+
 __all__ = [
     # Student
     "StudentPerformance", "StudentInfo", "Subject", "TrendEnum",
@@ -168,4 +173,10 @@ __all__ = [
     "ElectiveDetail",
     "HonoursDetail",
     "CareerDetail",
+
+    # Phase 3 — Improvement, Resources, Remedial
+    "ImprovementPlan",
+    "StudentProgress",
+    "FacultyResource",
+    "RemedialEntry",
 ]

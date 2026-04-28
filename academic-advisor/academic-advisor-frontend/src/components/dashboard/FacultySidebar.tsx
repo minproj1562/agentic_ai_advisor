@@ -8,9 +8,10 @@ import {
   Bell,
   Settings,
   Brain,
-  MessageSquare,
   FileText,
-  UserCircle
+  UserCircle,
+  BookOpen,
+  AlertTriangle
 } from 'lucide-react';
 import { cn } from '../../utils/cn';
 
@@ -33,11 +34,12 @@ const FacultySidebar: React.FC<FacultySidebarProps> = ({
   const menuItems = [
     { id: 'overview', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'students', label: 'Student Analysis', icon: Users, description: 'View student data & projects' },
+    { id: 'resources', label: 'Learning Resources', icon: BookOpen, description: 'Upload & manage resources' },
+    { id: 'remedial', label: 'Remedial Students', icon: AlertTriangle, description: 'Track struggling students' },
     { id: 'meetings', label: 'Meeting Requests', icon: Calendar, badge: pendingMeetings },
     { id: 'calendar', label: 'Schedule Calendar', icon: Calendar },
     { id: 'profile', label: 'My Profile', icon: UserCircle },
     { id: 'cv-analysis', label: 'CV & Expertise', icon: Brain },
-    { id: 'messages', label: 'Messages', icon: MessageSquare },
     { id: 'notifications', label: 'Notifications', icon: Bell, badge: notificationCount },
     { id: 'settings', label: 'Settings', icon: Settings },
   ];

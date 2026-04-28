@@ -145,6 +145,13 @@ class IntentClassifier:
         "ds role": "data scientist role",
         "mle": "machine learning engineer",
         "devops": "development operations",
+        "sre": "site reliability engineer",
+        "dba": "database administrator",
+        "de": "data engineer",
+        "sa": "solutions architect",
+        "arvr": "augmented reality virtual reality",
+        "xr": "extended reality",
+        "quant": "quantitative analyst",
 
         # Conversational shortforms
         "tn": "thank you",
@@ -278,6 +285,17 @@ class IntentClassifier:
             "data scientist": IntentType.CAREER_QUERY,
             "software engineer": IntentType.CAREER_QUERY,
             "developer": IntentType.CAREER_QUERY,
+            "game developer": IntentType.CAREER_QUERY,
+            "ar vr": IntentType.CAREER_QUERY,
+            "embedded systems": IntentType.CAREER_QUERY,
+            "dba": IntentType.CAREER_QUERY,
+            "data engineer": IntentType.CAREER_QUERY,
+            "sre": IntentType.CAREER_QUERY,
+            "quant": IntentType.CAREER_QUERY,
+            "fintech": IntentType.CAREER_QUERY,
+            "ai ethics": IntentType.CAREER_QUERY,
+            "technical writer": IntentType.CAREER_QUERY,
+            "solutions architect": IntentType.CAREER_QUERY,
             
             # Elective keywords
             "elective": IntentType.ELECTIVE_QUERY,
@@ -542,6 +560,16 @@ class IntentClassifier:
             "qa engineer", "test automation", "nlp engineer", "blockchain developer",
             "product manager", "project manager", "scrum master",
             "sde", "swe", "mle",
+            # Phase 4 additions
+            "game developer", "game dev", "unity developer", "unreal developer",
+            "ar/vr", "ar vr", "xr engineer", "spatial computing", "metaverse",
+            "embedded systems", "firmware engineer", "rtos developer",
+            "database administrator", "dba",
+            "technical writer", "documentation engineer", "developer advocate",
+            "site reliability", "sre", "production engineer",
+            "solutions architect", "technical architect", "enterprise architect",
+            "quantitative analyst", "quant", "fintech", "algorithmic trader",
+            "ai ethics", "responsible ai", "ai governance", "fairness engineer",
         ]
         for cn in career_names:
             if cn in original_lower:

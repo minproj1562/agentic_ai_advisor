@@ -17,6 +17,7 @@ import { useQuery } from '@tanstack/react-query';
 interface FacultyProfileViewProps {
   facultyId: string;
   facultyData: any;
+  onEditProfile?: () => void;
 }
 
 // ==================== CRITICAL HELPER FUNCTIONS ====================
@@ -54,7 +55,8 @@ const safeArray = (arr: any): string[] => {
 
 const FacultyProfileView: React.FC<FacultyProfileViewProps> = ({
   facultyId,
-  facultyData: initialData  // ✅ Renamed to make clear it's just initial/fallback data
+  facultyData: initialData,  // ✅ Renamed to make clear it's just initial/fallback data
+  onEditProfile,
 }) => {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -140,11 +142,17 @@ const FacultyProfileView: React.FC<FacultyProfileViewProps> = ({
           </div>
         )}
 
-        {/* ✅ FIX 7: Complete Profile button now correctly navigates to profile-setup */}
+        {/* ✅ FIX 7: Complete Profile button now uses onEditProfile callback */}
         <div className="flex gap-3 justify-center">
           <button
             type="button"
-            onClick={() => navigate('/faculty/profile-setup')}
+            onClick={() => {
+              if (onEditProfile) {
+                onEditProfile();
+              } else {
+                navigate('/faculty/profile-setup');
+              }
+            }}
             className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 
                        transition-colors font-medium"
           >
@@ -247,14 +255,17 @@ const FacultyProfileView: React.FC<FacultyProfileViewProps> = ({
             Manage your professional profile information
           </p>
         </div>
-        {/* ✅ FIX 8: Edit Profile now goes to /faculty/profile-edit (was /faculty/profile-setup) */}
+        {/* ✅ FIX 8: Edit Profile now uses onEditProfile callback instead of broken navigation */}
         <button
   type="button"
   onClick={() => {
-    console.log('Edit Profile button clicked!'); // Add this line
-    navigate('/faculty/profile-edit', {
-      state: { editMode: true, profile: facultyData }
-    });
+    if (onEditProfile) {
+      onEditProfile();
+    } else {
+      navigate('/faculty/profile-edit', {
+        state: { editMode: true, profile: facultyData }
+      });
+    }
   }}
   className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
 >

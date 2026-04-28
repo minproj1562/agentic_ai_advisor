@@ -1,57 +1,98 @@
 // src/services/api.service.ts
 import axios from 'axios';
-import { auth } from './firebase.config'; // Import auth instance
+import { auth } from './firebase.config';
 
-const API_BASE_URL = 'http://localhost:8000/api/v1';
+const API_BASE_URL =
+  import.meta.env.VITE_API_URL
+    ? `${import.meta.env.VITE_API_URL}/api/v1`
+    : 'http://localhost:8000/api/v1';
 
-// Create axios instance with better error handling
+// ── Public endpoints that never need a token ──────────────────────────────────
+const PUBLIC_ENDPOINTS = [
+  '/auth/student/login',
+  '/auth/faculty/login',
+  '/auth/verify-token',
+  '/auth/admin/login',
+  '/health',
+  '/faculty/approved-emails',
+];
+
+const isPublicEndpoint = (url: string): boolean =>
+  PUBLIC_ENDPOINTS.some((pub) => url.includes(pub));
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 const apiClient = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 10000,
-  headers: {
-    'Content-Type': 'application/json',
-  },
+  timeout: 15000,
+  headers: { 'Content-Type': 'application/json' },
 });
 
-// Request interceptor to add auth token
+// ── Request interceptor ───────────────────────────────────────────────────────
 apiClient.interceptors.request.use(
   async (config) => {
-    try {
-      // Get current user from Firebase auth
-      const user = auth.currentUser;
-      if (user) {
-        const token = await user.getIdToken();
-        config.headers.Authorization = `Bearer ${token}`;
-      }
-    } catch (error) {
-      console.warn('No authenticated user found or token error:', error);
+    const url = config.url || '';
+
+    // ✅ Skip token for public/auth endpoints
+    if (isPublicEndpoint(url)) {
+      console.log(`🔓 Public endpoint — no token needed: ${url}`);
+      return config;
     }
+
+    try {
+      // 1. Firebase user (faculty/admin)
+      const firebaseUser = auth.currentUser;
+      if (firebaseUser) {
+        const token = await firebaseUser.getIdToken(false);
+        config.headers.Authorization = `Bearer ${token}`;
+        return config;
+      }
+
+      // 2. Stored JWT (students)
+      const stored =
+        localStorage.getItem('auth_token') ||
+        sessionStorage.getItem('auth_token');
+
+      if (stored) {
+        config.headers.Authorization = `Bearer ${stored}`;
+        return config;
+      }
+
+      // 3. No token — warn but don't block the request
+      console.warn(`⚠️ No token available for request: ${url}`);
+    } catch (error) {
+      console.warn('Auth token error in interceptor:', error);
+    }
+
     return config;
   },
-  (error) => {
-    return Promise.reject(error);
-  }
+  (error) => Promise.reject(error),
 );
 
-// Response interceptor for error handling
+// ── Response interceptor ──────────────────────────────────────────────────────
 apiClient.interceptors.response.use(
   (response) => response,
-  (error) => {
-    if (error.code === 'ERR_NETWORK') {
-      console.error('Backend server is not running');
-      // You can show a user-friendly message or switch to demo mode
+  async (error) => {
+    if (error.response?.status === 401) {
+      const url = error.config?.url || '';
+      if (!isPublicEndpoint(url)) {
+        console.error('401 — clearing stale token');
+        localStorage.removeItem('auth_token');
+        sessionStorage.removeItem('auth_token');
+      }
+    }
+    if (error.code === 'ERR_NETWORK' || error.code === 'ECONNABORTED') {
+      console.error('❌ Backend unreachable or timeout:', error.config?.url);
     }
     return Promise.reject(error);
-  }
+  },
 );
 
-// Helper function to check if backend is running
 export const checkBackendHealth = async (): Promise<boolean> => {
   try {
-    const response = await fetch('http://localhost:8000/health');
-    return response.ok;
-  } catch (error) {
-    console.warn('Backend server not running');
+    const r = await fetch(`${API_BASE_URL.replace('/api/v1', '')}/health`);
+    return r.ok;
+  } catch {
     return false;
   }
 };

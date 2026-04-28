@@ -24,9 +24,11 @@ const MeetingManagement      = lazy(() => import('../../components/meetings/Facu
 const MeetingsCalendar       = lazy(() => import('../../components/meetings/MeetingsCalendar'));
 const FacultyProfileView     = lazy(() => import('../../components/dashboard/sections/FacultyProfileView'));
 const CVAnalysisSection      = lazy(() => import('../../components/dashboard/sections/CVAnalysisSection'));
-const MessagesSection        = lazy(() => import('../../components/dashboard/sections/Messages'));
 const NotificationsSection   = lazy(() => import('../../components/dashboard/sections/NotificationsSection'));
 const SettingsSection        = lazy(() => import('../../components/dashboard/sections/Settings'));
+const FacultyResourceUpload  = lazy(() => import('../../components/dashboard/FacultyResourceUpload'));
+const RemedialManagement     = lazy(() => import('../../components/dashboard/RemedialManagement'));
+const FacultyProfileEdit     = lazy(() => import('../../components/dashboard/sections/FacultyProfileEdit'));
 
 const FacultyDashboard: React.FC = () => {
   const navigate = useNavigate();
@@ -130,9 +132,7 @@ const FacultyDashboard: React.FC = () => {
   };
 
   const handleEditProfile = () => {
-    navigate('/faculty/profile-edit', {
-      state: { editMode: true, profile: facultyData },
-    });
+    setActiveSection('profile-edit');
   };
 
   // ✅ NEW: Go to password tab in settings
@@ -211,7 +211,7 @@ const FacultyDashboard: React.FC = () => {
       case 'profile':
         return (
           <Suspense fallback={<LoadingSkeleton />}>
-            <FacultyProfileView {...sectionProps} />
+            <FacultyProfileView {...sectionProps} onEditProfile={handleEditProfile} />
           </Suspense>
         );
 
@@ -219,13 +219,6 @@ const FacultyDashboard: React.FC = () => {
         return (
           <Suspense fallback={<LoadingSkeleton />}>
             <CVAnalysisSection {...sectionProps} />
-          </Suspense>
-        );
-
-      case 'messages':
-        return (
-          <Suspense fallback={<LoadingSkeleton />}>
-            <MessagesSection facultyId={user?.uid || ''} />
           </Suspense>
         );
 
@@ -240,6 +233,31 @@ const FacultyDashboard: React.FC = () => {
         return (
           <Suspense fallback={<LoadingSkeleton />}>
             <SettingsSection facultyId={user?.uid || ''} />
+          </Suspense>
+        );
+
+      case 'resources':
+        return (
+          <Suspense fallback={<LoadingSkeleton />}>
+            <FacultyResourceUpload />
+          </Suspense>
+        );
+
+      case 'remedial':
+        return (
+          <Suspense fallback={<LoadingSkeleton />}>
+            <RemedialManagement />
+          </Suspense>
+        );
+
+      case 'profile-edit':
+        return (
+          <Suspense fallback={<LoadingSkeleton />}>
+            <FacultyProfileEdit
+              facultyId={user?.uid || ''}
+              facultyData={facultyData}
+              onBack={() => setActiveSection('profile')}
+            />
           </Suspense>
         );
 

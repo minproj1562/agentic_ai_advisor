@@ -3,13 +3,13 @@
 Bulk Marks Upload API — University Marksheet Format
 COMPLETE FIXED VERSION — includes View/Edit endpoints
 """
-
+import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form
 from fastapi.responses import StreamingResponse
 from typing import Optional, List
 import logging, io, json
 from datetime import datetime
-
+from collections import defaultdict  
 from app.dependencies import get_admin_user
 from app.core.security import FirebaseUser
 from app.services.bulk_marks_service import bulk_marks_service, calculate_grade
@@ -17,7 +17,8 @@ from app.services.pending_marks_service import pending_marks_service
 from app.models.pending_marks import PendingStudentMarks
 from app.models.student_profile import StudentProfile, SubjectScore
 from pydantic import BaseModel
-
+from app.core.curriculum import get_semester_subjects
+from app.services.bulk_marks_service import UploadResult
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
@@ -115,6 +116,47 @@ async def download_template(
         logger.error(f"Template error: {e}", exc_info=True)
         raise HTTPException(500, f"Template generation failed: {e}")
 
+@router.get("/template/college-format")
+async def download_college_format_template(
+    semester: int = Query(..., ge=1, le=8),
+    branch: str = Query(...),
+    academic_year: str = Query("2024-25"),
+    admission_year: int = Query(2022, ge=2018, le=2030),
+    prefill_students: bool = Query(True),
+    current_user: FirebaseUser = Depends(get_admin_user),
+):
+    """
+    Download template in exact college marksheet format (4 rows per student).
+    Use this if your college provides marksheets in the Mumbai University format.
+    """
+    try:
+        students_list = None
+        if prefill_students:
+            students = await bulk_marks_service.get_students_for_template(
+                branch=branch,
+                admission_year=admission_year,
+            )
+            students_list = students
+        
+        buf = bulk_marks_service.generate_college_format_template(
+            semester=semester,
+            branch=branch,
+            academic_year=academic_year,
+            admission_year=admission_year,
+            students=students_list,
+        )
+        
+        fname = f"college_format_sem{semester}_{branch}_{academic_year.replace('-', '_')}.xlsx"
+        return StreamingResponse(
+            buf,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:
+        logger.error(f"College format template error: {e}", exc_info=True)
+        raise HTTPException(500, str(e))
 
 @router.get("/templates/all")
 async def download_all_templates(
@@ -251,6 +293,129 @@ async def add_students(
         raise HTTPException(500, str(e))
 
 
+@router.post("/students/upload-roster")
+async def upload_student_roster(
+    file: UploadFile = File(...),
+    create_firebase_accounts: bool = Form(False),
+    default_password: str = Form("Student@123"),
+    current_user: FirebaseUser = Depends(get_admin_user),
+):
+    """
+    Upload student roster Excel (IT_Student_Roster.xlsx format).
+    Expected columns: Name, Roll Number, Email, Branch, Admission Year
+    Optional: Current Semester, Seat Number
+
+    Creates StudentProfile records and optionally Firebase auth accounts.
+    """
+    import pandas as pd
+
+    if not file.filename:
+        raise HTTPException(400, "No file provided")
+
+    ext = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else ""
+    if ext not in ("xls", "xlsx"):
+        raise HTTPException(400, f"Unsupported format .{ext} — use .xlsx or .xls")
+
+    content = await file.read()
+    if not content or len(content) > 10 * 1024 * 1024:
+        raise HTTPException(400, "File empty or too large (max 10MB)")
+
+    try:
+        df = pd.read_excel(io.BytesIO(content), sheet_name=0)
+    except Exception as e:
+        raise HTTPException(400, f"Failed to read Excel: {e}")
+
+    # Normalize column names
+    col_map = {}
+    for col in df.columns:
+        c = str(col).strip().lower().replace("_", " ")
+        if "name" in c and "roll" not in c: col_map[col] = "name"
+        elif "roll" in c: col_map[col] = "roll_number"
+        elif "email" in c: col_map[col] = "email"
+        elif "branch" in c or "dept" in c: col_map[col] = "branch"
+        elif "admission" in c or "year" in c and "academic" not in c: col_map[col] = "admission_year"
+        elif "semester" in c: col_map[col] = "current_semester"
+        elif "seat" in c: col_map[col] = "seat_number"
+    df.rename(columns=col_map, inplace=True)
+
+    required = ["name", "roll_number"]
+    missing = [c for c in required if c not in df.columns]
+    if missing:
+        raise HTTPException(400, f"Missing required columns: {missing}. Found: {list(df.columns)}")
+
+    created = 0
+    skipped = 0
+    errors = []
+    firebase_created = 0
+
+    for _, row in df.iterrows():
+        name = str(row.get("name", "")).strip()
+        roll = str(row.get("roll_number", "")).strip()
+        if not name or not roll or name == "nan" or roll == "nan":
+            continue
+
+        email = str(row.get("email", "")).strip() if "email" in df.columns else ""
+        branch = str(row.get("branch", "IT")).strip() if "branch" in df.columns else "IT"
+        adm_year = int(row.get("admission_year", 2023)) if "admission_year" in df.columns else 2023
+
+        # Check if student already exists
+        existing = await StudentProfile.find_one({"roll_number": roll})
+        if existing:
+            skipped += 1
+            continue
+
+        try:
+            # Create Firebase account if requested
+            user_id = f"pending_{roll}"
+            if create_firebase_accounts and email and email != "nan":
+                try:
+                    import firebase_admin.auth as fb_auth
+                    fb_user = fb_auth.create_user(
+                        email=email,
+                        password=default_password,
+                        display_name=name,
+                    )
+                    user_id = fb_user.uid
+                    # Set custom claims for student role
+                    fb_auth.set_custom_claims(user_id, {"role": "student"})
+                    firebase_created += 1
+                except Exception as fb_err:
+                    if "already exists" in str(fb_err).lower():
+                        try:
+                            fb_user = fb_auth.get_user_by_email(email)
+                            user_id = fb_user.uid
+                        except Exception:
+                            pass
+                    else:
+                        errors.append(f"{roll}: Firebase error - {str(fb_err)[:80]}")
+
+            # Create StudentProfile
+            profile = StudentProfile(
+                user_id=user_id,
+                name=name,
+                roll_number=roll,
+                email=email if email and email != "nan" else None,
+                branch=branch,
+                admission_year=adm_year,
+                current_semester=int(row.get("current_semester", 1)) if "current_semester" in df.columns else 1,
+            )
+            await profile.insert()
+            created += 1
+
+        except Exception as e:
+            errors.append(f"{roll}: {str(e)[:80]}")
+
+    return {
+        "success": True,
+        "total_rows": len(df),
+        "created": created,
+        "skipped": skipped,
+        "firebase_accounts_created": firebase_created,
+        "errors": errors[:20],
+        "error_count": len(errors),
+    }
+
+
 @router.get("/students/export")
 async def export_students(
     branch: str = Query(...),
@@ -283,10 +448,13 @@ async def export_students(
 # UPLOAD / PARSE ENDPOINTS
 # ═══════════════════════════════════════════════════════════
 
+# academic-advisor-backend/app/api/v1/endpoints/bulk_marks.py – replace upload_marks
+
+# academic-advisor-backend/app/api/v1/endpoints/bulk_marks.py
+
 @router.post("/upload")
 async def upload_marks(
     file: UploadFile = File(...),
-    semester: int = Form(..., ge=1, le=8),
     branch: str = Form(...),
     academic_year: str = Form(...),
     admission_year: int = Form(..., ge=2018, le=2030),
@@ -295,48 +463,143 @@ async def upload_marks(
     current_user: FirebaseUser = Depends(get_admin_user),
 ):
     """
-    Upload XLS/XLSX/CSV → parse university format → preview or save.
-    Mapping:  CA → internal_marks,  MSE+ESE → external_marks
+    Upload university marksheet Excel file.
+    Automatically processes all sheets and extracts semester from sheet names.
+    
+    Returns combined results for all sheets.
     """
     if not file.filename:
-        raise HTTPException(400, "No file")
-
+        raise HTTPException(400, "No file provided")
+    
     ext = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else ""
-    if ext not in ("xls", "xlsx", "csv"):
-        raise HTTPException(400, f"Unsupported .{ext} — use .xlsx/.xls/.csv")
+    if ext not in ("xls", "xlsx"):
+        raise HTTPException(400, f"Unsupported format .{ext} — only .xlsx or .xls")
 
     content = await file.read()
-    if not content:
-        raise HTTPException(400, "Empty file")
-    if len(content) > 10 * 1024 * 1024:
-        raise HTTPException(400, "File too large (max 10 MB)")
+    if not content or len(content) > 10 * 1024 * 1024:
+        raise HTTPException(400, "File empty or too large (max 10 MB)")
 
     try:
-        parsed, meta = bulk_marks_service.parse_file(
-            content, file.filename, semester, branch, academic_year, admission_year,
+        # This method now handles everything internally:
+        # - Parses all sheets
+        # - Extracts semester from sheet names
+        # - Validates subjects against curriculum
+        # - Returns combined ParsedStudentMarks list with metadata
+        parsed, meta = bulk_marks_service.parse_multi_sheet_university(
+            file_bytes=content,
+            branch=branch,
+            academic_year=academic_year,
+            admission_year=admission_year,
         )
+        
+        if not parsed:
+            raise HTTPException(
+                400, 
+                "No valid student data found. Please check:\n"
+                "• Sheet names contain semester info (e.g., 'SEM-IV', 'IT-V-SH')\n"
+                "• Subject codes match your curriculum\n"
+                "• Admission year is correct (pre-2025 vs 2025+ batches)"
+            )
+        
+        # Group by semester for processing
+        # (Marks are already validated against correct semester in parser)
+        from collections import defaultdict
+        semester_groups = defaultdict(list)
+        
+        for stu in parsed:
+            if not stu.subjects:
+                continue
+            # Get semester from first subject (all validated to same semester)
+            first_code = stu.subjects[0]["subject_code"]
+            for sem in range(1, 9):
+                cur_subs = get_semester_subjects(sem, admission_year)
+                if any(s.subject_code == first_code for s in cur_subs):
+                    semester_groups[sem].append(stu)
+                    break
+        
+        if not semester_groups:
+            raise HTTPException(
+                400,
+                f"No subjects matched curriculum for {branch} {admission_year} batch. "
+                f"Found {len(parsed)} students but no valid subjects."
+            )
+        
+        # Process each semester
+        all_results = []
+        for sem, sem_parsed in sorted(semester_groups.items()):
+            logger.info(
+                f"Processing semester {sem}: {len(sem_parsed)} students, "
+                f"{sum(len(s.subjects) for s in sem_parsed)} total subject entries"
+            )
+            
+            if save:
+                res = await bulk_marks_service.save(
+                    parsed=sem_parsed,
+                    semester=sem,
+                    academic_year=academic_year,
+                    branch=branch,
+                    overwrite=overwrite,
+                    admin_email=current_user.email,
+                )
+            else:
+                res = await bulk_marks_service.preview(
+                    parsed=sem_parsed,
+                    semester=sem,
+                    branch=branch,
+                    academic_year=academic_year,
+                )
+            
+            all_results.append(res)
+        
+        # Combine results
+        combined = UploadResult(
+            upload_id=str(uuid.uuid4()),
+            total_rows=sum(r.total_rows for r in all_results),
+            matched_students=sum(r.matched_students for r in all_results),
+            unmatched_students=sum(r.unmatched_students for r in all_results),
+            updated_students=sum(r.updated_students for r in all_results),
+            created_students=sum(r.created_students for r in all_results),
+            failed_updates=sum(r.failed_updates for r in all_results),
+            skipped_students=sum(r.skipped_students for r in all_results),
+            matched_details=[d for r in all_results for d in r.matched_details],
+            unmatched_roll_numbers=list(set(
+                u for r in all_results for u in r.unmatched_roll_numbers
+            )),
+            errors=[e for r in all_results for e in r.errors],
+            warnings=[w for r in all_results for w in r.warnings],
+            csv_data="",  # Not needed for multi-semester
+            semester=0,  # Multi-semester upload
+            branch=branch,
+            academic_year=academic_year,
+        )
+        
+        # Add per-semester breakdown to metadata
+        meta["semesters_processed"] = [
+            {
+                "semester": sem,
+                "students": len(sem_parsed),
+                "subjects_matched": sum(len(s.subjects) for s in sem_parsed),
+                "matched": all_results[i].matched_students,
+                "updated": all_results[i].updated_students if save else 0,
+                "unmatched": all_results[i].unmatched_students,
+            }
+            for i, (sem, sem_parsed) in enumerate(sorted(semester_groups.items()))
+        ]
+        
+        return {
+            "success": True,
+            "mode": "saved" if save else "preview",
+            "metadata": meta,
+            **combined.to_dict(),
+        }
+        
+    except HTTPException:
+        raise
     except ValueError as e:
         raise HTTPException(400, str(e))
     except Exception as e:
-        logger.error(f"Parse: {e}", exc_info=True)
-        raise HTTPException(400, f"Parse failed: {e}")
-
-    if not parsed:
-        raise HTTPException(400, "No student rows found")
-
-    try:
-        if save:
-            result = await bulk_marks_service.save(
-                parsed, semester, academic_year, branch, overwrite,
-                admin_email=current_user.email
-            )
-        else:
-            result = await bulk_marks_service.preview(parsed, semester, branch, academic_year)
-    except Exception as e:
-        logger.error(f"Process: {e}", exc_info=True)
-        raise HTTPException(500, f"Processing failed: {e}")
-
-    return {"success": True, "mode": "save" if save else "preview", "metadata": meta, **result.to_dict()}
+        logger.error(f"Upload error: {e}", exc_info=True)
+        raise HTTPException(500, f"Upload failed: {str(e)}")
 
 
 @router.post("/convert-csv")

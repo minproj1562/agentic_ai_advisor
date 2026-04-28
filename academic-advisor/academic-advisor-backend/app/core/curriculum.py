@@ -8,16 +8,25 @@ class SubjectDefinition(BaseModel):
     subject_code: str
     subject_name: str
     credits: int
-    course_type: Literal["PCC", "PEC", "LBC", "SBL", "MNP", "MJP", "INT", "BSC", "ESC", "AEC", "OEC"]
+    course_type: Literal["PCC", "PEC", "LBC", "SBL", "MNP", "MJP", "INT", "BSC", "ESC", "AEC", "OEC", "HSS","VEC"]
     internal_max: int
     external_max: int
     is_elective: bool = False
     is_practical: bool = False
     elective_group: str | None = None
+    semester: int = 0
 
+    class Config:
+        frozen = False  # ← ALLOW MUTATION AFTER INIT
+
+def _build_curriculum(semester_dict: Dict[int, List[SubjectDefinition]]) -> Dict[int, List[SubjectDefinition]]:
+    for sem, subjects in semester_dict.items():
+        for sub in subjects:
+            sub.semester = sem
+    return semester_dict
 
 # Pre-Autonomy Curriculum (2022-2024 batches for Sem 1-4)
-PRE_AUTONOMY_CURRICULUM: Dict[int, List[SubjectDefinition]] = {
+PRE_AUTONOMY_CURRICULUM = _build_curriculum({
     1: [
         SubjectDefinition(subject_code="PHY101", subject_name="Engineering Physics-I", credits=3, course_type="BSC", internal_max=20, external_max=80),
         SubjectDefinition(subject_code="CHEM101", subject_name="Engineering Chemistry-I", credits=3, course_type="BSC", internal_max=20, external_max=80),
@@ -36,28 +45,41 @@ PRE_AUTONOMY_CURRICULUM: Dict[int, List[SubjectDefinition]] = {
         SubjectDefinition(subject_code="PCE102", subject_name="Professional Communication & Ethics", credits=2, course_type="AEC", internal_max=20, external_max=80),
     ],
     3: [
-        SubjectDefinition(subject_code="MATH301", subject_name="Engineering Mathematics-III", credits=4, course_type="BSC", internal_max=20, external_max=80),
-        SubjectDefinition(subject_code="DSA301", subject_name="Data Structures and Algorithms", credits=4, course_type="PCC", internal_max=20, external_max=80),
-        SubjectDefinition(subject_code="DBMS301", subject_name="Database Management Systems", credits=4, course_type="PCC", internal_max=20, external_max=80),
-        SubjectDefinition(subject_code="DLDA301", subject_name="Digital Logic & Design", credits=4, course_type="PCC", internal_max=20, external_max=80),
-        SubjectDefinition(subject_code="PYTHON301", subject_name="Python Programming", credits=2, course_type="SBL", internal_max=50, external_max=50, is_practical=True),
-        SubjectDefinition(subject_code="DSAL301", subject_name="DSA Laboratory", credits=1, course_type="LBC", internal_max=25, external_max=25, is_practical=True),
+        SubjectDefinition(subject_code="ITPCC301", subject_name="Engineering Mathematics-III", credits=4, course_type="BSC", internal_max=20+25, external_max=80),
+        SubjectDefinition(subject_code="ITPCC302", subject_name="Computer Organization & Architecture", credits=4, course_type="PCC", internal_max=20+25, external_max=80),
+        SubjectDefinition(subject_code="ITPCC303", subject_name="Data Structures & Analysis", credits=3, course_type="PCC", internal_max=20, external_max=80),
+        SubjectDefinition(subject_code="ITPCC304", subject_name="Database Management System", credits=3, course_type="PCC", internal_max=20, external_max=80),
+        SubjectDefinition(subject_code="ECMDM3012", subject_name="Digital Logic Design & Analysis", credits=3, course_type="PCC", internal_max=20, external_max=80),
+        SubjectDefinition(subject_code="ITLBC301", subject_name="Data Structure Laboratory", credits=1, course_type="LBC", internal_max=25, external_max=25, is_practical=True),
+        SubjectDefinition(subject_code="ITLBC302", subject_name="SQL Laboratory", credits=1, course_type="LBC", internal_max=25, external_max=25, is_practical=True),
+        SubjectDefinition(subject_code="ITSBL301", subject_name="Python Laboratory", credits=2, course_type="SBL", internal_max=50, external_max=50, is_practical=True),
+        SubjectDefinition(subject_code="ITMNP301", subject_name="Mini Project-1A", credits=1, course_type="MNP", internal_max=50, external_max=0, is_practical=True),
+        SubjectDefinition(subject_code="HSS301", subject_name="Product Design", credits=2, course_type="AEC", internal_max=50, external_max=0),   # ✅ changed from "HSS" to "AEC"
     ],
     4: [
-        SubjectDefinition(subject_code="MATH401", subject_name="Engineering Mathematics-IV", credits=4, course_type="BSC", internal_max=20, external_max=80),
-        SubjectDefinition(subject_code="MES401", subject_name="Microcontroller & Embedded Systems", credits=4, course_type="PCC", internal_max=20, external_max=80),
-        SubjectDefinition(subject_code="OS401", subject_name="Operating Systems", credits=4, course_type="PCC", internal_max=20, external_max=80),
-        SubjectDefinition(subject_code="CN401", subject_name="Computer Networks", credits=4, course_type="PCC", internal_max=20, external_max=80),
-        SubjectDefinition(subject_code="SE401", subject_name="Software Engineering", credits=4, course_type="PCC", internal_max=20, external_max=80),
-        SubjectDefinition(subject_code="MESL401", subject_name="Microcontroller Lab", credits=1, course_type="LBC", internal_max=25, external_max=25, is_practical=True),
-        SubjectDefinition(subject_code="CNL401", subject_name="Computer Networks Lab", credits=1, course_type="LBC", internal_max=25, external_max=25, is_practical=True),
-    ]
-}
+        SubjectDefinition(subject_code="ITPCC405", subject_name="Engineering Mathematics-IV", credits=4, course_type="BSC", internal_max=20+25, external_max=80),
+        SubjectDefinition(subject_code="ITPCC406", subject_name="Computer Network", credits=3, course_type="PCC", internal_max=20, external_max=80),
+        SubjectDefinition(subject_code="ITPCC407", subject_name="Operating System", credits=3, course_type="PCC", internal_max=20, external_max=80),
+        SubjectDefinition(subject_code="ITPCC408", subject_name="Software Engineering", credits=3, course_type="PCC", internal_max=20, external_max=80),
+        SubjectDefinition(subject_code="ECMDM4025", subject_name="Microcontroller and Embedded Systems", credits=3, course_type="PCC", internal_max=20, external_max=80),
+        SubjectDefinition(subject_code="ITLBC403", subject_name="Networks Laboratory", credits=1, course_type="LBC", internal_max=25, external_max=25, is_practical=True),
+        SubjectDefinition(subject_code="ITLBC404", subject_name="Linux Laboratory", credits=1, course_type="LBC", internal_max=25, external_max=25, is_practical=True),
+        SubjectDefinition(subject_code="ITLBC405", subject_name="Software Development Laboratory", credits=1, course_type="LBC", internal_max=25, external_max=25, is_practical=True),
+        SubjectDefinition(subject_code="ITSBL402", subject_name="Full stack Development Laboratory", credits=2, course_type="SBL", internal_max=50, external_max=50, is_practical=True),
+        SubjectDefinition(subject_code="ITMNP402", subject_name="Mini Project – 1B", credits=1, course_type="MNP", internal_max=50, external_max=0, is_practical=True),
+        SubjectDefinition(subject_code="VEC402", subject_name="Environment and Sustainability", credits=2, course_type="VEC", internal_max=50, external_max=0),
+    ],
+
+})
+
+for sem, subjects in PRE_AUTONOMY_CURRICULUM.items():
+    for sub in subjects:
+        if sub.semester == 0:  # Only set if not already set
+            sub.semester = sem
 
 
 # Autonomy Curriculum (Sem 5-8 for all batches, Sem 1-4 for 2025+ batches)
-AUTONOMY_CURRICULUM: Dict[int, List[SubjectDefinition]] = {
-    # ===================== Semesters 1-4 for 2025+ batches =====================
+AUTONOMY_CURRICULUM = _build_curriculum({
     1: [
         SubjectDefinition(subject_code="BSC101", subject_name="Engineering Mathematics-I", credits=4, course_type="BSC", internal_max=20, external_max=80),
         SubjectDefinition(subject_code="BSC102", subject_name="Engineering Physics", credits=3, course_type="BSC", internal_max=20, external_max=80),
@@ -79,40 +101,47 @@ AUTONOMY_CURRICULUM: Dict[int, List[SubjectDefinition]] = {
         SubjectDefinition(subject_code="AEC201", subject_name="Professional Communication & Ethics-I", credits=2, course_type="AEC", internal_max=20, external_max=80),
     ],
     3: [
-        SubjectDefinition(subject_code="BSC301", subject_name="Engineering Mathematics-III", credits=4, course_type="BSC", internal_max=20, external_max=80),
-        SubjectDefinition(subject_code="ITPCC301", subject_name="Data Structures and Algorithms", credits=4, course_type="PCC", internal_max=20, external_max=80),
-        SubjectDefinition(subject_code="ITPCC302", subject_name="Database Management Systems", credits=4, course_type="PCC", internal_max=20, external_max=80),
-        SubjectDefinition(subject_code="ITPCC303", subject_name="Digital Logic & Computer Architecture", credits=4, course_type="PCC", internal_max=20, external_max=80),
-        SubjectDefinition(subject_code="ITSBL301", subject_name="Python Programming Lab", credits=2, course_type="SBL", internal_max=50, external_max=50, is_practical=True),
-        SubjectDefinition(subject_code="ITLBC301", subject_name="DSA Laboratory", credits=1, course_type="LBC", internal_max=25, external_max=25, is_practical=True),
-        SubjectDefinition(subject_code="ITLBC302", subject_name="DBMS Laboratory", credits=1, course_type="LBC", internal_max=25, external_max=25, is_practical=True),
+        SubjectDefinition(subject_code="ITPCC301", subject_name="Engineering Mathematics-III", credits=4, course_type="PCC", internal_max=20+25, external_max=80),
+        SubjectDefinition(subject_code="ITPCC302", subject_name="Computer Organization & Architecture", credits=4, course_type="PCC", internal_max=20+25, external_max=80),
+        SubjectDefinition(subject_code="ITPCC303", subject_name="Data Structures & Analysis", credits=3, course_type="PCC", internal_max=20, external_max=80),
+        SubjectDefinition(subject_code="ITPCC304", subject_name="Database Management System", credits=3, course_type="PCC", internal_max=20, external_max=80),
+        SubjectDefinition(subject_code="ECMDM3012", subject_name="Digital Logic Design & Analysis", credits=3, course_type="PCC", internal_max=20, external_max=80),
+        SubjectDefinition(subject_code="ITLBC301", subject_name="Data Structure Laboratory", credits=1, course_type="LBC", internal_max=25, external_max=25, is_practical=True),
+        SubjectDefinition(subject_code="ITLBC302", subject_name="SQL Laboratory", credits=1, course_type="LBC", internal_max=25, external_max=25, is_practical=True),
+        SubjectDefinition(subject_code="ITSBL301", subject_name="Python Laboratory", credits=2, course_type="SBL", internal_max=50, external_max=50, is_practical=True),
+        SubjectDefinition(subject_code="ITMNP301", subject_name="Mini Project-1A", credits=1, course_type="MNP", internal_max=50, external_max=0, is_practical=True),
+        SubjectDefinition(subject_code="HSS301", subject_name="Product Design", credits=2, course_type="HSS", internal_max=50, external_max=0),
     ],
+
     4: [
-        SubjectDefinition(subject_code="BSC401", subject_name="Engineering Mathematics-IV", credits=4, course_type="BSC", internal_max=20, external_max=80),
-        SubjectDefinition(subject_code="ITPCC401", subject_name="Operating Systems", credits=4, course_type="PCC", internal_max=20, external_max=80),
-        SubjectDefinition(subject_code="ITPCC402", subject_name="Computer Networks", credits=4, course_type="PCC", internal_max=20, external_max=80),
-        SubjectDefinition(subject_code="ITPCC403", subject_name="Software Engineering", credits=4, course_type="PCC", internal_max=20, external_max=80),
-        SubjectDefinition(subject_code="ITPCC404", subject_name="Microcontroller & Embedded Systems", credits=4, course_type="PCC", internal_max=20, external_max=80),
-        SubjectDefinition(subject_code="ITLBC401", subject_name="Microcontroller Lab", credits=1, course_type="LBC", internal_max=25, external_max=25, is_practical=True),
-        SubjectDefinition(subject_code="ITLBC402", subject_name="Computer Networks Lab", credits=1, course_type="LBC", internal_max=25, external_max=25, is_practical=True),
-        SubjectDefinition(subject_code="MNP4A", subject_name="Mini Project-1A", credits=1, course_type="MNP", internal_max=50, external_max=0, is_practical=True),
+        SubjectDefinition(subject_code="ITPCC405", subject_name="Engineering Mathematics-IV", credits=4, course_type="PCC", internal_max=20+25, external_max=80),
+        SubjectDefinition(subject_code="ITPCC406", subject_name="Computer Network", credits=3, course_type="PCC", internal_max=20, external_max=80),
+        SubjectDefinition(subject_code="ITPCC407", subject_name="Operating System", credits=3, course_type="PCC", internal_max=20, external_max=80),
+        SubjectDefinition(subject_code="ITPCC408", subject_name="Software Engineering", credits=3, course_type="PCC", internal_max=20, external_max=80),
+        SubjectDefinition(subject_code="ECMDM4025", subject_name="Microcontroller and Embedded Systems", credits=3, course_type="PCC", internal_max=20, external_max=80),
+        SubjectDefinition(subject_code="ITLBC403", subject_name="Networks Laboratory", credits=1, course_type="LBC", internal_max=25, external_max=25, is_practical=True),
+        SubjectDefinition(subject_code="ITLBC404", subject_name="Linux Laboratory", credits=1, course_type="LBC", internal_max=25, external_max=25, is_practical=True),
+        SubjectDefinition(subject_code="ITLBC405", subject_name="Software Development Laboratory", credits=1, course_type="LBC", internal_max=25, external_max=25, is_practical=True),
+        SubjectDefinition(subject_code="ITSBL402", subject_name="Full stack Development Laboratory", credits=2, course_type="SBL", internal_max=50, external_max=50, is_practical=True),
+        SubjectDefinition(subject_code="ITMNP402", subject_name="Mini Project – 1B", credits=1, course_type="MNP", internal_max=50, external_max=0, is_practical=True),
+        SubjectDefinition(subject_code="VEC402", subject_name="Environment and Sustainability", credits=2, course_type="VEC", internal_max=50, external_max=0),
     ],
-    # ===================== Semesters 5-8 (for all batches) =====================
-    # In AUTONOMY_CURRICULUM, update semester 5:
+
     5: [
-        SubjectDefinition(subject_code="ITPCC509", subject_name="Automata Theory / Theory of Computer Science", credits=4, course_type="PCC", internal_max=20, external_max=80),
-        SubjectDefinition(subject_code="ITPCC501", subject_name="Design & Analysis of Algorithms", credits=3, course_type="PCC", internal_max=20, external_max=80),
-        SubjectDefinition(subject_code="ITPEC501", subject_name="Program Elective-I", credits=3, course_type="PEC", internal_max=20, external_max=80, is_elective=True, elective_group="PEC1"),
-        # ↑ PEC1 = DWM or CCS for IT
+        SubjectDefinition(subject_code="ITPCC509", subject_name="Automata Theory", credits=4, course_type="PCC", internal_max=20, external_max=80),
+        SubjectDefinition(subject_code="TPCC510", subject_name="Artificial Intelligence", credits=3, course_type="PCC", internal_max=20, external_max=80),
+        SubjectDefinition(subject_code="ECMDM5036", subject_name="Internet of Things", credits=3, course_type="PCC", internal_max=20, external_max=80),
+        SubjectDefinition(subject_code="ITPEC501Y", subject_name="Program Elective Course-I", credits=3, course_type="PEC", internal_max=20, external_max=80, is_elective=True, elective_group="PEC1"),
         SubjectDefinition(subject_code="ITLBC506", subject_name="Cloud Computing Laboratory", credits=1, course_type="LBC", internal_max=25, external_max=25, is_practical=True),
-        SubjectDefinition(subject_code="ITLBC507", subject_name="Mobile App Development Lab (Flutter)", credits=1, course_type="LBC", internal_max=25, external_max=25, is_practical=True),
-        SubjectDefinition(subject_code="MNP5A", subject_name="Mini Project-2A", credits=1, course_type="MNP", internal_max=50, external_max=0, is_practical=True),
-        SubjectDefinition(subject_code="AEC502", subject_name="Professional Communication-II", credits=2, course_type="AEC", internal_max=20, external_max=80),
+        SubjectDefinition(subject_code="ITLBC507", subject_name="Mobile Application Development Laboratory", credits=1, course_type="LBC", internal_max=25, external_max=25, is_practical=True),
+        SubjectDefinition(subject_code="ECMDL5012", subject_name="Internet of Things Laboratory", credits=1, course_type="LBC", internal_max=25, external_max=25, is_practical=True),
+        SubjectDefinition(subject_code="AEC502", subject_name="Professional Communication and Ethics-II", credits=2, course_type="AEC", internal_max=50, external_max=0),
+        SubjectDefinition(subject_code="ITMNP503", subject_name="Mini Project-2A", credits=1, course_type="MNP", internal_max=50, external_max=0, is_practical=True),
+        SubjectDefinition(subject_code="HSS502", subject_name="Entrepreneurship", credits=2, course_type="HSS", internal_max=50, external_max=0),
     ],
     6: [
         SubjectDefinition(subject_code="ITPCC611", subject_name="Cryptography & Network Security", credits=4, course_type="PCC", internal_max=20, external_max=80),
         SubjectDefinition(subject_code="ITPEC602", subject_name="Program Elective-II", credits=3, course_type="PEC", internal_max=20, external_max=80, is_elective=True, elective_group="PEC2"),
-        # ↑ PEC2 = ML or WT for IT  (AIML Honours students CANNOT pick ML)
         SubjectDefinition(subject_code="ITLBC608", subject_name="Cryptography Lab", credits=1, course_type="LBC", internal_max=25, external_max=25, is_practical=True),
         SubjectDefinition(subject_code="ITLBC609", subject_name="Data Science Laboratory", credits=1, course_type="LBC", internal_max=25, external_max=25, is_practical=True),
         SubjectDefinition(subject_code="ITSBL603", subject_name="DevOps Laboratory", credits=2, course_type="SBL", internal_max=50, external_max=50, is_practical=True),
@@ -134,7 +163,13 @@ AUTONOMY_CURRICULUM: Dict[int, List[SubjectDefinition]] = {
         SubjectDefinition(subject_code="MJP8B", subject_name="Major Project-B", credits=4, course_type="MJP", internal_max=50, external_max=0, is_practical=True),
         SubjectDefinition(subject_code="INT801", subject_name="Internship", credits=8, course_type="INT", internal_max=100, external_max=0, is_practical=True),
     ]
-}
+})
+
+# Do the same for AUTONOMY_CURRICULUM:
+for sem, subjects in AUTONOMY_CURRICULUM.items():
+    for sub in subjects:
+        if sub.semester == 0:
+            sub.semester = sem
 
 
 ELECTIVE_OPTIONS: Dict[str, List[Dict[str, str]]] = {

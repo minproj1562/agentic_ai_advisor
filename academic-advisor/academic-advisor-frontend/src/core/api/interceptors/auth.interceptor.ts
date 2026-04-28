@@ -1,8 +1,9 @@
 // core/api/interceptors/auth.interceptor.ts
 import type { AxiosRequestConfig } from 'axios';
+import { auth } from '../../../services/firebase.config';
 
 export const authInterceptor = {
-  onFulfilled: (config: AxiosRequestConfig): AxiosRequestConfig => {
+  onFulfilled: async (config: AxiosRequestConfig): Promise<AxiosRequestConfig> => {
     try {
       config.headers = config.headers ?? {};
 
@@ -13,7 +14,25 @@ export const authInterceptor = {
       const lang = typeof navigator !== 'undefined' ? navigator.language : 'en-US';
       (config.headers as Record<string, string>)['Accept-Language'] = lang;
 
-      // Authorization token
+      // ✅ FIX: Get fresh token from Firebase if user is logged in
+      if (typeof window !== 'undefined' && auth.currentUser) {
+        try {
+          const freshToken = await auth.currentUser.getIdToken(false); // false = use cached if valid
+          (config.headers as Record<string, string>)['Authorization'] = `Bearer ${freshToken}`;
+          
+          // Update storage with fresh token
+          const userRole = localStorage.getItem('user_role') || sessionStorage.getItem('user_role');
+          const storage = localStorage.getItem('auth_token') ? localStorage : sessionStorage;
+          storage.setItem('auth_token', freshToken);
+          
+          return config;
+        } catch (tokenError) {
+          console.error('Failed to get fresh token:', tokenError);
+          // Fall through to stored token
+        }
+      }
+
+      // Fallback: Use stored token
       const storedToken = typeof window !== 'undefined'
         ? localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token')
         : null;
@@ -21,14 +40,28 @@ export const authInterceptor = {
       if (storedToken && !(config.headers as Record<string, string>)['Authorization']) {
         (config.headers as Record<string, string>)['Authorization'] = `Bearer ${storedToken}`;
       }
-    } catch {
-      // silently ignore
+    } catch (err) {
+      console.error('Auth interceptor error:', err);
     }
 
     return config;
   },
 
-  onRejected: (error: any) => Promise.reject(error)
+  onRejected: (error: any) => {
+    // ✅ Handle 401 errors by clearing auth state
+    if (error.response?.status === 401) {
+      localStorage.removeItem('auth_token');
+      sessionStorage.removeItem('auth_token');
+      localStorage.removeItem('user_role');
+      sessionStorage.removeItem('user_role');
+      
+      // Redirect to login if not already there
+      if (typeof window !== 'undefined' && !window.location.pathname.includes('/login')) {
+        window.location.href = '/login';
+      }
+    }
+    return Promise.reject(error);
+  }
 };
 
 function cryptoRandomId(): string {

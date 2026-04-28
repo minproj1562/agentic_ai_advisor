@@ -71,14 +71,16 @@ class DegreeInput(BaseModel):
         return v
 
 
+# app/schemas/faculty_schemas.py
+
 class MeetingSlotInput(BaseModel):
     """Input for adding meeting slot"""
     day: str  # "Monday", "Tuesday", etc.
     start_time: str  # "10:00"
     end_time: str    # "11:00"
-    venue: str
+    venue: str = ""  # ✅ FIX: Allow empty venue with default
     slot_type: MeetingSlotType = MeetingSlotType.RECURRING
-    specific_date: Optional[str] = None  # For one-time slots: "2024-03-15"
+    specific_date: Optional[str] = None
     
     @field_validator('day')
     @classmethod
@@ -86,6 +88,25 @@ class MeetingSlotInput(BaseModel):
         valid_days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
         if v not in valid_days:
             raise ValueError(f'Day must be one of {valid_days}')
+        return v
+    
+    # ✅ ADD: Validate time format
+    @field_validator('start_time', 'end_time')
+    @classmethod
+    def validate_time(cls, v):
+        import re
+        if not re.match(r'^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$', v):
+            raise ValueError(f'Time must be in HH:MM format (e.g., 10:00)')
+        return v
+    
+    # ✅ ADD: Validate end_time is after start_time
+    @field_validator('end_time')
+    @classmethod
+    def validate_end_after_start(cls, v, info):
+        if 'start_time' in info.data:
+            start = info.data['start_time']
+            if v <= start:
+                raise ValueError('End time must be after start time')
         return v
 
 
@@ -185,6 +206,7 @@ class ProfileUpdateRequest(BaseModel):
     office_location: Optional[str] = None
     office_hours: Optional[str] = None
     preferred_meeting_duration: Optional[int] = None
+    available_slots: Optional[List[MeetingSlotInput]] = None  # ✅ ADD THIS LINE
     
     # Publications updates
     total_publications: Optional[int] = None

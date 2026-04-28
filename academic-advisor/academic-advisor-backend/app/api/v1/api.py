@@ -82,6 +82,17 @@ api_router.include_router(readiness_endpoints.router, prefix="/readiness", tags=
 from app.api.v1.endpoints.chatbot import router as chatbot_router
 api_router.include_router(chatbot_router, prefix="/chatbot", tags=["Chatbot"])
 
+# ==================== PHASE 3 ROUTERS ====================
+
+from app.api.v1.endpoints.improvement import router as improvement_router
+api_router.include_router(improvement_router, tags=["Improvement Hub"])
+
+from app.api.v1.endpoints.faculty_resources import router as faculty_resources_router
+api_router.include_router(faculty_resources_router, tags=["Faculty Resources"])
+
+from app.api.v1.endpoints.remedial import router as remedial_router
+api_router.include_router(remedial_router, tags=["Remedial Management"])
+
 # ==================== ADMIN ROUTERS ====================
 
 from app.api.v1.admin import router as admin_router

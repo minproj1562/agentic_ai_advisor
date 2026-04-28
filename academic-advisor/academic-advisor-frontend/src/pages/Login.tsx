@@ -1,6 +1,6 @@
 // src/pages/Login.tsx
 import React, { useState, useMemo } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { useForm, SubmitHandler } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -14,450 +14,392 @@ import { doc, getDoc } from 'firebase/firestore';
 import { db, auth } from '../services/firebase.config';
 import { GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
 import toast from 'react-hot-toast';
-
-// ✅ Import our new hook — no hardcoded emails
 import { useFacultyEmails } from '../hooks/useFacultyEmails';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const FACULTY_EMAIL_DOMAIN = '@fcrit.ac.in';
 
-// ─── Validation helpers ───────────────────────────────────────────────────────
-
-/**
- * Format validation only — no network call.
- * Must match: firstname.lastname@fcrit.ac.in (letters only)
- */
 const isFacultyEmail = (email: string): boolean => {
   const lower = email.toLowerCase().trim();
   if (!lower.endsWith(FACULTY_EMAIL_DOMAIN)) return false;
-  const local = lower.split('@')[0];
-  return /^[a-z]+\.[a-z]+$/.test(local);
+  return /^[a-z]+\.[a-z]+$/.test(lower.split('@')[0]);
 };
 
-// ─── Conditional Zod schemas ────────────────────────────────────────────────
+// ─── Schemas ──────────────────────────────────────────────────────────────────
 
-// Student schema - expects "identifier" field with roll number validation
 const studentSchema = z.object({
   identifier: z
     .string()
     .min(1, 'Roll number is required')
     .regex(/^[0-9]{7}$/, 'Roll number must be exactly 7 digits'),
-  password: z
-    .string()
-    .min(1, 'Password is required')
-    .min(8, 'Password must be at least 8 characters'),
-  rememberMe: z.boolean(),
+  password: z.string().min(1, 'Password is required').min(8, 'Min 8 characters'),
+  rememberMe: z.boolean().optional().default(false),
 });
 
-// Faculty schema - expects "identifier" field with email validation
 const facultySchema = z.object({
   identifier: z
     .string()
     .min(1, 'Email is required')
     .email('Invalid email format')
-    .refine(
-      (val) => val.toLowerCase().trim().endsWith(FACULTY_EMAIL_DOMAIN),
-      { message: `Faculty email must end with ${FACULTY_EMAIL_DOMAIN}` }
-    )
-    .refine(
-      (val) => isFacultyEmail(val),
-      { message: 'Faculty email must be: firstname.lastname@fcrit.ac.in' }
-    ),
-  password: z
-    .string()
-    .min(1, 'Password is required')
-    .min(8, 'Password must be at least 8 characters'),
-  rememberMe: z.boolean(),
+    .refine((v) => v.toLowerCase().trim().endsWith(FACULTY_EMAIL_DOMAIN), {
+      message: `Must end with ${FACULTY_EMAIL_DOMAIN}`,
+    })
+    .refine((v) => isFacultyEmail(v), {
+      message: 'Format: firstname.lastname@fcrit.ac.in',
+    }),
+  password: z.string().min(1, 'Password is required').min(8, 'Min 8 characters'),
+  rememberMe: z.boolean().optional().default(false),
 });
 
-// Admin schema - expects "identifier" field with email validation
 const adminSchema = z.object({
-  identifier: z
-    .string()
-    .min(1, 'Email is required')
-    .email('Invalid email format'),
-  password: z
-    .string()
-    .min(1, 'Password is required')
-    .min(8, 'Password must be at least 8 characters'),
-  rememberMe: z.boolean(),
+  identifier: z.string().min(1, 'Email is required').email('Invalid email format'),
+  password: z.string().min(1, 'Password is required').min(8, 'Min 8 characters'),
+  rememberMe: z.boolean().optional().default(false),
 });
 
-type LoginFormData = z.infer<typeof studentSchema> | z.infer<typeof facultySchema> | z.infer<typeof adminSchema>;
 type UserType = 'student' | 'faculty' | 'admin';
+type LoginFormData = { identifier: string; password: string; rememberMe: boolean };
 
-// ─── Component ────────────────────────────────────────────────────────────────
+const getSchema = (type: UserType) => {
+  if (type === 'student') return studentSchema;
+  if (type === 'faculty') return facultySchema;
+  return adminSchema;
+};
 
-const Login: React.FC = () => {
-  const navigate                      = useNavigate();
-  const { login, resetPassword }      = useAuth();
-  const [showPassword, setShowPassword]       = useState(false);
-  const [isSubmitting, setIsSubmitting]       = useState(false);
-  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
-  const [userType, setUserType]               = useState<UserType>('student');
+// ─── Styles ───────────────────────────────────────────────────────────────────
 
-  // ✅ Fetch faculty emails from MongoDB — replaces ALL hardcoded lists
-  const {
-    data:      facultyEmailsData,
-    isLoading: emailsLoading,
-  } = useFacultyEmails();
+const accentClasses: Record<UserType, { btn: string; ring: string; active: string }> = {
+  student: {
+    btn:    'bg-blue-600 hover:bg-blue-700 focus:ring-blue-500',
+    ring:   'focus:ring-blue-500 focus:border-blue-500',
+    active: 'bg-blue-600 text-white shadow-lg scale-105',
+  },
+  faculty: {
+    btn:    'bg-purple-600 hover:bg-purple-700 focus:ring-purple-500',
+    ring:   'focus:ring-purple-500 focus:border-purple-500',
+    active: 'bg-purple-600 text-white shadow-lg scale-105',
+  },
+  admin: {
+    btn:    'bg-red-600 hover:bg-red-700 focus:ring-red-500',
+    ring:   'focus:ring-red-500 focus:border-red-500',
+    active: 'bg-red-600 text-white shadow-lg scale-105',
+  },
+};
 
-  // Build a Set for O(1) lookup — recalculates only when data changes
-  const approvedEmailSet = useMemo<Set<string>>(() => {
-    if (!facultyEmailsData?.emails?.length) return new Set<string>();
-    return new Set(
-      facultyEmailsData.emails.map((e) => e.email.toLowerCase().trim())
-    );
-  }, [facultyEmailsData]);
+const placeholders: Record<UserType, string> = {
+  student: '5023152',
+  faculty: 'firstname.lastname@fcrit.ac.in',
+  admin:   'admin@fcrit.ac.in',
+};
 
-  // ── Form setup with dynamic schema ───────────────────────────────────────
+const inputLabels: Record<UserType, string> = {
+  student: 'Roll Number',
+  faculty: 'Email Address',
+  admin:   'Email Address',
+};
 
-  const getSchemaForUserType = (type: UserType) => {
-    switch (type) {
-      case 'student': return studentSchema;
-      case 'faculty': return facultySchema;
-      case 'admin':   return adminSchema;
-      default:        return studentSchema;
-    }
-  };
+const roleLabel = (r: string) =>
+  r === 'faculty' ? 'Faculty' : r === 'admin' ? 'Admin' : 'Student';
 
-  const form = useForm<LoginFormData>({
-    resolver: zodResolver(getSchemaForUserType(userType)),
-    defaultValues: { identifier: '', password: '', rememberMe: false },
-  });
+// ─── Inner form component (remounts on userType change via key) ───────────────
+
+interface LoginFormProps {
+  userType: UserType;
+  onSubmit: (data: LoginFormData) => Promise<void>;
+  isSubmitting: boolean;
+  onForgotPassword: (identifier: string) => void;
+}
+
+const LoginFormInner: React.FC<LoginFormProps> = ({
+  userType,
+  onSubmit,
+  isSubmitting,
+  onForgotPassword,
+}) => {
+  const [showPassword, setShowPassword] = useState(false);
 
   const {
     register,
     handleSubmit,
-    formState: { errors },
-    setError,
     watch,
-    reset,
-    clearErrors,
-  } = form;
+    formState: { errors },
+  } = useForm<LoginFormData>({
+    // ✅ Schema is fixed per instance — no dynamic switching needed
+    resolver: zodResolver(getSchema(userType)),
+    defaultValues: { identifier: '', password: '', rememberMe: false },
+  });
 
   const identifierValue = watch('identifier');
+  const { data: facultyEmailsData, isLoading: emailsLoading } = useFacultyEmails();
 
-  // ✅ Update resolver when userType changes
-  React.useEffect(() => {
-    const newSchema = getSchemaForUserType(userType);
-    form._resolver = zodResolver(newSchema);
-    clearErrors();
-  }, [userType, form, clearErrors]);
+  const approvedEmailSet = useMemo<Set<string>>(() => {
+    if (!facultyEmailsData?.emails?.length) return new Set();
+    return new Set(facultyEmailsData.emails.map((e: any) => e.email.toLowerCase().trim()));
+  }, [facultyEmailsData]);
 
-  // Reset form when switching tabs
-  const handleTabChange = (type: UserType) => {
-    setUserType(type);
-    reset({ identifier: '', password: '', rememberMe: false });
-    clearErrors();
-  };
-
-  // ── Helpers ───────────────────────────────────────────────────────────────
-
-  const dashboardPathForRole = (role: string): string => {
-    switch (role) {
-      case 'faculty': return '/faculty/dashboard';
-      case 'admin':   return '/admin/dashboard';
-      default:        return '/student/dashboard';
-    }
-  };
-
-  const roleLabel = (role: string): string => {
-    switch (role) {
-      case 'faculty': return 'Faculty';
-      case 'admin':   return 'Admin';
-      default:        return 'Student';
-    }
-  };
-
-  const mismatchMessage = (actualRole: string): string =>
-    `You are registered as ${roleLabel(actualRole)}. ` +
-    `Please switch to the ${roleLabel(actualRole)} login tab.`;
-
-  // ── Live email hint for faculty tab ──────────────────────────────────────
-  // Shows color-coded feedback as the user types their email
-
-  const getFacultyEmailHint = (): {
-    type: 'error' | 'warning' | 'success' | null;
-    message: string;
-  } => {
-    // Only show for faculty tab, only when something is typed
-    if (!identifierValue || userType !== 'faculty') {
-      return { type: null, message: '' };
-    }
-
+  const emailHint = useMemo(() => {
+    if (!identifierValue || userType !== 'faculty') return { type: null, message: '' };
     const lower = identifierValue.toLowerCase().trim();
+    if (!lower.endsWith(FACULTY_EMAIL_DOMAIN))
+      return { type: 'error' as const, message: `Must end with ${FACULTY_EMAIL_DOMAIN}` };
+    if (!isFacultyEmail(lower))
+      return { type: 'error' as const, message: 'Format: firstname.lastname@fcrit.ac.in' };
+    if (emailsLoading) return { type: null, message: '' };
+    if (!approvedEmailSet.has(lower))
+      return { type: 'warning' as const, message: '⚠ Email not registered in system' };
+    return { type: 'success' as const, message: '✓ Registered faculty email' };
+  }, [identifierValue, userType, emailsLoading, approvedEmailSet]);
 
-    // Check 1: Must end with @fcrit.ac.in
-    if (!lower.endsWith(FACULTY_EMAIL_DOMAIN)) {
-      return {
-        type: 'error',
-        message: `Faculty email must end with ${FACULTY_EMAIL_DOMAIN}`,
-      };
-    }
+  return (
+    <form onSubmit={handleSubmit(onSubmit)} noValidate className="space-y-4">
+      {/* Root error */}
+      <AnimatePresence>
+        {errors.root && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg flex items-start"
+          >
+            <AlertCircle className="h-5 w-5 mr-2 flex-shrink-0 mt-0.5" />
+            <span className="text-sm">{errors.root.message}</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-    // Check 2: Must match firstname.lastname format
-    if (!isFacultyEmail(lower)) {
-      return {
-        type: 'error',
-        message: 'Format: firstname.lastname@fcrit.ac.in (letters only)',
-      };
-    }
+      {/* Identifier */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">
+          {inputLabels[userType]}
+          {userType === 'faculty' && (
+            <span className="ml-2 text-xs text-purple-400 font-normal">
+              (firstname.lastname@fcrit.ac.in)
+            </span>
+          )}
+        </label>
+        <div className="relative">
+          <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+            {userType === 'student'
+              ? <Hash className={`h-5 w-5 ${errors.identifier ? 'text-red-500' : 'text-gray-400'}`} />
+              : <Mail className={`h-5 w-5 ${errors.identifier ? 'text-red-500' : 'text-gray-400'}`} />
+            }
+          </div>
+          <input
+            {...register('identifier')}
+            type={userType === 'student' ? 'text' : 'email'}
+            autoComplete={userType === 'student' ? 'username' : 'email'}
+            inputMode={userType === 'student' ? 'numeric' : 'email'}
+            placeholder={placeholders[userType]}
+            className={`block w-full pl-10 pr-3 py-3 border rounded-lg focus:outline-none focus:ring-2 transition-colors ${
+              errors.identifier
+                ? 'border-red-300 focus:ring-red-500 focus:border-red-500'
+                : `border-gray-300 ${accentClasses[userType].ring}`
+            }`}
+          />
+        </div>
+        {errors.identifier && (
+          <p className="mt-1 text-sm text-red-600">{errors.identifier.message}</p>
+        )}
+        {!errors.identifier && emailHint.type && (
+          <p className={`mt-1 text-xs ${
+            emailHint.type === 'success' ? 'text-green-600'
+            : emailHint.type === 'warning' ? 'text-yellow-600'
+            : 'text-red-600'
+          }`}>
+            {emailHint.message}
+          </p>
+        )}
+      </div>
 
-    // Check 3: Still loading DB emails — don't show anything yet
-    if (emailsLoading) {
-      return { type: null, message: '' };
-    }
+      {/* Password */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">
+          Password
+        </label>
+        <div className="relative">
+          <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+            <Lock className={`h-5 w-5 ${errors.password ? 'text-red-500' : 'text-gray-400'}`} />
+          </div>
+          <input
+            {...register('password')}
+            type={showPassword ? 'text' : 'password'}
+            autoComplete="current-password"
+            placeholder="••••••••"
+            className={`block w-full pl-10 pr-10 py-3 border rounded-lg focus:outline-none focus:ring-2 transition-colors ${
+              errors.password
+                ? 'border-red-300 focus:ring-red-500 focus:border-red-500'
+                : `border-gray-300 ${accentClasses[userType].ring}`
+            }`}
+          />
+          <button
+            type="button"
+            onClick={() => setShowPassword(!showPassword)}
+            className="absolute inset-y-0 right-0 pr-3 flex items-center"
+          >
+            {showPassword
+              ? <EyeOff className="h-5 w-5 text-gray-400 hover:text-gray-600" />
+              : <Eye className="h-5 w-5 text-gray-400 hover:text-gray-600" />
+            }
+          </button>
+        </div>
+        {errors.password && (
+          <p className="mt-1 text-sm text-red-600">{errors.password.message}</p>
+        )}
+      </div>
 
-    // Check 4: Is this email registered in MongoDB?
-    if (!approvedEmailSet.has(lower)) {
-      return {
-        type: 'warning',
-        // ✅ Dynamic message — from DB, not hardcoded list
-        message: '⚠ This email is not registered in the system',
-      };
-    }
+      {/* Remember me + Forgot password */}
+      <div className="flex items-center justify-between">
+        <label className="flex items-center gap-2 cursor-pointer">
+          <input
+            {...register('rememberMe')}
+            type="checkbox"
+            className="h-4 w-4 text-blue-600 border-gray-300 rounded"
+          />
+          <span className="text-sm text-gray-700">Remember me</span>
+        </label>
+        <button
+          type="button"
+          onClick={() => onForgotPassword(identifierValue)}
+          className="text-sm text-blue-600 hover:text-blue-500 font-medium"
+        >
+          Forgot password?
+        </button>
+      </div>
 
-    // All checks passed
-    return { type: 'success', message: '✓ Registered faculty email' };
-  };
-
-  const emailHint = getFacultyEmailHint();
-
-  // ── Google Sign-In ────────────────────────────────────────────────────────
-
-  const handleGoogleSignIn = async () => {
-    // Faculty cannot use Google Sign-In
-    if (userType === 'faculty') {
-      toast.error(
-        'Faculty must sign in with their institutional email and password.'
-      );
-      return;
-    }
-
-    setIsGoogleLoading(true);
-    try {
-      const provider = new GoogleAuthProvider();
-      provider.setCustomParameters({ prompt: 'select_account' });
-
-      const result = await signInWithPopup(auth, provider);
-      const user   = result.user;
-
-      // Block @fcrit.ac.in emails from Google sign-in
-      if (user.email?.endsWith(FACULTY_EMAIL_DOMAIN)) {
-        toast.error(
-          'Faculty must use the Faculty tab and sign in with email & password.'
-        );
-        await auth.signOut();
-        return;
-      }
-
-      const userDoc = await getDoc(doc(db, 'users', user.uid));
-      if (userDoc.exists()) {
-        const userData = userDoc.data();
-        const userRole = userData.role || 'student';
-
-        if (userRole !== userType) {
-          toast.error(mismatchMessage(userRole));
-          await auth.signOut();
-          return;
+      {/* Submit */}
+      <button
+        type="submit"
+        disabled={isSubmitting}
+        className={`w-full flex justify-center items-center py-3 px-4 rounded-lg text-sm font-medium text-white transition-all focus:outline-none focus:ring-2 focus:ring-offset-2 ${
+          isSubmitting ? 'bg-gray-400 cursor-not-allowed' : accentClasses[userType].btn
+        }`}
+      >
+        {isSubmitting
+          ? <><Loader2 className="animate-spin h-5 w-5 mr-2" />Signing in...</>
+          : `Sign in as ${roleLabel(userType)}`
         }
+      </button>
 
-        toast.success('Login successful!');
-        navigate(dashboardPathForRole(userRole));
-      } else {
-        toast.error('No account found. Please register first.');
-        await auth.signOut();
-        navigate('/register', {
-          state: {
-            googleData: {
-              email:       user.email,
-              displayName: user.displayName,
-              photoURL:    user.photoURL,
-            },
-          },
-        });
-      }
-    } catch (error: any) {
-      if (error.code === 'auth/popup-closed-by-user') {
-        toast.error('Sign-in cancelled');
-      } else if (error.code === 'auth/popup-blocked') {
-        toast.error('Popup blocked. Please allow popups for this site.');
-      } else {
-        toast.error('Google sign-in failed. Please try again.');
-      }
-    } finally {
-      setIsGoogleLoading(false);
-    }
-  };
+      {/* Register link */}
+      <p className="text-center text-sm text-gray-600">
+        Don't have an account?{' '}
+        <Link to="/register" className="font-medium text-blue-600 hover:text-blue-500">
+          Sign up
+        </Link>
+      </p>
+    </form>
+  );
+};
 
-  // ── Email/Password Sign-In ────────────────────────────────────────────────
+// ─── Main Login page ──────────────────────────────────────────────────────────
 
-  const onSubmit: SubmitHandler<LoginFormData> = async (data) => {
-    // Extra guard before hitting Firebase
-    if (userType === 'faculty' && !isFacultyEmail(data.identifier)) {
-      setError('identifier', {
-        message: 'Faculty email must be: firstname.lastname@fcrit.ac.in',
-      });
-      return;
-    }
+const Login: React.FC = () => {
+  const { login, resetPassword } = useAuth();
+  const [userType, setUserType]   = useState<UserType>('student');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleTabChange = (type: UserType) => setUserType(type);
+
+  const handleSubmit = async (data: LoginFormData) => {
+    if (userType === 'faculty' && !isFacultyEmail(data.identifier)) return;
 
     setIsSubmitting(true);
     try {
-      // ✅ Build credentials based on user type
       const credentials: any = {
         password:   data.password,
         rememberMe: data.rememberMe ?? false,
         userType,
+        ...(userType === 'student'
+          ? { roll_number: data.identifier }
+          : { email: data.identifier }),
       };
 
-      if (userType === 'student') {
-        credentials.roll_number = data.identifier;  // ✅ Pass as roll_number for students
-      } else {
-        credentials.email = data.identifier;        // ✅ Pass as email for faculty/admin
-      }
-
-      console.log('Login attempt:', { userType, credentials });
-
       await login(credentials);
-
-      // If we get here, login was successful
-      console.log('Login successful');
-
     } catch (error: any) {
       console.error('Login error:', error);
-
-      if (error.code === 'auth/user-not-found') {
-        setError('root', {
-          message: 'No account found. Please check your credentials.',
-        });
-      } else if (
-        error.code === 'auth/wrong-password' ||
-        error.code === 'auth/invalid-credential'
-      ) {
-        setError('password', { message: 'Incorrect password' });
-      } else if (error.code === 'auth/invalid-email') {
-        setError('identifier', { message: 'Invalid email format' });
-      } else if (error.code === 'auth/too-many-requests') {
-        setError('root', {
-          message: 'Too many failed attempts. Please try again later.',
-        });
-      } else if (error.message === 'Wrong login portal') {
-        setError('root', { message: error.message });
-      } else if (error.response?.data?.detail) {
-        setError('root', { message: error.response.data.detail });
-      } else {
-        setError('root', {
-          message: error.message || 'Login failed. Please try again.',
-        });
-      }
+      // Errors are shown via toast in AuthContext
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  // ── Forgot Password ───────────────────────────────────────────────────────
-
-  const handleForgotPassword = async () => {
+  const handleForgotPassword = async (identifier: string) => {
     if (userType === 'student') {
-      toast.error('Students: Please contact your administrator to reset your password.');
+      toast.error('Contact your administrator to reset your password.');
       return;
     }
-
-    if (!identifierValue) {
-      setError('identifier', { message: 'Please enter your email first' });
+    if (!identifier) {
+      toast.error('Please enter your email first.');
       return;
     }
-    
     try {
-      await resetPassword(identifierValue);
-      toast.success('Password reset email sent! Check your inbox.');
-    } catch (error: any) {
-      if (error.code === 'auth/user-not-found') {
-        setError('identifier', { message: 'No account found with this email' });
+      await resetPassword(identifier);
+      toast.success('Password reset email sent!');
+    } catch {
+      toast.error('Failed to send reset email.');
+    }
+  };
+
+  const handleGoogleSignIn = async () => {
+    if (userType === 'faculty') {
+      toast.error('Faculty must use email & password login.');
+      return;
+    }
+    try {
+      const provider = new GoogleAuthProvider();
+      provider.setCustomParameters({ prompt: 'select_account' });
+      const result = await signInWithPopup(auth, provider);
+      const fbUser = result.user;
+
+      if (fbUser.email?.endsWith(FACULTY_EMAIL_DOMAIN)) {
+        toast.error('Faculty must use the Faculty tab.');
+        await auth.signOut();
+        return;
+      }
+
+      const snap = await getDoc(doc(db, 'users', fbUser.uid));
+      if (snap.exists()) {
+        const userData = snap.data();
+        await login({
+          email:      fbUser.email || '',
+          password:   '',
+          userType:   userData.role || 'student',
+          rememberMe: false,
+        });
       } else {
-        toast.error('Failed to send reset email. Please try again.');
+        toast.error('No account found. Please register first.');
+        await auth.signOut();
+      }
+    } catch (error: any) {
+      if (error.code !== 'auth/popup-closed-by-user') {
+        toast.error('Google sign-in failed.');
       }
     }
   };
 
-  // ── Styles ────────────────────────────────────────────────────────────────
-
-  const accentClasses: Record<UserType, { btn: string; ring: string }> = {
-    student: {
-      btn:  'bg-blue-600 hover:bg-blue-700 focus:ring-blue-500',
-      ring: 'focus:ring-blue-500 focus:border-blue-500',
-    },
-    faculty: {
-      btn:  'bg-purple-600 hover:bg-purple-700 focus:ring-purple-500',
-      ring: 'focus:ring-purple-500 focus:border-purple-500',
-    },
-    admin: {
-      btn:  'bg-red-600 hover:bg-red-700 focus:ring-red-500',
-      ring: 'focus:ring-red-500 focus:border-red-500',
-    },
-  };
-
-  const placeholders: Record<UserType, string> = {
-    student: '2021001',  // ✅ Roll number example
-    faculty: 'firstname.lastname@fcrit.ac.in',
-    admin:   'admin@university.edu',
-  };
-
-  const inputLabels: Record<UserType, string> = {
-    student: 'Roll Number',  // ✅ Different label for students
-    faculty: 'Email Address',
-    admin:   'Email Address',
-  };
-
-  // ── Render ────────────────────────────────────────────────────────────────
-
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 via-white to-purple-50 px-4 sm:px-6 lg:px-8">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 via-white to-purple-50 px-4">
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5 }}
-        className="max-w-md w-full space-y-8"
+        className="max-w-md w-full space-y-6"
       >
-        {/* ── Title ── */}
+        {/* Header */}
         <div className="text-center">
-          <motion.h2
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.2 }}
-            className="mt-6 text-3xl font-extrabold text-gray-900"
-          >
-            Smart Academic Advisor
-          </motion.h2>
-          <motion.p
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.3 }}
-            className="mt-2 text-sm text-gray-600"
-          >
+          <h2 className="text-3xl font-extrabold text-gray-900">Smart Academic Advisor</h2>
+          <p className="mt-2 text-sm text-gray-600">
             Sign in to access your personalized academic dashboard
-          </motion.p>
+          </p>
         </div>
 
-        {/* ── Role Tabs ── */}
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.4 }}
-          className="flex space-x-3"
-        >
+        {/* Role Tabs */}
+        <div className="flex space-x-3">
           {(['student', 'faculty', 'admin'] as const).map((type) => {
             const icons = {
               student: <Users className="h-5 w-5" />,
               faculty: <UserCheck className="h-5 w-5" />,
               admin:   <Shield className="h-5 w-5" />,
-            };
-            const activeColors: Record<UserType, string> = {
-              student: 'bg-blue-600 text-white shadow-lg transform scale-105',
-              faculty: 'bg-purple-600 text-white shadow-lg transform scale-105',
-              admin:   'bg-red-600 text-white shadow-lg transform scale-105',
             };
             return (
               <button
@@ -465,319 +407,78 @@ const Login: React.FC = () => {
                 type="button"
                 onClick={() => handleTabChange(type)}
                 disabled={isSubmitting}
-                className={`flex-1 py-3 px-4 rounded-lg font-medium transition-all duration-200 flex items-center justify-center space-x-2 ${
+                className={`flex-1 py-3 px-4 rounded-lg font-medium transition-all flex items-center justify-center gap-2 ${
                   userType === type
-                    ? activeColors[type]
+                    ? accentClasses[type].active
                     : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                } ${isSubmitting ? 'opacity-50 cursor-not-allowed' : ''}`}
+                }`}
               >
                 {icons[type]}
                 <span className="capitalize">{type}</span>
               </button>
             );
           })}
-        </motion.div>
+        </div>
 
-        {/* ── Student info box — shown only on student tab ── */}
-        <AnimatePresence>
+        {/* Info boxes */}
+        <AnimatePresence mode="wait">
           {userType === 'student' && (
             <motion.div
+              key="student-info"
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: 'auto' }}
               exit={{ opacity: 0, height: 0 }}
               className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 text-sm text-blue-700"
             >
-              <p className="font-medium mb-1">Student Login</p>
-              <p className="text-xs text-blue-600">
-                Enter your 7-digit roll number (e.g., 2021001)
+              <p className="font-medium">Student Login</p>
+              <p className="text-xs mt-1">Enter your 7-digit roll number (e.g., 5023152)</p>
+              <p className="text-xs mt-1">
+                Default password:{' '}
+                <code className="bg-blue-100 px-1 rounded">RollNo@AdmissionYear</code>
+                {' '}e.g. 5023152@2022
               </p>
-              <div className="mt-2 pt-2 border-t border-blue-200">
-                <p className="text-xs text-blue-600">
-                  🔐 First time logging in? Your default password is{' '}
-                  <code className="font-mono font-semibold bg-blue-100 px-1 py-0.5 rounded">
-                    RollNo@AdmissionYear
-                  </code>{' '}
-                  (e.g., 2021001@2021). You'll be asked to change it after login.
-                </p>
-              </div>
             </motion.div>
           )}
-        </AnimatePresence>
 
-        {/* ── Faculty info box — shown only on faculty tab ── */}
-        <AnimatePresence>
           {userType === 'faculty' && (
             <motion.div
+              key="faculty-info"
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: 'auto' }}
               exit={{ opacity: 0, height: 0 }}
               className="bg-purple-50 border border-purple-200 rounded-lg px-4 py-3 text-sm text-purple-700"
             >
-              <p className="font-medium mb-1">Faculty Login</p>
-              <p className="text-xs text-purple-600">
-                Use your institutional email:{' '}
-                <span className="font-mono font-semibold">
-                  firstname.lastname@fcrit.ac.in
-                </span>
+              <p className="font-medium">Faculty Login</p>
+              <p className="text-xs mt-1">
+                Use: <code className="bg-purple-100 px-1 rounded">firstname.lastname@fcrit.ac.in</code>
               </p>
-              <p className="text-xs text-purple-500 mt-1">
-                Example: joe.smith@fcrit.ac.in
+              <p className="text-xs mt-1">
+                Default password: <code className="bg-purple-100 px-1 rounded">Fcrit@123</code>
               </p>
-              <div className="mt-2 pt-2 border-t border-purple-200">
-                <p className="text-xs text-purple-600">
-                  🔐 First time logging in? Your default password is{' '}
-                  <code className="font-mono font-semibold bg-purple-100 px-1 py-0.5 rounded">
-                    Fcrit@123
-                  </code>
-                  . You will be asked to change it after login.
-                </p>
-              </div>
             </motion.div>
           )}
         </AnimatePresence>
 
-        {/* ── Form card ── */}
-        <motion.form
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.5 }}
-          className="mt-8 space-y-6 bg-white p-8 rounded-xl shadow-xl"
-          onSubmit={handleSubmit(onSubmit)}
-          noValidate
-        >
-          {/* Root error banner */}
-          <AnimatePresence>
-            {errors.root && (
-              <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: 'auto' }}
-                exit={{ opacity: 0, height: 0 }}
-                className={`border px-4 py-3 rounded-lg flex items-start ${
-                  errors.root.message?.includes('switch')
-                    ? 'bg-yellow-50 border-yellow-200 text-yellow-700'
-                    : 'bg-red-50 border-red-200 text-red-700'
-                }`}
-              >
-                <AlertCircle className="h-5 w-5 mr-2 flex-shrink-0 mt-0.5" />
-                <span className="text-sm">{errors.root.message}</span>
-              </motion.div>
-            )}
-          </AnimatePresence>
+        {/* Form Card */}
+        <div className="bg-white p-8 rounded-xl shadow-xl">
+          {/*
+            ✅ KEY PROP — forces complete remount when userType changes.
+            This is the CORRECT way to switch Zod schemas in react-hook-form.
+            No need to mutate form._resolver.
+          */}
+          <LoginFormInner
+            key={userType}
+            userType={userType}
+            onSubmit={handleSubmit}
+            isSubmitting={isSubmitting}
+            onForgotPassword={handleForgotPassword}
+          />
+        </div>
 
-          <div className="space-y-4">
-            {/* ── Identifier field (Email or Roll Number) ── */}
-            <div>
-              <label
-                htmlFor="identifier"
-                className="block text-sm font-medium text-gray-700 mb-1"
-              >
-                {inputLabels[userType]}
-                {userType === 'faculty' && (
-                  <span className="ml-2 text-xs text-purple-500 font-normal">
-                    (firstname.lastname@fcrit.ac.in)
-                  </span>
-                )}
-              </label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  {userType === 'student' ? (
-                    <Hash className={`h-5 w-5 ${errors.identifier ? 'text-red-500' : 'text-gray-400'}`} />
-                  ) : (
-                    <Mail className={`h-5 w-5 ${errors.identifier ? 'text-red-500' : 'text-gray-400'}`} />
-                  )}
-                </div>
-                <input
-                  {...register('identifier')}
-                  id="identifier"
-                  type={userType === 'student' ? 'text' : 'email'}
-                  autoComplete={userType === 'student' ? 'username' : 'email'}
-                  className={`block w-full pl-10 pr-3 py-3 border rounded-lg focus:outline-none focus:ring-2 transition-colors ${
-                    errors.identifier
-                      ? 'border-red-300 focus:ring-red-500 focus:border-red-500'
-                      : `border-gray-300 ${accentClasses[userType].ring}`
-                  }`}
-                  placeholder={placeholders[userType]}
-                />
-              </div>
-
-              {/* Zod validation error */}
-              {errors.identifier && (
-                <motion.p
-                  initial={{ opacity: 0, y: -10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="mt-1 text-sm text-red-600"
-                >
-                  {errors.identifier.message}
-                </motion.p>
-              )}
-
-              {/* Live hint — only shown when no zod error and on faculty tab */}
-              {!errors.identifier && emailHint.type && (
-                <motion.p
-                  initial={{ opacity: 0, y: -5 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className={`mt-1 text-xs ${
-                    emailHint.type === 'success' ? 'text-green-600'
-                    : emailHint.type === 'warning' ? 'text-yellow-600'
-                    : 'text-red-600'
-                  }`}
-                >
-                  {emailHint.message}
-                </motion.p>
-              )}
-            </div>
-
-            {/* ── Password field ── */}
-            <div>
-              <label
-                htmlFor="password"
-                className="block text-sm font-medium text-gray-700 mb-1"
-              >
-                Password
-              </label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <Lock
-                    className={`h-5 w-5 ${
-                      errors.password ? 'text-red-500' : 'text-gray-400'
-                    }`}
-                  />
-                </div>
-                <input
-                  {...register('password')}
-                  id="password"
-                  type={showPassword ? 'text' : 'password'}
-                  autoComplete="current-password"
-                  className={`block w-full pl-10 pr-10 py-3 border rounded-lg focus:outline-none focus:ring-2 transition-colors ${
-                    errors.password
-                      ? 'border-red-300 focus:ring-red-500 focus:border-red-500'
-                      : `border-gray-300 ${accentClasses[userType].ring}`
-                  }`}
-                  placeholder="••••••••"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute inset-y-0 right-0 pr-3 flex items-center"
-                >
-                  {showPassword
-                    ? <EyeOff className="h-5 w-5 text-gray-400 hover:text-gray-600" />
-                    : <Eye   className="h-5 w-5 text-gray-400 hover:text-gray-600" />
-                  }
-                </button>
-              </div>
-              {errors.password && (
-                <motion.p
-                  initial={{ opacity: 0, y: -10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="mt-1 text-sm text-red-600"
-                >
-                  {errors.password.message}
-                </motion.p>
-              )}
-            </div>
-          </div>
-
-          {/* ── Remember me + Forgot password ── */}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center">
-              <input
-                {...register('rememberMe')}
-                id="remember-me"
-                type="checkbox"
-                className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-              />
-              <label
-                htmlFor="remember-me"
-                className="ml-2 block text-sm text-gray-700"
-              >
-                Remember me
-              </label>
-            </div>
-            <button
-              type="button"
-              onClick={handleForgotPassword}
-              className="text-sm text-blue-600 hover:text-blue-500 font-medium"
-            >
-              Forgot password?
-            </button>
-          </div>
-
-          {/* ── Submit button ── */}
-          <button
-            type="submit"
-            disabled={isSubmitting}
-            className={`w-full flex justify-center items-center py-3 px-4 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 ${
-              isSubmitting
-                ? 'bg-gray-400 cursor-not-allowed'
-                : accentClasses[userType].btn
-            }`}
-          >
-            {isSubmitting ? (
-              <>
-                <Loader2 className="animate-spin h-5 w-5 mr-2" />
-                Signing in...
-              </>
-            ) : (
-              `Sign in as ${roleLabel(userType)}`
-            )}
-          </button>
-
-          {/* ── Google Sign-In — students & admins only ── */}
-          {userType !== 'faculty' && (
-            <>
-              <div className="relative">
-                <div className="absolute inset-0 flex items-center">
-                  <div className="w-full border-t border-gray-300" />
-                </div>
-                <div className="relative flex justify-center text-sm">
-                  <span className="px-2 bg-white text-gray-500">
-                    Or continue with
-                  </span>
-                </div>
-              </div>
-
-              <button
-                type="button"
-                onClick={handleGoogleSignIn}
-                disabled={isGoogleLoading}
-                className={`w-full flex justify-center items-center py-3 px-4 border border-gray-300 rounded-lg shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-all duration-200 ${
-                  isGoogleLoading ? 'opacity-50 cursor-not-allowed' : ''
-                }`}
-              >
-                {isGoogleLoading ? (
-                  <>
-                    <Loader2 className="animate-spin h-5 w-5 mr-2" />
-                    Signing in with Google...
-                  </>
-                ) : (
-                  <>
-                    <svg className="w-5 h-5 mr-2" viewBox="0 0 24 24">
-                      <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
-                      <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-                      <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
-                      <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
-                    </svg>
-                    Sign in with Google
-                  </>
-                )}
-              </button>
-            </>
-          )}
-
-          {/* ── Register link ── */}
-          <div className="text-center">
-            <span className="text-sm text-gray-600">
-              Don&apos;t have an account?{' '}
-              <Link
-                to="/register"
-                className="font-medium text-blue-600 hover:text-blue-500"
-              >
-                Sign up
-              </Link>
-            </span>
-          </div>
-        </motion.form>
+        {/* Security notice */}
+        <p className="text-center text-xs text-gray-500">
+          🔒 Your data is encrypted and secure
+        </p>
       </motion.div>
     </div>
   );

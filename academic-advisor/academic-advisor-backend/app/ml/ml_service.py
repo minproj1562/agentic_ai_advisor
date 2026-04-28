@@ -175,25 +175,33 @@ class MLPredictionService:
     ) -> List[str]:
         """Generate AI-powered recommendations."""
         recommendations = []
-        
+
         if not features:
             return ["No student data available for analysis."]
-        
+
         sgpi_key = "current_sgpi" if "current_sgpi" in features[0] else "current_sgpa"
         avg_sgpi = np.mean([f.get(sgpi_key, 0) for f in features])
         at_risk_count = sum(1 for f in features if f.get(sgpi_key, 0) < 6.0)
 
         if self.models_available and weakness_detector and weakness_detector.is_trained:
-            # Use trained model for smarter recommendations
             all_weaknesses = []
-            for feat in features[:10]:  # Sample for efficiency
+            for feat in features[:10]:
+                # Map to WEAKNESS_FEATURES keys (was broken — used wrong key names)
                 subj_features = {
-                    "subject_score": feat.get("avg_score", 55),
-                    "attendance": feat.get("attendance", 75),
-                    "assignment_score": feat.get("assignment_completion", 65),
-                    "cgpa": feat.get("current_cgpa", feat.get("cgpa", 6)),
+                    "subject_score":          feat.get("avg_score", feat.get("avg_subject_score", 55)),
+                    "attendance":             feat.get("attendance", 75),
+                    "lab_performance":        feat.get("lab_performance", 60),
+                    "previous_related_score": feat.get("previous_sgpa", feat.get("previous_sgpi", 55)),
+                    "cgpa":                   feat.get("current_cgpa", feat.get("cgpa", 6)),
+                    "credits":                3,
+                    "is_practical":           0,
+                    "class_avg_score":        feat.get("dept_avg", 6.2) * 10,
+                    "trend_indicator":        1 if feat.get("sgpa_trend", 0) > 0 else (
+                                              -1 if feat.get("sgpa_trend", 0) < 0 else 0
+                                             ),
+                    "semester":               feat.get("semester", 4),
                 }
-                result = weakness_detector.detect(subj_features)
+                result = weakness_detector.detect(subj_features)   # FIX: was .detect_weaknesses()
                 if result["severity"] in ("critical", "high"):
                     all_weaknesses.append(result)
 
@@ -214,7 +222,7 @@ class MLPredictionService:
         low_att = sum(1 for f in features if f.get("attendance", 100) < 75)
         if low_att > 0:
             recommendations.append(
-                f"{low_att} students have low attendance. Address through personalized counseling."
+                f"{low_att} students have low attendance. Address through personalised counselling."
             )
         recommendations.extend([
             "Schedule regular progress review meetings with each mentee.",

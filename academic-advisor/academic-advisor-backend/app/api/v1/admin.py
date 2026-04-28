@@ -16,6 +16,7 @@ from app.services.admin_service import (
     _is_valid_faculty_email,
     FACULTY_EMAIL_DOMAIN,
 )
+from app.services.dynamic_training_service import get_dynamic_training_service
 from app.utils.helpers import get_logger
 
 logger = get_logger(__name__)
@@ -324,10 +325,13 @@ async def update_elective(
     update_data: dict = Body(...),
     current_user: FirebaseUser = Depends(get_admin_user)
 ):
-    """Update an elective course"""
+    """Update an elective course — auto-triggers model retraining"""
     try:
         result = await admin_service.update_elective(elective_id, update_data)
-        return {"message": "Elective updated", "data": result}
+        # Auto-trigger retraining with real student data
+        training_svc = get_dynamic_training_service()
+        await training_svc.on_elective_changed("updated", update_data)
+        return {"message": "Elective updated. Model retraining triggered.", "data": result}
     except Exception as e:
         logger.error(f"Error updating elective: {e}")
         raise HTTPException(status_code=500, detail="Failed to update elective")
@@ -338,10 +342,13 @@ async def create_elective(
     elective_data: dict = Body(...),
     current_user: FirebaseUser = Depends(get_admin_user)
 ):
-    """Create a new elective course"""
+    """Create a new elective course — auto-triggers model retraining"""
     try:
         result = await admin_service.create_elective(elective_data)
-        return {"message": "Elective created", "data": result}
+        # Auto-trigger retraining with real student data
+        training_svc = get_dynamic_training_service()
+        await training_svc.on_elective_changed("created", elective_data)
+        return {"message": "Elective created. Model retraining triggered.", "data": result}
     except Exception as e:
         logger.error(f"Error creating elective: {e}")
         raise HTTPException(status_code=500, detail="Failed to create elective")
@@ -352,13 +359,37 @@ async def delete_elective(
     elective_id: str,
     current_user: FirebaseUser = Depends(get_admin_user)
 ):
-    """Delete an elective course"""
+    """Delete an elective course — auto-triggers model retraining"""
     try:
         await admin_service.delete_elective(elective_id)
-        return {"message": "Elective deleted"}
+        # Auto-trigger retraining with real student data
+        training_svc = get_dynamic_training_service()
+        await training_svc.on_elective_changed("deleted", {"id": elective_id})
+        return {"message": "Elective deleted. Model retraining triggered."}
     except Exception as e:
         logger.error(f"Error deleting elective: {e}")
         raise HTTPException(status_code=500, detail="Failed to delete elective")
+
+
+# ==================== MODEL RETRAINING ====================
+
+@router.get("/model/training-status")
+async def get_training_status(
+    current_user: FirebaseUser = Depends(get_admin_user)
+):
+    """Get current model training status"""
+    training_svc = get_dynamic_training_service()
+    return training_svc.status
+
+
+@router.post("/model/retrain")
+async def trigger_retrain(
+    current_user: FirebaseUser = Depends(get_admin_user)
+):
+    """Manually trigger model retraining with current real student data"""
+    training_svc = get_dynamic_training_service()
+    result = await training_svc.trigger_retrain()
+    return result
 
 
 # ==================== ANALYTICS ====================

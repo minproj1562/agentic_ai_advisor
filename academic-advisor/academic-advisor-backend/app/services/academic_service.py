@@ -365,7 +365,7 @@ class AcademicService:
         # ═══════════════════════════════════════════
         # FIX: Reset flag to re-check pending marks
         # ═══════════════════════════════════════════
-        profile.pending_marks_checked = True
+        profile.pending_marks_checked = False
         await profile.replace()
 
         marks_found = await self._auto_fetch_pending_marks(profile)
