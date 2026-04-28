@@ -170,10 +170,22 @@ async getPerformanceTrends(
 
 // Add helper method to get auth token
 private async getAuthToken(): Promise<string> {
+  // 1. Firebase user (faculty/admin)
   const { auth } = await import('../../../../services/firebase.config');
   const user = auth.currentUser;
-  if (!user) throw new Error('Not authenticated');
-  return user.getIdToken();
+  if (user) {
+    return user.getIdToken();
+  }
+
+  // 2. Student JWT from localStorage
+  const storedToken =
+    localStorage.getItem('auth_token') ||
+    sessionStorage.getItem('auth_token');
+  if (storedToken) {
+    return storedToken;
+  }
+
+  throw new Error('Not authenticated');
 }
 
   /**

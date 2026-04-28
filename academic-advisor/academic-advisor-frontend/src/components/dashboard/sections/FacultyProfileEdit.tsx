@@ -1,5 +1,5 @@
 // src/components/dashboard/sections/FacultyProfileEdit.tsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import {
   User, Mail, Phone, MapPin, Briefcase, GraduationCap,
@@ -10,6 +10,80 @@ import apiClient from '../../../services/api.service';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
+
+// ── Stable sub-components (defined OUTSIDE to prevent re-creation on re-render) ──
+
+const Section: React.FC<{ title: string; icon: React.ReactNode; children: React.ReactNode; delay?: number }> = ({ title, icon, children, delay = 0 }) => (
+  <motion.div
+    initial={{ opacity: 0, y: 20 }}
+    animate={{ opacity: 1, y: 0 }}
+    transition={{ delay }}
+    className="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6 border border-gray-200 dark:border-gray-700"
+  >
+    <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+      {icon}
+      {title}
+    </h3>
+    <div className="space-y-4">{children}</div>
+  </motion.div>
+);
+
+const TextField: React.FC<{
+  field: string; label: string; placeholder?: string; type?: string; required?: boolean;
+  value: any; onChange: (field: string, value: any) => void;
+}> = ({ field, label, placeholder, type = 'text', required, value, onChange }) => (
+  <div>
+    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+      {label} {required && <span className="text-red-500">*</span>}
+    </label>
+    <input
+      type={type}
+      value={value || ''}
+      onChange={e => onChange(field, type === 'number' ? Number(e.target.value) : e.target.value)}
+      placeholder={placeholder}
+      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+    />
+  </div>
+);
+
+const TagInput: React.FC<{
+  field: string; label: string; placeholder: string;
+  items: string[]; onAdd: (field: string, value: string) => void; onRemove: (field: string, index: number) => void;
+}> = ({ field, label, placeholder, items, onAdd, onRemove }) => {
+  const [input, setInput] = useState('');
+  return (
+    <div>
+      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{label}</label>
+      <div className="flex flex-wrap gap-2 mb-2">
+        {items.map((item, i) => (
+          <span key={i} className="inline-flex items-center gap-1 px-3 py-1 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 rounded-full text-sm">
+            {item}
+            <button type="button" onClick={() => onRemove(field, i)} className="hover:text-red-500">
+              <X className="w-3 h-3" />
+            </button>
+          </span>
+        ))}
+      </div>
+      <div className="flex gap-2">
+        <input
+          type="text"
+          value={input}
+          onChange={e => setInput(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); onAdd(field, input); setInput(''); } }}
+          placeholder={placeholder}
+          className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+        />
+        <button
+          type="button"
+          onClick={() => { onAdd(field, input); setInput(''); }}
+          className="px-3 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors text-sm"
+        >
+          <Plus className="w-4 h-4" />
+        </button>
+      </div>
+    </div>
+  );
+};
 
 interface FacultyProfileEditProps {
   facultyId: string;
@@ -127,32 +201,43 @@ const FacultyProfileEdit: React.FC<FacultyProfileEditProps> = ({
     return val.map((v: any) => typeof v === 'string' ? v : (v?.name || v?.title || JSON.stringify(v))).filter(Boolean);
   };
 
-  const updateField = (field: string, value: any) => {
+  const updateField = useCallback((field: string, value: any) => {
     setForm(prev => ({ ...prev, [field]: value }));
-  };
+  }, []);
 
-  const addToList = (field: string, value: string) => {
+  const addToList = useCallback((field: string, value: string) => {
     if (!value.trim()) return;
     setForm(prev => ({ ...prev, [field]: [...(prev as any)[field], value.trim()] }));
-  };
+  }, []);
 
-  const removeFromList = (field: string, index: number) => {
+  const removeFromList = useCallback((field: string, index: number) => {
     setForm(prev => ({ ...prev, [field]: (prev as any)[field].filter((_: any, i: number) => i !== index) }));
-  };
+  }, []);
 
   // ── Save ────────────────────────────────────────────────────
   const handleSave = async () => {
     setSaving(true);
     try {
+      // Convert string years to int | null for Pydantic
+      const gradYear = form.graduation_year ? parseInt(String(form.graduation_year), 10) || null : null;
+      const joinYear = form.joining_year ? parseInt(String(form.joining_year), 10) || null : null;
+      // industry_experience: backend expects Optional[str], frontend stores string[]
+      const industryExp = Array.isArray(form.industry_experience)
+        ? form.industry_experience.join('; ')
+        : form.industry_experience || null;
+
       if (isNewProfile) {
         // Use /setup for first-time profile creation
         const setupPayload = {
           ...form,
+          graduation_year: gradYear,
+          joining_year: joinYear,
+          industry_experience: industryExp,
           all_degrees: [{
             degree: form.highest_degree,
             field: form.specialization,
             institution: form.graduation_university,
-            year: form.graduation_year,
+            year: gradYear,
           }],
           available_slots: [],
         };
@@ -160,7 +245,13 @@ const FacultyProfileEdit: React.FC<FacultyProfileEditProps> = ({
         toast.success('Profile created successfully!');
       } else {
         // Use /update for existing profiles
-        await apiClient.put('/faculty-profile/update', form);
+        const updatePayload = {
+          ...form,
+          graduation_year: gradYear,
+          joining_year: joinYear,
+          industry_experience: industryExp,
+        };
+        await apiClient.put('/faculty-profile/update', updatePayload);
         toast.success('Profile updated successfully!');
       }
       // Invalidate cache so dashboard refreshes
@@ -169,7 +260,14 @@ const FacultyProfileEdit: React.FC<FacultyProfileEditProps> = ({
       // Go back to profile view
       setTimeout(() => onBack(), 500);
     } catch (error: any) {
-      const msg = error?.response?.data?.detail || 'Failed to save profile';
+      const detail = error?.response?.data?.detail;
+      // detail can be a string OR an array of Pydantic validation errors [{type,loc,msg,input,url}]
+      let msg = 'Failed to save profile';
+      if (typeof detail === 'string') {
+        msg = detail;
+      } else if (Array.isArray(detail) && detail.length > 0) {
+        msg = detail.map((e: any) => typeof e === 'string' ? e : (e?.msg || JSON.stringify(e))).join(', ');
+      }
       toast.error(msg);
       console.error('Profile save error:', error);
     } finally {
@@ -177,75 +275,8 @@ const FacultyProfileEdit: React.FC<FacultyProfileEditProps> = ({
     }
   };
 
-  // ── Tag Input Component ─────────────────────────────────────
-  const TagInput: React.FC<{ field: string; label: string; placeholder: string }> = ({ field, label, placeholder }) => {
-    const [input, setInput] = useState('');
-    const items: string[] = (form as any)[field] || [];
-    return (
-      <div>
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{label}</label>
-        <div className="flex flex-wrap gap-2 mb-2">
-          {items.map((item, i) => (
-            <span key={i} className="inline-flex items-center gap-1 px-3 py-1 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 rounded-full text-sm">
-              {item}
-              <button type="button" onClick={() => removeFromList(field, i)} className="hover:text-red-500">
-                <X className="w-3 h-3" />
-              </button>
-            </span>
-          ))}
-        </div>
-        <div className="flex gap-2">
-          <input
-            type="text"
-            value={input}
-            onChange={e => setInput(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addToList(field, input); setInput(''); } }}
-            placeholder={placeholder}
-            className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-          />
-          <button
-            type="button"
-            onClick={() => { addToList(field, input); setInput(''); }}
-            className="px-3 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors text-sm"
-          >
-            <Plus className="w-4 h-4" />
-          </button>
-        </div>
-      </div>
-    );
-  };
-
-  // ── Text Field Component ────────────────────────────────────
-  const TextField: React.FC<{ field: string; label: string; placeholder?: string; type?: string; required?: boolean }> = ({ field, label, placeholder, type = 'text', required }) => (
-    <div>
-      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-        {label} {required && <span className="text-red-500">*</span>}
-      </label>
-      <input
-        type={type}
-        value={(form as any)[field] || ''}
-        onChange={e => updateField(field, type === 'number' ? Number(e.target.value) : e.target.value)}
-        placeholder={placeholder}
-        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-      />
-    </div>
-  );
-
-  // ── Section Wrapper ─────────────────────────────────────────
-  const Section: React.FC<{ title: string; icon: React.ReactNode; children: React.ReactNode; delay?: number }> = ({ title, icon, children, delay = 0 }) => (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay }}
-      className="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6 border border-gray-200 dark:border-gray-700"
-    >
-      <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
-        {icon}
-        {title}
-      </h3>
-      <div className="space-y-4">{children}</div>
-    </motion.div>
-  );
+  // Sub-components are defined OUTSIDE the main component (above)
+  // to prevent re-creation on every render
 
   // ── Render ──────────────────────────────────────────────────
   return (
@@ -294,52 +325,52 @@ const FacultyProfileEdit: React.FC<FacultyProfileEditProps> = ({
       {/* Personal Information */}
       <Section title="Personal Information" icon={<User className="w-5 h-5 text-indigo-600" />} delay={0.05}>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <TextField field="name" label="Full Name" placeholder="Dr. John Doe" required />
-          <TextField field="phone" label="Phone Number" placeholder="+91 98765 43210" />
+          <TextField field="name" label="Full Name" placeholder="Dr. John Doe" required value={form.name} onChange={updateField} />
+          <TextField field="phone" label="Phone Number" placeholder="+91 98765 43210" value={form.phone} onChange={updateField} />
         </div>
-        <TextField field="photo_url" label="Photo URL" placeholder="https://..." />
+        <TextField field="photo_url" label="Photo URL" placeholder="https://..." value={form.photo_url} onChange={updateField} />
       </Section>
 
       {/* Academic Qualifications */}
       <Section title="Academic Qualifications" icon={<GraduationCap className="w-5 h-5 text-purple-600" />} delay={0.1}>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <TextField field="highest_degree" label="Highest Degree" placeholder="Ph.D., M.Tech, M.E." required />
-          <TextField field="specialization" label="Specialization" placeholder="Computer Science, AI/ML" />
-          <TextField field="graduation_university" label="University" placeholder="University of Mumbai" />
-          <TextField field="graduation_year" label="Graduation Year" placeholder="2015" />
+          <TextField field="highest_degree" label="Highest Degree" placeholder="Ph.D., M.Tech, M.E." required value={form.highest_degree} onChange={updateField} />
+          <TextField field="specialization" label="Specialization" placeholder="Computer Science, AI/ML" value={form.specialization} onChange={updateField} />
+          <TextField field="graduation_university" label="University" placeholder="University of Mumbai" value={form.graduation_university} onChange={updateField} />
+          <TextField field="graduation_year" label="Graduation Year" placeholder="2015" value={form.graduation_year} onChange={updateField} />
         </div>
       </Section>
 
       {/* Current Position */}
       <Section title="Current Position" icon={<Briefcase className="w-5 h-5 text-green-600" />} delay={0.15}>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <TextField field="designation" label="Designation" placeholder="Assistant Professor" required />
-          <TextField field="department" label="Department" placeholder="Information Technology" required />
-          <TextField field="institution" label="Institution" placeholder="FCRIT, Vashi" />
-          <TextField field="years_of_experience" label="Years of Experience" type="number" />
-          <TextField field="joining_year" label="Joining Year" placeholder="2018" />
+          <TextField field="designation" label="Designation" placeholder="Assistant Professor" required value={form.designation} onChange={updateField} />
+          <TextField field="department" label="Department" placeholder="Information Technology" required value={form.department} onChange={updateField} />
+          <TextField field="institution" label="Institution" placeholder="FCRIT, Vashi" value={form.institution} onChange={updateField} />
+          <TextField field="years_of_experience" label="Years of Experience" type="number" value={form.years_of_experience} onChange={updateField} />
+          <TextField field="joining_year" label="Joining Year" placeholder="2018" value={form.joining_year} onChange={updateField} />
         </div>
       </Section>
 
       {/* Research */}
       <Section title="Research & Expertise" icon={<BookOpen className="w-5 h-5 text-emerald-600" />} delay={0.2}>
-        <TagInput field="primary_research_areas" label="Primary Research Areas (max 5)" placeholder="e.g. Machine Learning" />
-        <TagInput field="secondary_interests" label="Secondary Interests" placeholder="e.g. Data Mining" />
-        <TagInput field="research_keywords" label="Research Keywords" placeholder="e.g. NLP, Deep Learning" />
+        <TagInput field="primary_research_areas" label="Primary Research Areas (max 5)" placeholder="e.g. Machine Learning" items={form.primary_research_areas} onAdd={addToList} onRemove={removeFromList} />
+        <TagInput field="secondary_interests" label="Secondary Interests" placeholder="e.g. Data Mining" items={form.secondary_interests} onAdd={addToList} onRemove={removeFromList} />
+        <TagInput field="research_keywords" label="Research Keywords" placeholder="e.g. NLP, Deep Learning" items={form.research_keywords} onAdd={addToList} onRemove={removeFromList} />
       </Section>
 
       {/* Teaching */}
       <Section title="Teaching" icon={<GraduationCap className="w-5 h-5 text-blue-600" />} delay={0.25}>
-        <TagInput field="current_subjects" label="Current Subjects" placeholder="e.g. Operating Systems" />
-        <TagInput field="past_subjects" label="Past Subjects" placeholder="e.g. Data Structures" />
-        <TagInput field="preferred_teaching_areas" label="Preferred Teaching Areas" placeholder="e.g. AI/ML" />
+        <TagInput field="current_subjects" label="Current Subjects" placeholder="e.g. Operating Systems" items={form.current_subjects} onAdd={addToList} onRemove={removeFromList} />
+        <TagInput field="past_subjects" label="Past Subjects" placeholder="e.g. Data Structures" items={form.past_subjects} onAdd={addToList} onRemove={removeFromList} />
+        <TagInput field="preferred_teaching_areas" label="Preferred Teaching Areas" placeholder="e.g. AI/ML" items={form.preferred_teaching_areas} onAdd={addToList} onRemove={removeFromList} />
       </Section>
 
       {/* Availability */}
       <Section title="Availability" icon={<Clock className="w-5 h-5 text-amber-600" />} delay={0.3}>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <TextField field="office_location" label="Office Location" placeholder="Room 301, 3rd Floor" />
-          <TextField field="office_hours" label="Office Hours" placeholder="Mon-Fri 10:00-17:00" />
+          <TextField field="office_location" label="Office Location" placeholder="Room 301, 3rd Floor" value={form.office_location} onChange={updateField} />
+          <TextField field="office_hours" label="Office Hours" placeholder="Mon-Fri 10:00-17:00" value={form.office_hours} onChange={updateField} />
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Meeting Duration (mins)</label>
             <select
@@ -359,22 +390,22 @@ const FacultyProfileEdit: React.FC<FacultyProfileEditProps> = ({
       {/* Publications */}
       <Section title="Publications" icon={<FileText className="w-5 h-5 text-indigo-600" />} delay={0.35}>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <TextField field="total_publications" label="Total" type="number" />
-          <TextField field="journal_papers" label="Journal Papers" type="number" />
-          <TextField field="conference_papers" label="Conference Papers" type="number" />
-          <TextField field="h_index" label="h-Index" type="number" />
+          <TextField field="total_publications" label="Total" type="number" value={form.total_publications} onChange={updateField} />
+          <TextField field="journal_papers" label="Journal Papers" type="number" value={form.journal_papers} onChange={updateField} />
+          <TextField field="conference_papers" label="Conference Papers" type="number" value={form.conference_papers} onChange={updateField} />
+          <TextField field="h_index" label="h-Index" type="number" value={form.h_index} onChange={updateField} />
         </div>
-        <TagInput field="notable_works" label="Notable Works" placeholder="e.g. Paper title..." />
+        <TagInput field="notable_works" label="Notable Works" placeholder="e.g. Paper title..." items={form.notable_works} onAdd={addToList} onRemove={removeFromList} />
       </Section>
 
       {/* Awards & Others */}
       <Section title="Awards, Certifications & More" icon={<Award className="w-5 h-5 text-yellow-600" />} delay={0.4}>
-        <TagInput field="awards" label="Awards" placeholder="e.g. Best Paper Award 2023" />
-        <TagInput field="certifications" label="Certifications" placeholder="e.g. AWS Certified" />
-        <TagInput field="patents" label="Patents" placeholder="e.g. Patent title" />
-        <TagInput field="languages" label="Languages" placeholder="e.g. English, Hindi" />
-        <TagInput field="professional_memberships" label="Professional Memberships" placeholder="e.g. IEEE, ACM" />
-        <TagInput field="industry_experience" label="Industry Experience" placeholder="e.g. Software Engineer at TCS (2010-2015)" />
+        <TagInput field="awards" label="Awards" placeholder="e.g. Best Paper Award 2023" items={form.awards} onAdd={addToList} onRemove={removeFromList} />
+        <TagInput field="certifications" label="Certifications" placeholder="e.g. AWS Certified" items={form.certifications} onAdd={addToList} onRemove={removeFromList} />
+        <TagInput field="patents" label="Patents" placeholder="e.g. Patent title" items={form.patents} onAdd={addToList} onRemove={removeFromList} />
+        <TagInput field="languages" label="Languages" placeholder="e.g. English, Hindi" items={form.languages} onAdd={addToList} onRemove={removeFromList} />
+        <TagInput field="professional_memberships" label="Professional Memberships" placeholder="e.g. IEEE, ACM" items={form.professional_memberships} onAdd={addToList} onRemove={removeFromList} />
+        <TagInput field="industry_experience" label="Industry Experience" placeholder="e.g. Software Engineer at TCS (2010-2015)" items={form.industry_experience} onAdd={addToList} onRemove={removeFromList} />
       </Section>
 
       {/* Bottom Save Bar */}

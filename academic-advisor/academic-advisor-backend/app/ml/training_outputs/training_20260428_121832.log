@@ -1,0 +1,164 @@
+INFO: ================================================================================
+INFO: ================================================================================
+INFO: Parsed 74 records from IT-V-SH 2025
+INFO: Parsed 74 records from IT SEM-IV FH-2025
+INFO: Parsed 74 records from IT SEM-III SH-2024
+INFO:    Loaded 74 students
+INFO:    Features: (74, 36)
+INFO:    Labels: {'CCS': 74}
+INFO:    Train: (59, 36)
+INFO:    Test:  (15, 36)
+INFO: 
+================================================================================
+INFO: ================================================================================
+INFO:      Best params: {'n_estimators': 300, 'min_samples_split': 10, 'min_samples_leaf': 2, 'max_features': None, 'max_depth': None, 'criterion': 'gini', 'class_weight': None}
+INFO:      Best CV score: 1.0000
+INFO:      Best params: {'subsample': 1.0, 'reg_lambda': 1, 'reg_alpha': 1, 'n_estimators': 100, 'max_depth': 7, 'learning_rate': 0.01, 'gamma': 0, 'colsample_bytree': 1.0}
+INFO:      Best CV score: 1.0000
+INFO:      Best params: {'num_leaves': 50, 'n_estimators': 100, 'max_depth': -1, 'learning_rate': 0.05, 'feature_fraction': 0.7, 'bagging_freq': 5, 'bagging_fraction': 0.9}
+INFO:      Best CV score: 1.0000
+ERROR: Model CatBoost failed: catboost/private/libs/target/target_converter.cpp:404: Target contains only one unique value
+Traceback (most recent call last):
+  File "C:\Users\Sharon Shalom\miniproj2\academic-advisor\academic-advisor-backend\app\ml\train_real_data.py", line 801, in train_enhanced_models
+    model.fit(X_train, y_train)
+  File "C:\Users\Sharon Shalom\miniproj2\academic-advisor\academic-advisor-backend\venv\Lib\site-packages\catboost\core.py", line 5547, in fit
+    self._fit(X, y, cat_features, text_features, embedding_features, None, graph, sample_weight, None, None, None, None, baseline, use_best_model,
+  File "C:\Users\Sharon Shalom\miniproj2\academic-advisor\academic-advisor-backend\venv\Lib\site-packages\catboost\core.py", line 2716, in _fit
+    self._train(
+  File "C:\Users\Sharon Shalom\miniproj2\academic-advisor\academic-advisor-backend\venv\Lib\site-packages\catboost\core.py", line 1824, in _train
+    self._object._train(train_pool, test_pool, params, allow_clear_pool, init_model._object if init_model else None)
+  File "_catboost.pyx", line 5430, in _catboost._CatBoost._train
+  File "_catboost.pyx", line 5479, in _catboost._CatBoost._train
+_catboost.CatBoostError: catboost/private/libs/target/target_converter.cpp:404: Target contains only one unique value
+ERROR: Model LogisticRegression failed: 
+All the 250 fits failed.
+It is very likely that your model is misconfigured.
+You can try to debug the error by setting error_score='raise'.
+
+Below are more details about the failures:
+--------------------------------------------------------------------------------
+110 fits failed with the following error:
+Traceback (most recent call last):
+  File "C:\Users\Sharon Shalom\miniproj2\academic-advisor\academic-advisor-backend\venv\Lib\site-packages\sklearn\model_selection\_validation.py", line 833, in _fit_and_score
+    estimator.fit(X_train, y_train, **fit_params)
+  File "C:\Users\Sharon Shalom\miniproj2\academic-advisor\academic-advisor-backend\venv\Lib\site-packages\sklearn\base.py", line 1336, in wrapper
+    return fit_method(estimator, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Sharon Shalom\miniproj2\academic-advisor\academic-advisor-backend\venv\Lib\site-packages\sklearn\linear_model\_logistic.py", line 1243, in fit
+    raise ValueError(
+ValueError: This solver needs samples of at least 2 classes in the data, but the data contains only one class: 0
+
+--------------------------------------------------------------------------------
+55 fits failed with the following error:
+Traceback (most recent call last):
+  File "C:\Users\Sharon Shalom\miniproj2\academic-advisor\academic-advisor-backend\venv\Lib\site-packages\sklearn\model_selection\_validation.py", line 833, in _fit_and_score
+    estimator.fit(X_train, y_train, **fit_params)
+  File "C:\Users\Sharon Shalom\miniproj2\academic-advisor\academic-advisor-backend\venv\Lib\site-packages\sklearn\base.py", line 1336, in wrapper
+    return fit_method(estimator, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Sharon Shalom\miniproj2\academic-advisor\academic-advisor-backend\venv\Lib\site-packages\sklearn\linear_model\_logistic.py", line 1147, in fit
+    solver = _check_solver(self.solver, penalty, self.dual)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Sharon Shalom\miniproj2\academic-advisor\academic-advisor-backend\venv\Lib\site-packages\sklearn\linear_model\_logistic.py", line 73, in _check_solver
+    raise ValueError(
+ValueError: Only 'saga' solver supports elasticnet penalty, got solver=liblinear.
+
+--------------------------------------------------------------------------------
+85 fits failed with the following error:
+Traceback (most recent call last):
+  File "C:\Users\Sharon Shalom\miniproj2\academic-advisor\academic-advisor-backend\venv\Lib\site-packages\sklearn\model_selection\_validation.py", line 833, in _fit_and_score
+    estimator.fit(X_train, y_train, **fit_params)
+  File "C:\Users\Sharon Shalom\miniproj2\academic-advisor\academic-advisor-backend\venv\Lib\site-packages\sklearn\base.py", line 1336, in wrapper
+    return fit_method(estimator, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Sharon Shalom\miniproj2\academic-advisor\academic-advisor-backend\venv\Lib\site-packages\sklearn\linear_model\_logistic.py", line 1208, in fit
+    raise ValueError(
+ValueError: The 'liblinear' solver does not support multiclass classification (n_classes >= 3). Either use another solver or wrap the estimator in a OneVsRestClassifier to keep applying a one-versus-rest scheme.
+Traceback (most recent call last):
+  File "C:\Users\Sharon Shalom\miniproj2\academic-advisor\academic-advisor-backend\app\ml\train_real_data.py", line 794, in train_enhanced_models
+    model, best_params = HyperparameterOptimizer.optimize(
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Sharon Shalom\miniproj2\academic-advisor\academic-advisor-backend\app\ml\train_real_data.py", line 736, in optimize
+    search.fit(X_train, y_train)
+  File "C:\Users\Sharon Shalom\miniproj2\academic-advisor\academic-advisor-backend\venv\Lib\site-packages\sklearn\base.py", line 1336, in wrapper
+    return fit_method(estimator, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Sharon Shalom\miniproj2\academic-advisor\academic-advisor-backend\venv\Lib\site-packages\sklearn\model_selection\_search.py", line 1053, in fit
+    self._run_search(evaluate_candidates)
+  File "C:\Users\Sharon Shalom\miniproj2\academic-advisor\academic-advisor-backend\venv\Lib\site-packages\sklearn\model_selection\_search.py", line 2002, in _run_search
+    evaluate_candidates(
+  File "C:\Users\Sharon Shalom\miniproj2\academic-advisor\academic-advisor-backend\venv\Lib\site-packages\sklearn\model_selection\_search.py", line 1030, in evaluate_candidates
+    _warn_or_raise_about_fit_failures(out, self.error_score)
+  File "C:\Users\Sharon Shalom\miniproj2\academic-advisor\academic-advisor-backend\venv\Lib\site-packages\sklearn\model_selection\_validation.py", line 479, in _warn_or_raise_about_fit_failures
+    raise ValueError(all_fits_failed_message)
+ValueError: 
+All the 250 fits failed.
+It is very likely that your model is misconfigured.
+You can try to debug the error by setting error_score='raise'.
+
+Below are more details about the failures:
+--------------------------------------------------------------------------------
+110 fits failed with the following error:
+Traceback (most recent call last):
+  File "C:\Users\Sharon Shalom\miniproj2\academic-advisor\academic-advisor-backend\venv\Lib\site-packages\sklearn\model_selection\_validation.py", line 833, in _fit_and_score
+    estimator.fit(X_train, y_train, **fit_params)
+  File "C:\Users\Sharon Shalom\miniproj2\academic-advisor\academic-advisor-backend\venv\Lib\site-packages\sklearn\base.py", line 1336, in wrapper
+    return fit_method(estimator, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Sharon Shalom\miniproj2\academic-advisor\academic-advisor-backend\venv\Lib\site-packages\sklearn\linear_model\_logistic.py", line 1243, in fit
+    raise ValueError(
+ValueError: This solver needs samples of at least 2 classes in the data, but the data contains only one class: 0
+
+--------------------------------------------------------------------------------
+55 fits failed with the following error:
+Traceback (most recent call last):
+  File "C:\Users\Sharon Shalom\miniproj2\academic-advisor\academic-advisor-backend\venv\Lib\site-packages\sklearn\model_selection\_validation.py", line 833, in _fit_and_score
+    estimator.fit(X_train, y_train, **fit_params)
+  File "C:\Users\Sharon Shalom\miniproj2\academic-advisor\academic-advisor-backend\venv\Lib\site-packages\sklearn\base.py", line 1336, in wrapper
+    return fit_method(estimator, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Sharon Shalom\miniproj2\academic-advisor\academic-advisor-backend\venv\Lib\site-packages\sklearn\linear_model\_logistic.py", line 1147, in fit
+    solver = _check_solver(self.solver, penalty, self.dual)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Sharon Shalom\miniproj2\academic-advisor\academic-advisor-backend\venv\Lib\site-packages\sklearn\linear_model\_logistic.py", line 73, in _check_solver
+    raise ValueError(
+ValueError: Only 'saga' solver supports elasticnet penalty, got solver=liblinear.
+
+--------------------------------------------------------------------------------
+85 fits failed with the following error:
+Traceback (most recent call last):
+  File "C:\Users\Sharon Shalom\miniproj2\academic-advisor\academic-advisor-backend\venv\Lib\site-packages\sklearn\model_selection\_validation.py", line 833, in _fit_and_score
+    estimator.fit(X_train, y_train, **fit_params)
+  File "C:\Users\Sharon Shalom\miniproj2\academic-advisor\academic-advisor-backend\venv\Lib\site-packages\sklearn\base.py", line 1336, in wrapper
+    return fit_method(estimator, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Sharon Shalom\miniproj2\academic-advisor\academic-advisor-backend\venv\Lib\site-packages\sklearn\linear_model\_logistic.py", line 1208, in fit
+    raise ValueError(
+ValueError: The 'liblinear' solver does not support multiclass classification (n_classes >= 3). Either use another solver or wrap the estimator in a OneVsRestClassifier to keep applying a one-versus-rest scheme.
+
+ERROR: Model GradientBoosting failed: y contains 1 class after sample_weight trimmed classes with zero weights, while a minimum of 2 classes are required.
+Traceback (most recent call last):
+  File "C:\Users\Sharon Shalom\miniproj2\academic-advisor\academic-advisor-backend\app\ml\train_real_data.py", line 801, in train_enhanced_models
+    model.fit(X_train, y_train)
+  File "C:\Users\Sharon Shalom\miniproj2\academic-advisor\academic-advisor-backend\venv\Lib\site-packages\sklearn\base.py", line 1336, in wrapper
+    return fit_method(estimator, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Sharon Shalom\miniproj2\academic-advisor\academic-advisor-backend\venv\Lib\site-packages\sklearn\ensemble\_gb.py", line 677, in fit
+    y = self._encode_y(y=y, sample_weight=None)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Sharon Shalom\miniproj2\academic-advisor\academic-advisor-backend\venv\Lib\site-packages\sklearn\ensemble\_gb.py", line 1544, in _encode_y
+    raise ValueError(
+ValueError: y contains 1 class after sample_weight trimmed classes with zero weights, while a minimum of 2 classes are required.
+ERROR: Model SVM_RBF failed: The number of classes has to be greater than one; got 1 class
+Traceback (most recent call last):
+  File "C:\Users\Sharon Shalom\miniproj2\academic-advisor\academic-advisor-backend\app\ml\train_real_data.py", line 801, in train_enhanced_models
+    model.fit(X_train, y_train)
+  File "C:\Users\Sharon Shalom\miniproj2\academic-advisor\academic-advisor-backend\venv\Lib\site-packages\sklearn\base.py", line 1336, in wrapper
+    return fit_method(estimator, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Sharon Shalom\miniproj2\academic-advisor\academic-advisor-backend\venv\Lib\site-packages\sklearn\svm\_base.py", line 215, in fit
+    y = self._validate_targets(y)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Sharon Shalom\miniproj2\academic-advisor\academic-advisor-backend\venv\Lib\site-packages\sklearn\svm\_base.py", line 759, in _validate_targets
+    raise ValueError(
+ValueError: The number of classes has to be greater than one; got 1 class

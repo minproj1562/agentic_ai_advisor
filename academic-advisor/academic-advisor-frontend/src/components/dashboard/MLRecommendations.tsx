@@ -28,6 +28,7 @@ import {
   ArrowUpRight,
   Lightbulb,
   Trophy,
+  X,
 } from 'lucide-react';
 import { 
   mlService, 
@@ -319,11 +320,12 @@ export const MLRecommendations: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [electives, setElectives] = useState<ElectiveRecommendation[]>([]);
+  const [openElectives, setOpenElectives] = useState<ElectiveRecommendation[]>([]);
   const [honours, setHonours] = useState<HonoursRecommendation[]>([]);
   const [careers, setCareers] = useState<CareerRecommendation[]>([]);
   const [modelInfo, setModelInfo] = useState<ModelInfo | null>(null);
   const [computationTime, setComputationTime] = useState<number>(0);
-  const [activeTab, setActiveTab] = useState<'electives' | 'honours' | 'careers'>('electives');
+  const [activeTab, setActiveTab] = useState<'electives' | 'open_electives' | 'honours' | 'careers'>('electives');
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
   
   // Feedback state
@@ -336,6 +338,49 @@ export const MLRecommendations: React.FC = () => {
   const [feedbackRating, setFeedbackRating] = useState(3);
   const [feedbackText, setFeedbackText] = useState('');
   const [submittingFeedback, setSubmittingFeedback] = useState(false);
+
+  // Roadmap state
+  const [roadmapModal, setRoadmapModal] = useState<{
+    isOpen: boolean;
+    data: any;
+    loading: boolean;
+    electiveName: string;
+  }>({ isOpen: false, data: null, loading: false, electiveName: '' });
+  const [chosenElective, setChosenElective] = useState<string | null>(
+    localStorage.getItem('chosen_elective') || null
+  );
+
+  // ── Handle Choose Elective ──
+  const handleChooseElective = async (code: string, name: string, isOE: boolean = false) => {
+    try {
+      const semester = parseInt(localStorage.getItem('userSemester') || '5');
+      await mlService.recordElectiveChoice(code, name, isOE, semester);
+      setChosenElective(code);
+      localStorage.setItem('chosen_elective', code);
+      alert(`✅ Your choice of "${name}" has been recorded! This will help improve future recommendations.`);
+    } catch (error) {
+      console.error('Failed to record choice:', error);
+      alert('Failed to record your choice. Please try again.');
+    }
+  };
+
+  // ── Handle View Roadmap ──
+  const handleViewRoadmap = async (code: string, name: string, isOE: boolean = false) => {
+    setRoadmapModal({ isOpen: true, data: null, loading: true, electiveName: name });
+    try {
+      const data = await mlService.getImprovementRoadmap(code, isOE);
+      setRoadmapModal({ isOpen: true, data, loading: false, electiveName: name });
+    } catch (error: any) {
+      console.error('Failed to get roadmap:', error);
+      // Show error in the modal instead of closing it
+      setRoadmapModal({
+        isOpen: true,
+        data: { error: true, message: error?.response?.data?.detail || 'Failed to load roadmap. Please try again.' },
+        loading: false,
+        electiveName: name
+      });
+    }
+  };
 
   useEffect(() => {
     fetchRecommendations();
@@ -357,6 +402,7 @@ export const MLRecommendations: React.FC = () => {
       );
       
       setElectives(data.electives || []);
+      setOpenElectives(data.open_electives || []);
       setHonours(data.honours || []);
       setCareers(data.careers || []);
       setModelInfo(data.model_info || null);
@@ -530,7 +576,18 @@ export const MLRecommendations: React.FC = () => {
             }`}
           >
             <Sparkles className="w-4 h-4" />
-            Electives ({electives.length})
+            Program ({electives.length})
+          </button>
+          <button
+            onClick={() => setActiveTab('open_electives')}
+            className={`flex-1 py-3 px-4 rounded-lg font-medium transition-all flex items-center justify-center gap-2 ${
+              activeTab === 'open_electives'
+                ? 'bg-gradient-to-r from-teal-500 to-cyan-600 text-white shadow-md'
+                : 'text-gray-600 hover:bg-gray-100'
+            }`}
+          >
+            <BookOpen className="w-4 h-4" />
+            Open Electives ({openElectives.length})
           </button>
           <button
             onClick={() => setActiveTab('honours')}
@@ -541,7 +598,7 @@ export const MLRecommendations: React.FC = () => {
             }`}
           >
             <Award className="w-4 h-4" />
-            Honours/Minors ({honours.length})
+            Honours ({honours.length})
           </button>
           <button
             onClick={() => setActiveTab('careers')}
@@ -552,7 +609,7 @@ export const MLRecommendations: React.FC = () => {
             }`}
           >
             <Target className="w-4 h-4" />
-            Career Paths ({careers.length})
+            Careers ({careers.length})
           </button>
         </div>
       </div>
@@ -748,8 +805,193 @@ export const MLRecommendations: React.FC = () => {
                     {/* Actions */}
                     <div className="flex flex-col gap-2 ml-4">
                       <button
+                        onClick={() => handleChooseElective(elective.elective_code, elective.elective_name, false)}
+                        disabled={chosenElective === elective.elective_code}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-medium transition ${
+                          chosenElective === elective.elective_code
+                            ? 'bg-green-100 text-green-700 cursor-default'
+                            : 'bg-purple-100 text-purple-700 hover:bg-purple-200'
+                        }`}
+                        title={chosenElective === elective.elective_code ? 'Already chosen' : 'Record this as your choice'}
+                      >
+                        {chosenElective === elective.elective_code ? '✓ Chosen' : 'Choose This'}
+                      </button>
+                      <button
+                        onClick={() => handleViewRoadmap(elective.elective_code, elective.elective_name, false)}
+                        className="px-3 py-1.5 rounded-lg text-xs font-medium bg-orange-100 text-orange-700 hover:bg-orange-200 transition"
+                        title="View improvement roadmap"
+                      >
+                        📋 Roadmap
+                      </button>
+                      <button
                         onClick={() => openFeedbackModal('elective', elective.elective_code, elective.elective_name)}
                         className="p-2 hover:bg-purple-50 rounded-lg transition text-gray-500 hover:text-purple-600"
+                        title="Give Feedback"
+                      >
+                        <MessageSquare className="w-5 h-5" />
+                      </button>
+                    </div>
+                  </div>
+                </motion.div>
+              ))
+            )}
+          </motion.div>
+        )}
+
+        {/* ==================== OPEN ELECTIVES TAB ==================== */}
+        {activeTab === 'open_electives' && (
+          <motion.div
+            key="open_electives"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className="space-y-4"
+          >
+            {openElectives.length === 0 ? (
+              <div className="bg-white rounded-xl shadow-sm border p-8 text-center">
+                <BookOpen className="w-12 h-12 mx-auto text-gray-400 mb-4" />
+                <h3 className="text-lg font-semibold text-gray-700 mb-2">No Open Elective Recommendations</h3>
+                <p className="text-gray-500">
+                  Open electives are typically offered in Semester 7. Add your academic data to get personalized recommendations.
+                </p>
+              </div>
+            ) : (
+              openElectives.map((elective, index) => (
+                <motion.div
+                  key={elective.elective_code}
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: index * 0.1 }}
+                  className="bg-white rounded-xl shadow-sm border p-6 hover:shadow-lg transition-shadow"
+                >
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      {/* Header */}
+                      <div className="flex items-center gap-3 mb-3">
+                        <h3 className="text-lg font-semibold text-gray-900">{elective.elective_name}</h3>
+                        <span className="text-sm text-gray-500 font-mono">({elective.elective_code})</span>
+                        <span className="px-2 py-1 bg-teal-100 text-teal-700 rounded-full text-xs font-medium">
+                          {elective.credits} Credits
+                        </span>
+                        <span className="px-2 py-1 bg-cyan-100 text-cyan-700 rounded-full text-xs font-medium">
+                          Open Elective
+                        </span>
+                      </div>
+
+                      {/* Confidence Indicator */}
+                      {elective.confidence && (
+                        <ConfidenceIndicator confidence={elective.confidence} />
+                      )}
+
+                      {/* Score Breakdown Visualizer */}
+                      {elective.score_breakdown && (
+                        <div className="my-4">
+                          <ScoreBreakdownVisualizer 
+                            breakdown={elective.score_breakdown} 
+                            matchScore={elective.match_score}
+                          />
+                        </div>
+                      )}
+
+                      {/* Ranking Explanation */}
+                      {elective.ranking_explanation && (
+                        <div className="my-4">
+                          <RankingExplanationCard explanation={elective.ranking_explanation} />
+                        </div>
+                      )}
+
+                      {/* Match Bar (fallback) */}
+                      {!elective.score_breakdown && (
+                        <div className="mb-4">
+                          <div className="flex items-center gap-4">
+                            <div className="flex-1 max-w-sm">
+                              <div className="flex justify-between text-sm mb-1">
+                                <span className="text-gray-600">Match Score</span>
+                                <span className="font-bold text-gray-900">{elective.match_score.toFixed(1)}%</span>
+                              </div>
+                              <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
+                                <motion.div
+                                  initial={{ width: 0 }}
+                                  animate={{ width: `${elective.match_score}%` }}
+                                  transition={{ duration: 1, delay: index * 0.1 }}
+                                  className={`h-full rounded-full bg-gradient-to-r ${getMatchGradient(elective.match_score)}`}
+                                />
+                              </div>
+                            </div>
+                            <span className={`px-3 py-1.5 rounded-full text-sm font-medium border ${getMatchColor(elective.match_score)}`}>
+                              {getMatchLabel(elective.match_score)}
+                            </span>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Explanation */}
+                      {!elective.score_breakdown && elective.match_explanation && (
+                        <div className="bg-gradient-to-r from-teal-50 to-cyan-50 rounded-lg p-4 mb-4">
+                          <div className="flex items-start gap-2">
+                            <Info className="w-4 h-4 text-teal-500 mt-0.5 flex-shrink-0" />
+                            <p className="text-sm text-gray-700 whitespace-pre-line">{elective.match_explanation}</p>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Skills & Career */}
+                      <div className="grid grid-cols-2 gap-4">
+                        {elective.skill_alignment && elective.skill_alignment.length > 0 && (
+                          <div>
+                            <p className="text-xs text-gray-500 mb-2 font-medium uppercase tracking-wide">
+                              Skills You'll Gain
+                            </p>
+                            <div className="flex flex-wrap gap-1.5">
+                              {elective.skill_alignment.map((skill) => (
+                                <span key={skill} className="px-2.5 py-1 bg-teal-50 text-teal-700 rounded-md text-xs font-medium">
+                                  {skill}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        {elective.career_relevance && elective.career_relevance.length > 0 && (
+                          <div>
+                            <p className="text-xs text-gray-500 mb-2 font-medium uppercase tracking-wide">
+                              Career Paths
+                            </p>
+                            <div className="flex flex-wrap gap-1.5">
+                              {elective.career_relevance.map((career) => (
+                                <span key={career} className="px-2.5 py-1 bg-green-50 text-green-700 rounded-md text-xs font-medium">
+                                  {career}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Actions */}
+                    <div className="flex flex-col gap-2 ml-4">
+                      <button
+                        onClick={() => handleChooseElective(elective.elective_code, elective.elective_name, true)}
+                        disabled={chosenElective === elective.elective_code}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-medium transition ${
+                          chosenElective === elective.elective_code
+                            ? 'bg-green-100 text-green-700 cursor-default'
+                            : 'bg-teal-100 text-teal-700 hover:bg-teal-200'
+                        }`}
+                        title={chosenElective === elective.elective_code ? 'Already chosen' : 'Record this as your choice'}
+                      >
+                        {chosenElective === elective.elective_code ? '✓ Chosen' : 'Choose This'}
+                      </button>
+                      <button
+                        onClick={() => handleViewRoadmap(elective.elective_code, elective.elective_name, true)}
+                        className="px-3 py-1.5 rounded-lg text-xs font-medium bg-orange-100 text-orange-700 hover:bg-orange-200 transition"
+                        title="View improvement roadmap"
+                      >
+                        📋 Roadmap
+                      </button>
+                      <button
+                        onClick={() => openFeedbackModal('elective', elective.elective_code, elective.elective_name)}
+                        className="p-2 hover:bg-teal-50 rounded-lg transition text-gray-500 hover:text-teal-600"
                         title="Give Feedback"
                       >
                         <MessageSquare className="w-5 h-5" />
@@ -1220,6 +1462,190 @@ export const MLRecommendations: React.FC = () => {
                 >
                   Cancel
                 </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+      {/* ==================== ROADMAP MODAL ==================== */}
+      <AnimatePresence>
+        {roadmapModal.isOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
+            onClick={() => setRoadmapModal({ ...roadmapModal, isOpen: false })}
+          >
+            <motion.div
+              initial={{ scale: 0.9, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.9, y: 20 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[85vh] overflow-y-auto"
+            >
+              {/* Header */}
+              <div className="bg-gradient-to-r from-orange-500 to-amber-500 text-white p-6 rounded-t-2xl">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-xl font-bold">📋 Improvement Roadmap</h3>
+                    <p className="text-orange-100 text-sm mt-1">{roadmapModal.electiveName}</p>
+                  </div>
+                  <button
+                    onClick={() => setRoadmapModal({ ...roadmapModal, isOpen: false })}
+                    className="p-2 hover:bg-white/20 rounded-lg transition"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+              </div>
+
+              <div className="p-6">
+                {roadmapModal.loading ? (
+                  <div className="flex items-center justify-center py-12">
+                    <Loader2 className="w-8 h-8 animate-spin text-orange-500" />
+                    <span className="ml-3 text-gray-600">Generating roadmap...</span>
+                  </div>
+                ) : roadmapModal.data?.error ? (
+                  <div className="text-center py-8">
+                    <AlertTriangle className="w-12 h-12 mx-auto text-orange-400 mb-4" />
+                    <h4 className="font-semibold text-gray-700 mb-2">Could not load roadmap</h4>
+                    <p className="text-gray-500 text-sm">{roadmapModal.data.message}</p>
+                    <button
+                      onClick={() => setRoadmapModal({ ...roadmapModal, isOpen: false })}
+                      className="mt-4 px-4 py-2 bg-orange-100 text-orange-700 rounded-lg hover:bg-orange-200 transition text-sm"
+                    >
+                      Close
+                    </button>
+                  </div>
+                ) : roadmapModal.data ? (
+                  <div className="space-y-6">
+                    {/* Readiness Assessment */}
+                    {roadmapModal.data.readiness && (
+                    <div className="bg-gradient-to-r from-gray-50 to-orange-50 rounded-xl p-5">
+                      <h4 className="font-semibold text-gray-800 mb-3">🎯 Readiness Assessment</h4>
+                      <div className="flex items-center gap-4">
+                        <div className="relative w-20 h-20">
+                          <svg className="w-20 h-20 transform -rotate-90" viewBox="0 0 36 36">
+                            <circle cx="18" cy="18" r="16" fill="none" stroke="#e5e7eb" strokeWidth="3" />
+                            <circle
+                              cx="18" cy="18" r="16" fill="none"
+                              stroke={roadmapModal.data.readiness.percentage >= 70 ? '#22c55e' : roadmapModal.data.readiness.percentage >= 50 ? '#f59e0b' : '#ef4444'}
+                              strokeWidth="3" strokeDasharray={`${roadmapModal.data.readiness.percentage} 100`}
+                              strokeLinecap="round"
+                            />
+                          </svg>
+                          <div className="absolute inset-0 flex items-center justify-center">
+                            <span className="text-lg font-bold">{roadmapModal.data.readiness.percentage}%</span>
+                          </div>
+                        </div>
+                        <div>
+                          <span className={`px-3 py-1 rounded-full text-sm font-medium ${
+                            roadmapModal.data.readiness.level === 'Ready' ? 'bg-green-100 text-green-700' :
+                            roadmapModal.data.readiness.level === 'Moderate' ? 'bg-yellow-100 text-yellow-700' :
+                            'bg-red-100 text-red-700'
+                          }`}>
+                            {roadmapModal.data.readiness.level}
+                          </span>
+                          <p className="text-sm text-gray-600 mt-2">{roadmapModal.data.readiness.message}</p>
+                        </div>
+                      </div>
+                    </div>
+                    )}
+
+                    {/* Prerequisite Analysis */}
+                    {roadmapModal.data.prerequisite_analysis?.length > 0 && (
+                      <div>
+                        <h4 className="font-semibold text-gray-800 mb-3">📚 Prerequisite Subjects</h4>
+                        <div className="space-y-2">
+                          {roadmapModal.data.prerequisite_analysis.map((prereq: any, i: number) => (
+                            <div key={i} className={`rounded-lg p-3 border ${
+                              prereq.status === 'strong' ? 'bg-green-50 border-green-200' :
+                              prereq.status === 'needs_improvement' ? 'bg-yellow-50 border-yellow-200' :
+                              'bg-red-50 border-red-200'
+                            }`}>
+                              <div className="flex justify-between items-center">
+                                <div className="flex items-center gap-2">
+                                  <span className={`w-2 h-2 rounded-full ${
+                                    prereq.status === 'strong' ? 'bg-green-500' :
+                                    prereq.status === 'needs_improvement' ? 'bg-yellow-500' : 'bg-red-500'
+                                  }`} />
+                                  <span className="font-medium text-gray-800">{prereq.subject}</span>
+                                </div>
+                                <div className="flex items-center gap-3">
+                                  <span className="text-sm text-gray-600">Score: {prereq.current_score}%</span>
+                                  <span className={`text-xs px-2 py-0.5 rounded ${
+                                    prereq.importance === 'Critical' ? 'bg-red-100 text-red-700' :
+                                    prereq.importance === 'Important' ? 'bg-orange-100 text-orange-700' :
+                                    'bg-gray-100 text-gray-700'
+                                  }`}>{prereq.importance}</span>
+                                </div>
+                              </div>
+                              {prereq.gap > 0 && (
+                                <div className="mt-2">
+                                  <div className="w-full bg-gray-200 rounded-full h-1.5">
+                                    <div
+                                      className={`h-1.5 rounded-full ${
+                                        prereq.status === 'strong' ? 'bg-green-500' :
+                                        prereq.status === 'needs_improvement' ? 'bg-yellow-500' : 'bg-red-500'
+                                      }`}
+                                      style={{ width: `${Math.min(prereq.current_score, 100)}%` }}
+                                    />
+                                  </div>
+                                  <p className="text-xs text-gray-500 mt-1">Gap: {prereq.gap} marks to target ({prereq.target_score}%)</p>
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Study Plan */}
+                    {roadmapModal.data.study_plan?.weeks?.length > 0 && (
+                      <div>
+                        <h4 className="font-semibold text-gray-800 mb-3">📅 {roadmapModal.data.study_plan.total_weeks}-Week Study Plan</h4>
+                        <div className="space-y-3">
+                          {roadmapModal.data.study_plan.weeks.map((week: any) => (
+                            <div key={week.week} className="bg-blue-50 rounded-lg p-4 border border-blue-100">
+                              <h5 className="font-medium text-blue-800 mb-2">Week {week.week}</h5>
+                              <div className="space-y-1">
+                                {week.goals?.map((goal: string, i: number) => (
+                                  <p key={i} className="text-sm text-gray-700 flex items-start gap-2">
+                                    <span className="text-blue-500 mt-0.5">•</span> {goal}
+                                  </p>
+                                ))}
+                              </div>
+                              <div className="mt-2 space-y-1">
+                                {week.activities?.map((activity: string, i: number) => (
+                                  <p key={i} className="text-xs text-gray-500 flex items-start gap-2">
+                                    <span>→</span> {activity}
+                                  </p>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Skills to Gain */}
+                    {roadmapModal.data.skills_to_gain?.length > 0 && (
+                      <div>
+                        <h4 className="font-semibold text-gray-800 mb-2">💡 Skills You'll Gain</h4>
+                        <div className="flex flex-wrap gap-2">
+                          {roadmapModal.data.skills_to_gain.map((skill: string) => (
+                            <span key={skill} className="px-3 py-1 bg-purple-50 text-purple-700 rounded-full text-xs font-medium">
+                              {skill}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-gray-500 text-center py-8">No roadmap data available.</p>
+                )}
               </div>
             </motion.div>
           </motion.div>

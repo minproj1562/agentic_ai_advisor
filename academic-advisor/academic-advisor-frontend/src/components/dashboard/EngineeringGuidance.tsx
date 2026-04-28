@@ -514,12 +514,14 @@ interface WeaknessAnalyzerProps {
   onStartLearning?: (topicId: string, subject: string) => void;
   interests?: string[];
   electives?: string[];
+  dashboardWeaknesses?: any[];
 }
 
 export const WeaknessAnalyzer: React.FC<WeaknessAnalyzerProps> = ({ 
   onStartLearning,
   interests: propInterests,
-  electives: propElectives
+  electives: propElectives,
+  dashboardWeaknesses = []
 }) => {
   const { data: metrics } = usePerformanceMetrics();
   
@@ -696,8 +698,58 @@ export const WeaknessAnalyzer: React.FC<WeaknessAnalyzerProps> = ({
       }
     });
 
+    // Finally: add dashboard grade-based weaknesses (from /me/full endpoint)
+    // These are subjects with grades F, P, C or grade_points <= 5
+    if (dashboardWeaknesses && dashboardWeaknesses.length > 0) {
+      dashboardWeaknesses.forEach((dw: any, index: number) => {
+        const key = (dw.subject || '').toLowerCase().trim();
+        if (key && !seenSubjects.has(key)) {
+          seenSubjects.add(key);
+          merged.push({
+            id: `dashboard-weakness-${index}`,
+            subject: dw.subject,
+            subjectCode: dw.subject_code || `DW${index}`,
+            semester: dw.semester ? `Sem ${dw.semester}` : 'Previous',
+            overallScore: dw.total_marks || 0,
+            targetScore: 60,
+            severity: dw.severity || 'medium',
+            confidence: 0.9,
+            gapPercentage: Math.max(0, 60 - (dw.total_marks || 0)),
+            estimatedTime: '4-6 weeks',
+            source: 'dashboard',
+            topics: [{
+              id: `dw-topic-${index}-0`,
+              name: dw.subject,
+              currentScore: dw.total_marks || 0,
+              targetScore: 60,
+              severity: dw.severity || 'medium',
+              improvement: `Grade: ${dw.grade || '?'}`,
+              examWeight: '—',
+              resources: 2,
+              timeEstimate: '2-3 hours',
+              relatedTopics: []
+            }],
+            improvementSuggestions: [
+              `Review ${dw.subject} fundamentals`,
+              `Practice previous year questions`,
+              `Seek help from faculty or peers`
+            ],
+            recommendedResources: [],
+            impactOnInterest: null,
+            impactOnElective: null,
+            impactOnCareer: null,
+            aiAnalysis: {
+              rootCause: `Grade ${dw.grade || '?'} in ${dw.subject} (Semester ${dw.semester || '?'})`,
+              studyStrategy: 'Focus on fundamentals and practice regularly',
+              estimatedImprovementTime: '4-6 weeks'
+            }
+          });
+        }
+      });
+    }
+
     return merged;
-  }, [academicWeaknesses, hookWeaknesses, interests]);
+  }, [academicWeaknesses, hookWeaknesses, dashboardWeaknesses, interests]);
 
   // Severity counts from merged data
   const severityCounts = useMemo(() => ({

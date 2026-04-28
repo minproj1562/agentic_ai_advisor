@@ -1,0 +1,23 @@
+INFO: ================================================================================
+INFO: ================================================================================
+INFO: Parsed 74 records from IT-V-SH 2025
+INFO: Parsed 74 records from IT SEM-IV FH-2025
+INFO: Parsed 74 records from IT SEM-III SH-2024
+INFO:    Loaded 74 students
+INFO:    Features: (74, 36)
+INFO:    Labels: {'CCS': 74}
+INFO:    Train: (59, 36)
+INFO:    Test:  (15, 36)
+INFO: 
+================================================================================
+INFO: ================================================================================
+INFO: Training: RandomForest
+INFO:      Best params: {'n_estimators': 300, 'min_samples_split': 10, 'min_samples_leaf': 2, 'max_features': None, 'max_depth': None, 'criterion': 'gini', 'class_weight': None}
+INFO:      Best CV score: 1.0000
+INFO: Training: XGBoost
+INFO:      Best params: {'subsample': 1.0, 'reg_lambda': 1, 'reg_alpha': 1, 'n_estimators': 100, 'max_depth': 7, 'learning_rate': 0.01, 'gamma': 0, 'colsample_bytree': 1.0}
+INFO:      Best CV score: 1.0000
+INFO: Training: LightGBM
+INFO:      Best params: {'num_leaves': 50, 'n_estimators': 100, 'max_depth': -1, 'learning_rate': 0.05, 'feature_fraction': 0.7, 'bagging_freq': 5, 'bagging_fraction': 0.9}
+INFO:      Best CV score: 1.0000
+INFO: Training: CatBoost

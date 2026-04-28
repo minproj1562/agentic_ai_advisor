@@ -17,9 +17,19 @@ const apiClient = axios.create({
 apiClient.interceptors.request.use(
   async (config) => {
     try {
+      // 1. Firebase user (faculty/admin)
       const token = await auth.currentUser?.getIdToken();
       if (token && config.headers) {
         config.headers.Authorization = `Bearer ${token}`;
+        return config;
+      }
+
+      // 2. Student JWT from localStorage (students don't use Firebase)
+      const storedToken =
+        localStorage.getItem('auth_token') ||
+        sessionStorage.getItem('auth_token');
+      if (storedToken && config.headers) {
+        config.headers.Authorization = `Bearer ${storedToken}`;
       }
     } catch (err) {
       console.warn('Failed to get auth token:', err);

@@ -47,7 +47,9 @@ export interface FacultyEmailsResponse {
 // ─── Base URL — reads from Vite env var, falls back to localhost ───────────────
 
 const BASE_URL =
-  (import.meta as any).env?.VITE_API_URL ?? 'http://localhost:8000/api/v1';
+  (import.meta as any).env?.VITE_API_URL
+    ? `${(import.meta as any).env.VITE_API_URL}/api/v1`
+    : 'http://localhost:8000/api/v1';
 
 // ─── Main hook ────────────────────────────────────────────────────────────────
 

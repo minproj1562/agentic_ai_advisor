@@ -7,6 +7,10 @@ from datetime import datetime
 
 from app.models.elective import Elective, ElectiveCategory, DifficultyLevel
 from app.core.deps import get_current_user
+from app.services.catalogue_loader import CatalogueLoader
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -362,6 +366,11 @@ async def create_elective(
         )
         
         await elective.insert()
+        
+        # Invalidate recommendation engine cache so new elective is picked up
+        CatalogueLoader.invalidate_cache()
+        logger.info(f"✅ Elective {elective.code} created — catalogue cache invalidated")
+        
         return elective_to_response(elective)
     except HTTPException:
         raise
@@ -393,6 +402,10 @@ async def update_elective(
         elective.updated_at = datetime.utcnow()
         await elective.save()
         
+        # Invalidate recommendation engine cache
+        CatalogueLoader.invalidate_cache()
+        logger.info(f"✅ Elective {elective.code} updated — catalogue cache invalidated")
+        
         return elective_to_response(elective)
     except HTTPException:
         raise
@@ -416,6 +429,10 @@ async def delete_elective(
             raise HTTPException(status_code=404, detail="Elective not found")
         
         await elective.delete()
+        
+        # Invalidate recommendation engine cache
+        CatalogueLoader.invalidate_cache()
+        logger.info(f"✅ Elective {elective.code} deleted — catalogue cache invalidated")
         
         return {"message": f"Elective {elective.code} deleted successfully"}
     except HTTPException:
@@ -507,3 +524,165 @@ async def get_electives_summary():
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching statistics: {str(e)}")
+
+
+# ══════════════════════════════════════════════════════════════════
+#  ADMIN: Retrain Recommendation Engine
+# ══════════════════════════════════════════════════════════════════
+
+@router.post("/electives/admin/retrain")
+async def retrain_recommendation_engine(
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Force-refresh the recommendation engine with latest DB electives.
+    Admin only. Call this after bulk elective changes.
+    """
+    try:
+        if current_user.get("role") not in ["admin", "faculty"]:
+            raise HTTPException(status_code=403, detail="Not authorized")
+
+        from app.ml.models.recommendation_engine import refresh_engine
+        engine = await refresh_engine()
+
+        return {
+            "success": True,
+            "message": "Recommendation engine refreshed with latest elective data",
+            "engine_trained": engine.is_trained,
+            "elective_meta_count": len(engine.ELECTIVE_META),
+            "open_elective_meta_count": len(engine.OPEN_ELECTIVE_META),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Retrain error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Retrain failed: {str(e)}")
+
+
+# ══════════════════════════════════════════════════════════════════
+#  ADMIN: Seed Existing Hardcoded Electives into MongoDB
+# ══════════════════════════════════════════════════════════════════
+
+@router.post("/electives/admin/seed")
+async def seed_electives_to_db(
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    One-time seed: copies the hardcoded ELECTIVE_META and OPEN_ELECTIVE_META
+    from the recommendation engine into MongoDB as Elective documents.
+    
+    This bootstraps the dynamic system. After this, admins can manage
+    electives through the portal and they'll automatically update the engine.
+    
+    Skips electives that already exist (by code).
+    """
+    try:
+        if current_user.get("role") not in ["admin", "faculty"]:
+            raise HTTPException(status_code=403, detail="Not authorized")
+
+        from app.ml.models.recommendation_engine import (
+            ELECTIVE_META, OPEN_ELECTIVE_META,
+            SUBJECT_WEIGHTS, OE_SUBJECT_WEIGHTS,
+            INTEREST_ELECTIVE_MAP, OE_INTEREST_MAP,
+            PROJECT_SKILL_MAP, OE_PROJECT_SKILL_MAP,
+            CONCEPT_MAP, OE_CONCEPT_MAP,
+        )
+
+        created = 0
+        skipped = 0
+
+        # Seed Program Electives
+        for key, meta in ELECTIVE_META.items():
+            code = meta.get("code", key)
+            existing = await Elective.find_one(Elective.code == code)
+            if existing:
+                skipped += 1
+                continue
+
+            elective = Elective(
+                code=code,
+                name=meta.get("name", key),
+                description=meta.get("description", ""),
+                category=ElectiveCategory.PROGRAM_ELECTIVE,
+                department="Information Technology",
+                semester=5,
+                credits=meta.get("credits", 3),
+                prerequisites=[],
+                topics=[],
+                skills_covered=meta.get("skills", []),
+                career_paths=meta.get("career_paths", []),
+                difficulty_level=DifficultyLevel.INTERMEDIATE,
+                engine_key=key,
+                subject_weights=SUBJECT_WEIGHTS.get(key, {}),
+                interest_mappings=[
+                    {"area": area, "weight": weight}
+                    for area, weight in INTEREST_ELECTIVE_MAP.get(key, [])
+                ],
+                project_keywords=PROJECT_SKILL_MAP.get(key, []),
+                concept_prefixes=[
+                    {"prefix": prefix, "weight": weight}
+                    for prefix, weight in CONCEPT_MAP.get(key, [])
+                ],
+                modules=meta.get("modules", []),
+                is_available=True,
+            )
+            await elective.insert()
+            created += 1
+
+        # Seed Open Electives
+        for key, meta in OPEN_ELECTIVE_META.items():
+            code = meta.get("code", key)
+            existing = await Elective.find_one(Elective.code == code)
+            if existing:
+                skipped += 1
+                continue
+
+            elective = Elective(
+                code=code,
+                name=meta.get("name", key),
+                description=meta.get("description", ""),
+                category=ElectiveCategory.OPEN_ELECTIVE,
+                department="Information Technology",
+                semester=meta.get("semester", 7),
+                credits=meta.get("credits", 3),
+                prerequisites=[],
+                topics=[],
+                skills_covered=meta.get("skills", []),
+                career_paths=meta.get("career_paths", []),
+                difficulty_level=DifficultyLevel.INTERMEDIATE,
+                engine_key=key,
+                subject_weights=OE_SUBJECT_WEIGHTS.get(key, {}),
+                interest_mappings=[
+                    {"area": area, "weight": weight}
+                    for area, weight in OE_INTEREST_MAP.get(key, [])
+                ],
+                project_keywords=OE_PROJECT_SKILL_MAP.get(key, []),
+                concept_prefixes=[
+                    {"prefix": prefix, "weight": weight}
+                    for prefix, weight in OE_CONCEPT_MAP.get(key, [])
+                ],
+                modules=meta.get("modules", []),
+                is_available=True,
+            )
+            await elective.insert()
+            created += 1
+
+        # Invalidate cache so engine picks up new data
+        CatalogueLoader.invalidate_cache()
+
+        # Refresh engine
+        from app.ml.models.recommendation_engine import refresh_engine
+        await refresh_engine()
+
+        return {
+            "success": True,
+            "message": f"Seeded {created} electives, skipped {skipped} existing",
+            "created": created,
+            "skipped": skipped,
+            "total_in_db": await Elective.count(),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Seed error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Seed failed: {str(e)}")

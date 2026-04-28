@@ -181,18 +181,33 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         // ── Student: pure JWT, no Firebase ──────────────────────────────
         if (role === 'student' && token && saved) {
+          // Immediately restore from cache — user sees dashboard instantly
+          if (!cancelled) {
+            setUser(saved);
+            setLoading(false);
+          }
+
+          // Background verify — only clear on definitive 401 (expired token)
           try {
             const { data } = await apiClient.get('/auth/verify-token');
             if (data.success && !cancelled) {
-              // Merge fresh data from backend over saved data
+              // Merge fresh data from backend
               setUser({ ...saved, ...data.user });
-              setLoading(false);
-              return;
             }
-          } catch {
-            // Token invalid or expired
-            clearSession();
+          } catch (err: any) {
+            // Only clear session on 401 (token actually expired/invalid)
+            // Don't clear on network errors, 500s, etc.
+            if (err?.response?.status === 401) {
+              console.warn('Student token expired, clearing session');
+              clearSession();
+              if (!cancelled) {
+                setUser(null);
+              }
+            } else {
+              console.warn('Token verify failed (network/server), keeping cached session:', err?.message);
+            }
           }
+          return; // Don't fall through to Firebase path
         }
 
         // ── Faculty / Admin: Firebase auth state ─────────────────────────
@@ -201,31 +216,37 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
           if (fbUser) {
             try {
-              // Get a fresh ID token and store it
+              // Get a fresh ID token and always store in localStorage
               const freshToken = await fbUser.getIdToken(false);
-              const s = localStorage.getItem(STORAGE_KEYS.ROLE)
-                ? localStorage
-                : sessionStorage;
-              s.setItem(STORAGE_KEYS.TOKEN, freshToken);
+              localStorage.setItem(STORAGE_KEYS.TOKEN, freshToken);
 
               // Load user data from Firestore
               const snap = await getDoc(doc(db, 'users', fbUser.uid));
               if (snap.exists()) {
                 const userData = snap.data() as Omit<User, 'uid' | 'email'>;
-                setUser({
+                const fullUser = {
                   ...userData,
                   uid:   fbUser.uid,
                   email: fbUser.email || '',
-                });
+                };
+                setUser(fullUser);
+                // Keep localStorage in sync
+                localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(fullUser));
+                localStorage.setItem(STORAGE_KEYS.ROLE, userData.role || 'faculty');
               } else {
                 setUser(null);
               }
             } catch (err) {
               console.error('Error restoring Firebase session:', err);
-              setUser(null);
+              // Try to use cached user data as fallback
+              if (saved) {
+                setUser(saved);
+              } else {
+                setUser(null);
+              }
             }
           } else {
-            // No Firebase session — clear any stale storage
+            // No Firebase session — if not a student, clear everything
             if (role !== 'student') {
               clearSession();
               setUser(null);

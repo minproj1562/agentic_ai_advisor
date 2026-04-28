@@ -245,12 +245,22 @@ class WeaknessService {
       client.interceptors.request.use(
         async (config) => {
           try {
+            // 1. Firebase user (faculty/admin)
             const currentUser = auth.currentUser;
             if (currentUser) {
               const token = await currentUser.getIdToken();
               if (token && config.headers) {
                 config.headers.Authorization = `Bearer ${token}`;
               }
+              return config;
+            }
+
+            // 2. Student JWT from localStorage (students don't use Firebase)
+            const storedToken =
+              localStorage.getItem('auth_token') ||
+              sessionStorage.getItem('auth_token');
+            if (storedToken && config.headers) {
+              config.headers.Authorization = `Bearer ${storedToken}`;
             }
           } catch (error) {
             console.error('Failed to get auth token:', error);

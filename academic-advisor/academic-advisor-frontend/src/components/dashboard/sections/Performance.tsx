@@ -56,7 +56,14 @@ const Performance: React.FC = () => {
   const { data: performanceData, isLoading, error, refetch } = useQuery({
   queryKey: ['studentPerformance', timeRange],
   queryFn: async (): Promise<PerformanceData> => {
-    const token = await auth.currentUser?.getIdToken();
+    // 1. Try Firebase token (faculty/admin)
+    let token = await auth.currentUser?.getIdToken();
+
+    // 2. Fallback to stored JWT (students)
+    if (!token) {
+      token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token') || undefined;
+    }
+
     if (!token) throw new Error('Authentication required');
 
     // Use /me/full which has semester_records with subjects
@@ -105,7 +112,7 @@ const Performance: React.FC = () => {
         : []
     };
   },
-  enabled: !!auth.currentUser,
+  enabled: !!(auth.currentUser || localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token')),
   staleTime: 60_000,
   retry: 2,
 });

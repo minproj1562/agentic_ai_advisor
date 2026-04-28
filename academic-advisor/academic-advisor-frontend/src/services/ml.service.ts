@@ -418,11 +418,13 @@ export interface CareerRecommendation {
 
 export interface CumulativeRecommendationResponse {
   electives: ElectiveRecommendation[];
+  open_electives?: ElectiveRecommendation[];
   honours: HonoursRecommendation[];
   careers: CareerRecommendation[];
   model_info: {
     models_used: string[];
     is_ml_trained: boolean;
+    is_oe_ml_trained?: boolean;
     version: string;
     cached?: boolean;
     cached_at?: string;
@@ -600,12 +602,22 @@ class MLService {
     this.api.interceptors.request.use(
       async (config) => {
         try {
+          // 1. Firebase user (faculty/admin)
           const currentUser = auth.currentUser;
           if (currentUser) {
             const token = await currentUser.getIdToken();
             if (token && config.headers) {
               config.headers.Authorization = `Bearer ${token}`;
             }
+            return config;
+          }
+
+          // 2. Student JWT from localStorage (students don't use Firebase)
+          const storedToken =
+            localStorage.getItem('auth_token') ||
+            sessionStorage.getItem('auth_token');
+          if (storedToken && config.headers) {
+            config.headers.Authorization = `Bearer ${storedToken}`;
           }
         } catch (error) {
           console.error('Failed to get auth token:', error);
@@ -715,6 +727,48 @@ class MLService {
       return response.data;
     } catch (error) {
       console.error('Error refreshing recommendations:', error);
+      throw error;
+    }
+  }
+
+  // ==================== ELECTIVE CHOICE TRACKING ====================
+
+  async recordElectiveChoice(
+    electiveCode: string,
+    electiveName: string,
+    isOpenElective: boolean = false,
+    semester: number = 5,
+    reason: string = ''
+  ): Promise<any> {
+    try {
+      const response = await this.api.post('/recommendations/record-choice', {
+        chosen_elective_code: electiveCode,
+        chosen_elective_name: electiveName,
+        is_open_elective: isOpenElective,
+        semester,
+        reason,
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Error recording elective choice:', error);
+      throw error;
+    }
+  }
+
+  // ==================== IMPROVEMENT ROADMAP ====================
+
+  async getImprovementRoadmap(
+    electiveCode: string,
+    isOpenElective: boolean = false
+  ): Promise<any> {
+    try {
+      const response = await this.api.post('/recommendations/roadmap', {
+        elective_code: electiveCode,
+        is_open_elective: isOpenElective,
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Error getting roadmap:', error);
       throw error;
     }
   }

@@ -1,0 +1,782 @@
+[
+  {
+    "student_name": "ALLEN ANTONY BEENA",
+    "weaknesses": [
+      {
+        "subject": "Database Management System",
+        "semester": "sem3",
+        "percentage": 29.0,
+        "severity": "critical",
+        "gap": 11.0,
+        "type": "theory"
+      },
+      {
+        "subject": "Engineering Mathematics-IV",
+        "semester": "sem4",
+        "percentage": 40.0,
+        "severity": "high",
+        "gap": 15.0,
+        "type": "theory"
+      },
+      {
+        "subject": "Operating System",
+        "semester": "sem4",
+        "percentage": 40.0,
+        "severity": "high",
+        "gap": 15.0,
+        "type": "theory"
+      },
+      {
+        "subject": "Data Structures & Analysis",
+        "semester": "sem3",
+        "percentage": 40.0,
+        "severity": "high",
+        "gap": 15.0,
+        "type": "theory"
+      },
+      {
+        "subject": "Digital Logic Design & Analysis",
+        "semester": "sem3",
+        "percentage": 40.0,
+        "severity": "high",
+        "gap": 15.0,
+        "type": "theory"
+      },
+      {
+        "subject": "Automata Theory",
+        "semester": "sem5",
+        "percentage": 45.0,
+        "severity": "high",
+        "gap": 10.0,
+        "type": "theory"
+      },
+      {
+        "subject": "Microcontroller and Embedded Systems",
+        "semester": "sem4",
+        "percentage": 46.0,
+        "severity": "high",
+        "gap": 9.0,
+        "type": "theory"
+      },
+      {
+        "subject": "Artificial Intelligence",
+        "semester": "sem5",
+        "percentage": 47.0,
+        "severity": "high",
+        "gap": 8.0,
+        "type": "theory"
+      },
+      {
+        "subject": "Computer Network",
+        "semester": "sem4",
+        "percentage": 51.0,
+        "severity": "high",
+        "gap": 4.0,
+        "type": "theory"
+      },
+      {
+        "subject": "Engineering Mathematics-III",
+        "semester": "sem3",
+        "percentage": 51.2,
+        "severity": "high",
+        "gap": 3.8,
+        "type": "theory"
+      },
+      {
+        "subject": "Software Engineering",
+        "semester": "sem4",
+        "percentage": 52.0,
+        "severity": "high",
+        "gap": 3.0,
+        "type": "theory"
+      },
+      {
+        "subject": "Internet of Things",
+        "semester": "sem5",
+        "percentage": 53.0,
+        "severity": "high",
+        "gap": 2.0,
+        "type": "theory"
+      },
+      {
+        "subject": "Python Laboratory",
+        "semester": "sem3",
+        "percentage": 53.0,
+        "severity": "high",
+        "gap": 2.0,
+        "type": "lab"
+      },
+      {
+        "subject": "Computer Organization & Architecture",
+        "semester": "sem3",
+        "percentage": 55.2,
+        "severity": "medium",
+        "gap": 9.8,
+        "type": "theory"
+      },
+      {
+        "subject": "Networks Laboratory",
+        "semester": "sem4",
+        "percentage": 58.0,
+        "severity": "medium",
+        "gap": 7.0,
+        "type": "lab"
+      }
+    ],
+    "cgpa": 5.79
+  },
+  {
+    "student_name": "AMAL BENNY MINI",
+    "weaknesses": [
+      {
+        "subject": "Operating System",
+        "semester": "sem4",
+        "percentage": 40.0,
+        "severity": "high",
+        "gap": 15.0,
+        "type": "theory"
+      },
+      {
+        "subject": "Data Structures & Analysis",
+        "semester": "sem3",
+        "percentage": 41.0,
+        "severity": "high",
+        "gap": 14.0,
+        "type": "theory"
+      },
+      {
+        "subject": "Artificial Intelligence",
+        "semester": "sem5",
+        "percentage": 43.0,
+        "severity": "high",
+        "gap": 12.0,
+        "type": "theory"
+      },
+      {
+        "subject": "Engineering Mathematics-IV",
+        "semester": "sem4",
+        "percentage": 43.2,
+        "severity": "high",
+        "gap": 11.8,
+        "type": "theory"
+      },
+      {
+        "subject": "Digital Logic Design & Analysis",
+        "semester": "sem3",
+        "percentage": 48.0,
+        "severity": "high",
+        "gap": 7.0,
+        "type": "theory"
+      },
+      {
+        "subject": "Automata Theory",
+        "semester": "sem5",
+        "percentage": 49.0,
+        "severity": "high",
+        "gap": 6.0,
+        "type": "theory"
+      },
+      {
+        "subject": "Internet of Things",
+        "semester": "sem5",
+        "percentage": 50.0,
+        "severity": "high",
+        "gap": 5.0,
+        "type": "theory"
+      },
+      {
+        "subject": "Microcontroller and Embedded Systems",
+        "semester": "sem4",
+        "percentage": 50.0,
+        "severity": "high",
+        "gap": 5.0,
+        "type": "theory"
+      },
+      {
+        "subject": "Engineering Mathematics-III",
+        "semester": "sem3",
+        "percentage": 52.0,
+        "severity": "high",
+        "gap": 3.0,
+        "type": "theory"
+      },
+      {
+        "subject": "Computer Network",
+        "semester": "sem4",
+        "percentage": 55.0,
+        "severity": "medium",
+        "gap": 10.0,
+        "type": "theory"
+      },
+      {
+        "subject": "Python Laboratory",
+        "semester": "sem3",
+        "percentage": 55.0,
+        "severity": "medium",
+        "gap": 10.0,
+        "type": "lab"
+      },
+      {
+        "subject": "Computer Organization & Architecture",
+        "semester": "sem3",
+        "percentage": 55.2,
+        "severity": "medium",
+        "gap": 9.8,
+        "type": "theory"
+      },
+      {
+        "subject": "Database Management System",
+        "semester": "sem3",
+        "percentage": 56.0,
+        "severity": "medium",
+        "gap": 9.0,
+        "type": "theory"
+      },
+      {
+        "subject": "Software Engineering",
+        "semester": "sem4",
+        "percentage": 58.0,
+        "severity": "medium",
+        "gap": 7.0,
+        "type": "theory"
+      },
+      {
+        "subject": "Data Structure Laboratory",
+        "semester": "sem3",
+        "percentage": 64.0,
+        "severity": "medium",
+        "gap": 1.0,
+        "type": "lab"
+      }
+    ],
+    "cgpa": 5.91
+  },
+  {
+    "student_name": "ANGAJ ADITYA EKNATH SMITA",
+    "weaknesses": [
+      {
+        "subject": "Digital Logic Design & Analysis",
+        "semester": "sem3",
+        "percentage": 52.0,
+        "severity": "high",
+        "gap": 3.0,
+        "type": "theory"
+      },
+      {
+        "subject": "Operating System",
+        "semester": "sem4",
+        "percentage": 61.0,
+        "severity": "medium",
+        "gap": 4.0,
+        "type": "theory"
+      },
+      {
+        "subject": "Data Structures & Analysis",
+        "semester": "sem3",
+        "percentage": 64.0,
+        "severity": "medium",
+        "gap": 1.0,
+        "type": "theory"
+      },
+      {
+        "subject": "Computer Organization & Architecture",
+        "semester": "sem3",
+        "percentage": 64.8,
+        "severity": "medium",
+        "gap": 0.2,
+        "type": "theory"
+      }
+    ],
+    "cgpa": 7.17
+  },
+  {
+    "student_name": "/ANGELLA BENJAMIN ASHA",
+    "weaknesses": [
+      {
+        "subject": "Digital Logic Design & Analysis",
+        "semester": "sem3",
+        "percentage": 53.0,
+        "severity": "high",
+        "gap": 2.0,
+        "type": "theory"
+      },
+      {
+        "subject": "Operating System",
+        "semester": "sem4",
+        "percentage": 54.0,
+        "severity": "high",
+        "gap": 1.0,
+        "type": "theory"
+      },
+      {
+        "subject": "Engineering Mathematics-IV",
+        "semester": "sem4",
+        "percentage": 56.8,
+        "severity": "medium",
+        "gap": 8.2,
+        "type": "theory"
+      },
+      {
+        "subject": "Database Management System",
+        "semester": "sem3",
+        "percentage": 58.0,
+        "severity": "medium",
+        "gap": 7.0,
+        "type": "theory"
+      },
+      {
+        "subject": "Program Elective Course-I",
+        "semester": "sem5",
+        "percentage": 61.0,
+        "severity": "medium",
+        "gap": 4.0,
+        "type": "theory"
+      },
+      {
+        "subject": "Networks Laboratory",
+        "semester": "sem4",
+        "percentage": 62.0,
+        "severity": "medium",
+        "gap": 3.0,
+        "type": "lab"
+      },
+      {
+        "subject": "Artificial Intelligence",
+        "semester": "sem5",
+        "percentage": 63.0,
+        "severity": "medium",
+        "gap": 2.0,
+        "type": "theory"
+      },
+      {
+        "subject": "Microcontroller and Embedded Systems",
+        "semester": "sem4",
+        "percentage": 63.0,
+        "severity": "medium",
+        "gap": 2.0,
+        "type": "theory"
+      }
+    ],
+    "cgpa": 6.98
+  },
+  {
+    "student_name": "JOSE ANVIN JOSE SHEELA JOSE",
+    "weaknesses": [
+      {
+        "subject": "Networks Laboratory",
+        "semester": "sem4",
+        "percentage": 56.0,
+        "severity": "medium",
+        "gap": 9.0,
+        "type": "lab"
+      },
+      {
+        "subject": "Internet of Things",
+        "semester": "sem5",
+        "percentage": 57.0,
+        "severity": "medium",
+        "gap": 8.0,
+        "type": "theory"
+      },
+      {
+        "subject": "Python Laboratory",
+        "semester": "sem3",
+        "percentage": 59.0,
+        "severity": "medium",
+        "gap": 6.0,
+        "type": "lab"
+      }
+    ],
+    "cgpa": 7.33
+  },
+  {
+    "student_name": "BHISE HARSH VILAS UJWALA",
+    "weaknesses": [
+      {
+        "subject": "Operating System",
+        "semester": "sem4",
+        "percentage": 23.0,
+        "severity": "critical",
+        "gap": 17.0,
+        "type": "theory"
+      },
+      {
+        "subject": "Data Structures & Analysis",
+        "semester": "sem3",
+        "percentage": 24.0,
+        "severity": "critical",
+        "gap": 16.0,
+        "type": "theory"
+      },
+      {
+        "subject": "Digital Logic Design & Analysis",
+        "semester": "sem3",
+        "percentage": 35.0,
+        "severity": "critical",
+        "gap": 5.0,
+        "type": "theory"
+      },
+      {
+        "subject": "Computer Network",
+        "semester": "sem4",
+        "percentage": 40.0,
+        "severity": "high",
+        "gap": 15.0,
+        "type": "theory"
+      },
+      {
+        "subject": "Microcontroller and Embedded Systems",
+        "semester": "sem4",
+        "percentage": 40.0,
+        "severity": "high",
+        "gap": 15.0,
+        "type": "theory"
+      },
+      {
+        "subject": "Artificial Intelligence",
+        "semester": "sem5",
+        "percentage": 41.0,
+        "severity": "high",
+        "gap": 14.0,
+        "type": "theory"
+      },
+      {
+        "subject": "Engineering Mathematics-IV",
+        "semester": "sem4",
+        "percentage": 44.0,
+        "severity": "high",
+        "gap": 11.0,
+        "type": "theory"
+      },
+      {
+        "subject": "Automata Theory",
+        "semester": "sem5",
+        "percentage": 48.0,
+        "severity": "high",
+        "gap": 7.0,
+        "type": "theory"
+      },
+      {
+        "subject": "Database Management System",
+        "semester": "sem3",
+        "percentage": 48.0,
+        "severity": "high",
+        "gap": 7.0,
+        "type": "theory"
+      },
+      {
+        "subject": "Internet of Things",
+        "semester": "sem5",
+        "percentage": 51.0,
+        "severity": "high",
+        "gap": 4.0,
+        "type": "theory"
+      },
+      {
+        "subject": "Computer Organization & Architecture",
+        "semester": "sem3",
+        "percentage": 52.8,
+        "severity": "high",
+        "gap": 2.2,
+        "type": "theory"
+      },
+      {
+        "subject": "Engineering Mathematics-III",
+        "semester": "sem3",
+        "percentage": 53.6,
+        "severity": "high",
+        "gap": 1.4,
+        "type": "theory"
+      },
+      {
+        "subject": "Program Elective Course-I",
+        "semester": "sem5",
+        "percentage": 55.0,
+        "severity": "medium",
+        "gap": 10.0,
+        "type": "theory"
+      },
+      {
+        "subject": "Mobile Application Development Laboratory",
+        "semester": "sem5",
+        "percentage": 58.0,
+        "severity": "medium",
+        "gap": 7.0,
+        "type": "lab"
+      },
+      {
+        "subject": "Networks Laboratory",
+        "semester": "sem4",
+        "percentage": 58.0,
+        "severity": "medium",
+        "gap": 7.0,
+        "type": "lab"
+      },
+      {
+        "subject": "Software Engineering",
+        "semester": "sem4",
+        "percentage": 59.0,
+        "severity": "medium",
+        "gap": 6.0,
+        "type": "theory"
+      },
+      {
+        "subject": "Cloud Computing Laboratory",
+        "semester": "sem5",
+        "percentage": 60.0,
+        "severity": "medium",
+        "gap": 5.0,
+        "type": "lab"
+      },
+      {
+        "subject": "Python Laboratory",
+        "semester": "sem3",
+        "percentage": 61.0,
+        "severity": "medium",
+        "gap": 4.0,
+        "type": "lab"
+      },
+      {
+        "subject": "Data Structure Laboratory",
+        "semester": "sem3",
+        "percentage": 62.0,
+        "severity": "medium",
+        "gap": 3.0,
+        "type": "lab"
+      }
+    ],
+    "cgpa": 5.34
+  },
+  {
+    "student_name": "BOLE PARTH DEODATTA NEHA",
+    "weaknesses": [
+      {
+        "subject": "Operating System",
+        "semester": "sem4",
+        "percentage": 62.0,
+        "severity": "medium",
+        "gap": 3.0,
+        "type": "theory"
+      }
+    ],
+    "cgpa": 8.03
+  },
+  {
+    "student_name": "CARLO FLOYD PETER FLAVY",
+    "weaknesses": [
+      {
+        "subject": "Operating System",
+        "semester": "sem4",
+        "percentage": 47.0,
+        "severity": "high",
+        "gap": 8.0,
+        "type": "theory"
+      },
+      {
+        "subject": "Digital Logic Design & Analysis",
+        "semester": "sem3",
+        "percentage": 49.0,
+        "severity": "high",
+        "gap": 6.0,
+        "type": "theory"
+      },
+      {
+        "subject": "Data Structures & Analysis",
+        "semester": "sem3",
+        "percentage": 51.0,
+        "severity": "high",
+        "gap": 4.0,
+        "type": "theory"
+      },
+      {
+        "subject": "Engineering Mathematics-IV",
+        "semester": "sem4",
+        "percentage": 52.0,
+        "severity": "high",
+        "gap": 3.0,
+        "type": "theory"
+      },
+      {
+        "subject": "Computer Network",
+        "semester": "sem4",
+        "percentage": 54.0,
+        "severity": "high",
+        "gap": 1.0,
+        "type": "theory"
+      },
+      {
+        "subject": "Artificial Intelligence",
+        "semester": "sem5",
+        "percentage": 55.0,
+        "severity": "medium",
+        "gap": 10.0,
+        "type": "theory"
+      },
+      {
+        "subject": "Microcontroller and Embedded Systems",
+        "semester": "sem4",
+        "percentage": 61.0,
+        "severity": "medium",
+        "gap": 4.0,
+        "type": "theory"
+      },
+      {
+        "subject": "Internet of Things",
+        "semester": "sem5",
+        "percentage": 62.0,
+        "severity": "medium",
+        "gap": 3.0,
+        "type": "theory"
+      },
+      {
+        "subject": "Linux Laboratory",
+        "semester": "sem4",
+        "percentage": 62.0,
+        "severity": "medium",
+        "gap": 3.0,
+        "type": "lab"
+      },
+      {
+        "subject": "Software Development Laboratory",
+        "semester": "sem4",
+        "percentage": 64.0,
+        "severity": "medium",
+        "gap": 1.0,
+        "type": "lab"
+      }
+    ],
+    "cgpa": 6.78
+  },
+  {
+    "student_name": "DANNON ARULRAJ KANTHIMATHI",
+    "weaknesses": [
+      {
+        "subject": "Engineering Mathematics-IV",
+        "semester": "sem4",
+        "percentage": 43.2,
+        "severity": "high",
+        "gap": 11.8,
+        "type": "theory"
+      },
+      {
+        "subject": "Digital Logic Design & Analysis",
+        "semester": "sem3",
+        "percentage": 51.0,
+        "severity": "high",
+        "gap": 4.0,
+        "type": "theory"
+      },
+      {
+        "subject": "Artificial Intelligence",
+        "semester": "sem5",
+        "percentage": 55.0,
+        "severity": "medium",
+        "gap": 10.0,
+        "type": "theory"
+      },
+      {
+        "subject": "Data Structures & Analysis",
+        "semester": "sem3",
+        "percentage": 55.0,
+        "severity": "medium",
+        "gap": 10.0,
+        "type": "theory"
+      },
+      {
+        "subject": "Database Management System",
+        "semester": "sem3",
+        "percentage": 55.0,
+        "severity": "medium",
+        "gap": 10.0,
+        "type": "theory"
+      },
+      {
+        "subject": "Networks Laboratory",
+        "semester": "sem4",
+        "percentage": 58.0,
+        "severity": "medium",
+        "gap": 7.0,
+        "type": "lab"
+      },
+      {
+        "subject": "Software Engineering",
+        "semester": "sem4",
+        "percentage": 59.0,
+        "severity": "medium",
+        "gap": 6.0,
+        "type": "theory"
+      },
+      {
+        "subject": "Software Development Laboratory",
+        "semester": "sem4",
+        "percentage": 62.0,
+        "severity": "medium",
+        "gap": 3.0,
+        "type": "lab"
+      },
+      {
+        "subject": "Computer Network",
+        "semester": "sem4",
+        "percentage": 63.0,
+        "severity": "medium",
+        "gap": 2.0,
+        "type": "theory"
+      },
+      {
+        "subject": "Computer Organization & Architecture",
+        "semester": "sem3",
+        "percentage": 63.2,
+        "severity": "medium",
+        "gap": 1.8,
+        "type": "theory"
+      }
+    ],
+    "cgpa": 6.65
+  },
+  {
+    "student_name": "DCOSTA AELDOSH SALVADOR ALEYAMMA",
+    "weaknesses": [
+      {
+        "subject": "Artificial Intelligence",
+        "semester": "sem5",
+        "percentage": 57.0,
+        "severity": "medium",
+        "gap": 8.0,
+        "type": "theory"
+      },
+      {
+        "subject": "Operating System",
+        "semester": "sem4",
+        "percentage": 58.0,
+        "severity": "medium",
+        "gap": 7.0,
+        "type": "theory"
+      },
+      {
+        "subject": "Internet of Things",
+        "semester": "sem5",
+        "percentage": 60.0,
+        "severity": "medium",
+        "gap": 5.0,
+        "type": "theory"
+      },
+      {
+        "subject": "Microcontroller and Embedded Systems",
+        "semester": "sem4",
+        "percentage": 63.0,
+        "severity": "medium",
+        "gap": 2.0,
+        "type": "theory"
+      },
+      {
+        "subject": "Networks Laboratory",
+        "semester": "sem4",
+        "percentage": 64.0,
+        "severity": "medium",
+        "gap": 1.0,
+        "type": "lab"
+      }
+    ],
+    "cgpa": 7.23
+  }
+]

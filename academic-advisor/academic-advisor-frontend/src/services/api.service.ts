@@ -11,7 +11,6 @@ const API_BASE_URL =
 const PUBLIC_ENDPOINTS = [
   '/auth/student/login',
   '/auth/faculty/login',
-  '/auth/verify-token',
   '/auth/admin/login',
   '/health',
   '/faculty/approved-emails',
@@ -75,7 +74,9 @@ apiClient.interceptors.response.use(
   async (error) => {
     if (error.response?.status === 401) {
       const url = error.config?.url || '';
-      if (!isPublicEndpoint(url)) {
+      // Don't clear tokens for verify-token (handled by AuthContext)
+      // or public endpoints
+      if (!isPublicEndpoint(url) && !url.includes('verify-token')) {
         console.error('401 — clearing stale token');
         localStorage.removeItem('auth_token');
         sessionStorage.removeItem('auth_token');

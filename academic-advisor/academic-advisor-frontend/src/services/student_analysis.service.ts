@@ -445,11 +445,20 @@ export class StudentAnalysisService extends SimpleEventEmitter {
     this.api.interceptors.request.use(
       async (config: InternalAxiosRequestConfig) => {
         try {
+          // 1. Firebase user (faculty/admin)
           const currentUser = auth.currentUser;
           if (currentUser) {
             const token = await currentUser.getIdToken();
             if (token && config.headers) {
               config.headers.Authorization = `Bearer ${token}`;
+            }
+          } else {
+            // 2. Student JWT from localStorage
+            const storedToken =
+              localStorage.getItem('auth_token') ||
+              sessionStorage.getItem('auth_token');
+            if (storedToken && config.headers) {
+              config.headers.Authorization = `Bearer ${storedToken}`;
             }
           }
         } catch (error) {

@@ -75,6 +75,32 @@ class Elective(Document):
     average_rating: float = Field(default=0.0, ge=0.0, le=5.0)
     completion_rate: float = Field(default=0.0, ge=0.0, le=100.0)
     
+    # ═══════════════════════════════════════════════════════════
+    # Recommendation Engine Fields (auto-generated if not set)
+    # ═══════════════════════════════════════════════════════════
+    
+    # Prerequisite subject weights: {"Python": 3.0, "DSA": 2.5}
+    # Higher weight = more important prerequisite for this elective
+    subject_weights: Dict[str, float] = Field(default_factory=dict)
+    
+    # Interest area mappings: [{"area": "AI & ML", "weight": 2.0}]
+    interest_mappings: List[Dict[str, float]] = Field(default_factory=list)
+    
+    # Project keywords for matching student projects to this elective
+    project_keywords: List[str] = Field(default_factory=list)
+    
+    # Concept prefix matching: [{"prefix": "predict", "weight": 0.5}]
+    concept_prefixes: List[Dict[str, float]] = Field(default_factory=list)
+    
+    # Full syllabus text for NLP-based keyword extraction
+    syllabus_text: str = Field(default="")
+    
+    # Module/unit list
+    modules: List[str] = Field(default_factory=list)
+    
+    # Short key code used by the engine (e.g. "ML", "CCS", "RE")
+    engine_key: Optional[str] = Field(default=None)
+    
     # Timestamps
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)

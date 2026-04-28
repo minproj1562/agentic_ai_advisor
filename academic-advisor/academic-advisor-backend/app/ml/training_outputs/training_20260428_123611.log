@@ -1,0 +1,31 @@
+INFO: ================================================================================
+INFO: COMPLETE ENHANCED TRAINING PIPELINE
+INFO: ================================================================================
+INFO: 
+Step 1: Loading Excel data...
+INFO: Parsed 74 records from IT-V-SH 2025
+INFO: Parsed 74 records from IT SEM-IV FH-2025
+INFO: Parsed 74 records from IT SEM-III SH-2024
+INFO:    Loaded 74 students
+INFO: 
+Step 2: Advanced feature engineering...
+INFO: Starting advanced feature engineering...
+INFO: Created 18 engineered features
+INFO: 
+Step 3: Creating diversified labels...
+INFO: Assigning diversified labels...
+INFO: Initial distribution: {'ccs': 74}
+INFO: Rebalanced ML: +7 students
+INFO: Rebalanced WT: +7 students
+INFO: Rebalanced DWM: +7 students
+INFO: Rebalanced CCS: +7 students
+INFO: Final distribution: {'ccs': 57, 'CCS': 7, 'DWM': 5, 'ML': 4, 'WT': 1}
+INFO:    Features: (74, 18)
+INFO:    Labels: {'CCS': 7, 'DWM': 5, 'ML': 4, 'WT': 1, 'ccs': 57}
+INFO: 
+Step 4: Preprocessing...
+INFO: Starting preprocessing pipeline...
+INFO:   - Imputing missing values (KNN)...
+INFO:   - Splitting data (stratified)...
+ERROR: Preprocessing failed: The least populated classes in y have only 1 member, which is too few. The minimum number of groups for any class cannot be less than 2. Classes with too few members are: [3]
+ERROR: Check label distribution - likely all students assigned to one class!

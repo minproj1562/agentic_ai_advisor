@@ -156,10 +156,24 @@ class StudentProjectsCloudinaryService {
     // Add auth interceptor
     this.axiosInstance.interceptors.request.use(
       async (config) => {
-        const user = auth.currentUser;
-        if (user) {
-          const token = await user.getIdToken();
-          config.headers.Authorization = `Bearer ${token}`;
+        try {
+          // 1. Firebase user (faculty/admin)
+          const user = auth.currentUser;
+          if (user) {
+            const token = await user.getIdToken();
+            config.headers.Authorization = `Bearer ${token}`;
+            return config;
+          }
+
+          // 2. Student JWT from localStorage
+          const storedToken =
+            localStorage.getItem('auth_token') ||
+            sessionStorage.getItem('auth_token');
+          if (storedToken) {
+            config.headers.Authorization = `Bearer ${storedToken}`;
+          }
+        } catch (error) {
+          console.error('Auth interceptor error:', error);
         }
         return config;
       },
@@ -168,11 +182,21 @@ class StudentProjectsCloudinaryService {
   }
 
   private async getAuthToken(): Promise<string> {
+    // 1. Firebase user (faculty/admin)
     const user = auth.currentUser;
-    if (!user) {
-      throw new Error('User not authenticated');
+    if (user) {
+      return await user.getIdToken();
     }
-    return await user.getIdToken();
+
+    // 2. Student JWT from localStorage/sessionStorage
+    const storedToken =
+      localStorage.getItem('auth_token') ||
+      sessionStorage.getItem('auth_token');
+    if (storedToken) {
+      return storedToken;
+    }
+
+    throw new Error('User not authenticated');
   }
 
 
@@ -186,9 +210,26 @@ class StudentProjectsCloudinaryService {
     onUploadProgress?: (fileIndex: number, progress: number) => void
   ) {
     try {
-      const user = auth.currentUser;
-      if (!user) {
+      // Check Firebase user OR student JWT
+      const firebaseUser = auth.currentUser;
+      const storedToken =
+        localStorage.getItem('auth_token') ||
+        sessionStorage.getItem('auth_token');
+      
+      if (!firebaseUser && !storedToken) {
         throw new Error('User not authenticated');
+      }
+
+      // Get user identifier
+      let userId = firebaseUser?.uid || '';
+      if (!userId) {
+        const storedUser = localStorage.getItem('auth_user') || sessionStorage.getItem('auth_user');
+        if (storedUser) {
+          try {
+            const parsed = JSON.parse(storedUser);
+            userId = parsed?.uid || parsed?.id || parsed?.student_id || 'student';
+          } catch { userId = 'student'; }
+        }
       }
 
       // Upload files to Cloudinary
@@ -207,7 +248,7 @@ class StudentProjectsCloudinaryService {
           try {
             const uploadResult = await cloudinaryService.uploadFile(
               file,
-              `student_projects/${user.uid}`,
+              `student_projects/${userId}`,
               (progress) => onUploadProgress?.(i, progress)
             );
 
@@ -232,8 +273,8 @@ class StudentProjectsCloudinaryService {
       const projectDoc = {
         ...projectData,
         id: projectId,
-        userId: user.uid,
-        userEmail: user.email,
+        userId: userId,
+        userEmail: firebaseUser?.email || localStorage.getItem('user_email') || '',
         files: uploadedFiles,
         fileCount: uploadedFiles.length,
         createdAt: new Date().toISOString(),
@@ -253,9 +294,12 @@ class StudentProjectsCloudinaryService {
         console.warn('⚠️ Backend MongoDB save failed (analysis will still work):', backendError);
       }
 
-      // Generate local interests for Firestore profile
-      const inferredInterests = this.analyzeProjectInterests(projectData);
-      await this.updateUserInterestProfile(user.uid, inferredInterests);
+      // Generate local interests for Firestore profile (only if Firebase user)
+      let inferredInterests: any[] = [];
+      if (firebaseUser) {
+        inferredInterests = this.analyzeProjectInterests(projectData);
+        await this.updateUserInterestProfile(firebaseUser.uid, inferredInterests);
+      }
 
       return {
         success: true,
@@ -1057,11 +1101,25 @@ class StudentProjectsCloudinaryService {
 
   async getUserProjects() {
     try {
-      const user = auth.currentUser;
-      if (!user) return [];
+      // Support both Firebase and student JWT auth
+      const firebaseUser = auth.currentUser;
+      let userId = firebaseUser?.uid || '';
+
+      // If no Firebase user, get userId from stored auth_user JSON
+      if (!userId) {
+        const storedUser = localStorage.getItem('auth_user') || sessionStorage.getItem('auth_user');
+        if (storedUser) {
+          try {
+            const parsed = JSON.parse(storedUser);
+            userId = parsed?.uid || parsed?.id || parsed?.student_id || '';
+          } catch { /* ignore parse error */ }
+        }
+      }
+
+      if (!userId) return [];
 
       const projectsRef = collection(db, this.COLLECTION);
-      const q = query(projectsRef, where('userId', '==', user.uid));
+      const q = query(projectsRef, where('userId', '==', userId));
       const snapshot = await getDocs(q);
 
       return snapshot.docs.map(doc => ({
@@ -1076,8 +1134,10 @@ class StudentProjectsCloudinaryService {
 
   async deleteProject(projectId: string) {
     try {
-      const user = auth.currentUser;
-      if (!user) throw new Error('User not authenticated');
+      // Support both Firebase and student JWT auth
+      const firebaseUser = auth.currentUser;
+      const storedToken = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
+      if (!firebaseUser && !storedToken) throw new Error('User not authenticated');
 
       // Delete from Firestore
       await deleteDoc(doc(db, this.COLLECTION, projectId));

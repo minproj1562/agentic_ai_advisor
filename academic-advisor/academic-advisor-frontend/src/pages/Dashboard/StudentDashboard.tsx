@@ -3421,7 +3421,7 @@ const StudentDashboardContent: React.FC = () => {
                   transition={{ duration: 0.3 }}
                   className="max-w-7xl mx-auto"
                 >
-                  <WeaknessAnalyzer interests={studentInterests} electives={studentElectives} />
+                  <WeaknessAnalyzer interests={studentInterests} electives={studentElectives} dashboardWeaknesses={studentData?.weaknesses} />
                 </motion.div>
               )}
 

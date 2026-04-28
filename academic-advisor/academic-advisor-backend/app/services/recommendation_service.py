@@ -10,7 +10,7 @@ import time
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 
-from app.ml.models.recommendation_engine import recommendation_engine
+from app.ml.models.recommendation_engine import recommendation_engine, get_engine
 from app.models.student_profile import StudentProfile
 from app.models.student_projects import StudentProject, StudentInterestProfile
 from app.models.recommendation import (
@@ -31,7 +31,13 @@ logger = logging.getLogger(__name__)
 
 class RecommendationService:
     def __init__(self):
-        self.engine = recommendation_engine
+        self.engine = recommendation_engine  # Static fallback
+
+    async def _get_engine(self):
+        """Get the dynamic engine (loads from DB on first call)."""
+        engine = await get_engine()
+        self.engine = engine  # Keep reference in sync
+        return engine
 
     # ================================================================
     #  DATA FETCHING
@@ -194,14 +200,17 @@ class RecommendationService:
         careers_resp: List[CareerRecommendationResponse] = []
         models_used = ['Rule-Based']
 
+        # Get dynamic engine (loads from DB if available)
+        engine = await self._get_engine()
+
         # ── Program Electives ──
         if include_electives:
-            raw_electives = self.engine.recommend_electives(
+            raw_electives = engine.recommend_electives(
                 marks=student_data['marks'],
                 interests=student_data['interests'],
                 projects=student_data['projects'],
                 cgpa=student_data['cgpa'],
-                use_ml=self.engine.is_trained,
+                use_ml=engine.is_trained,
             )
             for e in raw_electives:
                 electives_resp.append(ElectiveRecommendationResponse(
@@ -224,17 +233,17 @@ class RecommendationService:
                     ranking_explanation=e.get('ranking_explanation'),
                     confidence=e.get('confidence'),
                 ))
-            if self.engine.is_trained:
+            if engine.is_trained:
                 models_used = ['RandomForest', 'KNN', 'Rule-Based']
 
         # ── Open Electives (Sem VII) ──
         if include_open_electives:
-            raw_oe = self.engine.recommend_open_electives(
+            raw_oe = engine.recommend_open_electives(
                 marks=student_data['marks'],
                 interests=student_data['interests'],
                 projects=student_data['projects'],
                 cgpa=student_data['cgpa'],
-                use_ml=self.engine.oe_is_trained,
+                use_ml=engine.oe_is_trained,
             )
             for oe in raw_oe:
                 open_electives_resp.append(OpenElectiveRecommendationResponse(
@@ -259,13 +268,13 @@ class RecommendationService:
                     ranking_explanation=oe.get('ranking_explanation'),
                     confidence=oe.get('confidence'),
                 ))
-            if self.engine.oe_is_trained:
+            if engine.oe_is_trained:
                 if 'OE-RandomForest' not in models_used:
                     models_used.append('OE-RandomForest')
 
         # ── Honours ──
         if include_honours:
-            raw_honours = self.engine.recommend_honours(
+            raw_honours = engine.recommend_honours(
                 marks=student_data['marks'],
                 interests=student_data['interests'],
                 projects=student_data['projects'],
@@ -290,7 +299,7 @@ class RecommendationService:
 
         # ── Careers ──
         if include_career:
-            raw_careers = self.engine.recommend_careers(
+            raw_careers = engine.recommend_careers(
                 marks=student_data['marks'],
                 interests=student_data['interests'],
                 projects=student_data['projects'],
@@ -328,8 +337,8 @@ class RecommendationService:
             careers=careers_resp,
             model_info={
                 'models_used': models_used,
-                'is_ml_trained': self.engine.is_trained,
-                'is_oe_ml_trained': self.engine.oe_is_trained,
+                'is_ml_trained': engine.is_trained,
+                'is_oe_ml_trained': engine.oe_is_trained,
                 'version': '3.0.0',
             },
             computation_time_ms=computation_time,
@@ -460,8 +469,8 @@ class RecommendationService:
             'model_version': '3.0.0',
             'models_available': ['Rule-Based', 'RandomForest', 'KNN', 'OE-RandomForest'],
             'feature_dimension': 35,
-            'electives_supported': ['ML', 'WT', 'DWM', 'CCS'],
-            'open_electives_supported': ['RE', 'OR', 'CSL', 'DBM', 'EAM'],
+            'electives_supported': list(self.engine.ELECTIVE_META.keys()),
+            'open_electives_supported': list(self.engine.OPEN_ELECTIVE_META.keys()),
             'total_feedback_collected': feedback_count,
             'total_training_points': training_count,
         }

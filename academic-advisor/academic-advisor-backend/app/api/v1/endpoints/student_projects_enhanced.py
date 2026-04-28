@@ -28,7 +28,7 @@ from app.models.student_projects import (
     StudentInterestProfile,
 )
 from app.core.security import get_current_user, FirebaseUser
-from app.ml.models.recommendation_engine import recommendation_engine
+from app.ml.models.recommendation_engine import recommendation_engine, get_engine
 from app.services.recommendation_service import recommendation_service
 
 from app.services.enhanced_ml_inference import (
@@ -329,16 +329,19 @@ async def analyze_project_comprehensive(
         # ── 6. Run recommendation engine ──────────────────────────
         logger.info("🤖 Running recommendation engine...")
 
-        elective_recs = recommendation_engine.recommend_electives(
+        # Use dynamic engine (loads from DB if available)
+        engine = await get_engine()
+
+        elective_recs = engine.recommend_electives(
             marks=student_data["marks"],
             interests=student_data["interests"],
             projects=student_data["projects"],
             cgpa=student_data["cgpa"],
-            use_ml=recommendation_engine.is_trained,
+            use_ml=engine.is_trained,
         )
         logger.info(f"   Elective recs: {len(elective_recs)}")
 
-        honours_recs = recommendation_engine.recommend_honours(
+        honours_recs = engine.recommend_honours(
             marks=student_data["marks"],
             interests=student_data["interests"],
             projects=student_data["projects"],
@@ -346,7 +349,7 @@ async def analyze_project_comprehensive(
         )
         logger.info(f"   Honours recs: {len(honours_recs)}")
 
-        career_recs = recommendation_engine.recommend_careers(
+        career_recs = engine.recommend_careers(
             marks=student_data["marks"],
             interests=student_data["interests"],
             projects=student_data["projects"],
@@ -654,7 +657,7 @@ def _build_legacy_response(
             "confidence_score": round(confidence_overall, 2),
             "model_version": "2.0.0",
             "data_sources": ["marks", "interests", "projects", "files"],
-            "ml_model_used": recommendation_engine.is_trained,
+            "ml_model_used": engine.is_trained if 'engine' in dir() else recommendation_engine.is_trained,
             "files_parsed": analysis.get("file_analysis", {}).get("successfully_parsed", 0),
         },
         "cumulative_recommendations": {

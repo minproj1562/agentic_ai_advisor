@@ -1015,7 +1015,7 @@ class CumulativeRecommendationEngine:
     ELECTIVE_META = ELECTIVE_META
     OPEN_ELECTIVE_META = OPEN_ELECTIVE_META
 
-    def __init__(self, load_pretrained: bool = True):
+    def __init__(self, load_pretrained: bool = True, catalogues: Optional[Dict[str, Any]] = None):
         self.rf_clf: Optional[RandomForestClassifier] = None
         self.knn_clf: Optional[KNeighborsClassifier] = None
         self.scaler = StandardScaler()
@@ -1028,6 +1028,62 @@ class CumulativeRecommendationEngine:
         self.oe_is_trained = False
         self._sbert = None
         os.makedirs(self.MODEL_DIR, exist_ok=True)
+
+        # ── Dynamic catalogue injection ──
+        # If catalogues dict provided from CatalogueLoader, use DB-driven data
+        # Otherwise use hardcoded fallback constants
+        if catalogues and catalogues.get("db_elective_count", 0) > 0:
+            logger.info(f"🔄 Engine using DB-driven catalogues ({catalogues['db_elective_count']} electives)")
+            
+            # Program electives (override if available)
+            if catalogues.get("program_elective_meta"):
+                self.ELECTIVE_META = catalogues["program_elective_meta"]
+                self._dyn_subject_weights = catalogues.get("program_subject_weights", SUBJECT_WEIGHTS)
+                self._dyn_interest_map = catalogues.get("program_interest_map", INTEREST_ELECTIVE_MAP)
+                self._dyn_project_skill_map = catalogues.get("program_project_skill_map", PROJECT_SKILL_MAP)
+                self._dyn_concept_map = catalogues.get("program_concept_map", CONCEPT_MAP)
+                self._dyn_labels = catalogues.get("program_labels", list(ELECTIVE_META.keys()))
+            else:
+                self._dyn_subject_weights = SUBJECT_WEIGHTS
+                self._dyn_interest_map = INTEREST_ELECTIVE_MAP
+                self._dyn_project_skill_map = PROJECT_SKILL_MAP
+                self._dyn_concept_map = CONCEPT_MAP
+                self._dyn_labels = list(ELECTIVE_META.keys())
+
+            # Open electives (override if available)
+            if catalogues.get("open_elective_meta"):
+                self.OPEN_ELECTIVE_META = catalogues["open_elective_meta"]
+                self._dyn_oe_subject_weights = catalogues.get("open_subject_weights", OE_SUBJECT_WEIGHTS)
+                self._dyn_oe_interest_map = catalogues.get("open_interest_map", OE_INTEREST_MAP)
+                self._dyn_oe_project_skill_map = catalogues.get("open_project_skill_map", OE_PROJECT_SKILL_MAP)
+                self._dyn_oe_concept_map = catalogues.get("open_concept_map", OE_CONCEPT_MAP)
+                self._dyn_oe_labels = catalogues.get("open_labels", OPEN_ELECTIVE_LABELS)
+            else:
+                self._dyn_oe_subject_weights = OE_SUBJECT_WEIGHTS
+                self._dyn_oe_interest_map = OE_INTEREST_MAP
+                self._dyn_oe_project_skill_map = OE_PROJECT_SKILL_MAP
+                self._dyn_oe_concept_map = OE_CONCEPT_MAP
+                self._dyn_oe_labels = OPEN_ELECTIVE_LABELS
+
+            # Honours (override if available)
+            if catalogues.get("honours_programs"):
+                self._dyn_honours = catalogues["honours_programs"]
+            else:
+                self._dyn_honours = HONOURS_PROGRAMS
+        else:
+            # Use all hardcoded fallback constants
+            self._dyn_subject_weights = SUBJECT_WEIGHTS
+            self._dyn_interest_map = INTEREST_ELECTIVE_MAP
+            self._dyn_project_skill_map = PROJECT_SKILL_MAP
+            self._dyn_concept_map = CONCEPT_MAP
+            self._dyn_labels = list(ELECTIVE_META.keys())
+            self._dyn_oe_subject_weights = OE_SUBJECT_WEIGHTS
+            self._dyn_oe_interest_map = OE_INTEREST_MAP
+            self._dyn_oe_project_skill_map = OE_PROJECT_SKILL_MAP
+            self._dyn_oe_concept_map = OE_CONCEPT_MAP
+            self._dyn_oe_labels = OPEN_ELECTIVE_LABELS
+            self._dyn_honours = HONOURS_PROGRAMS
+
         if load_pretrained:
             self._try_load()
 
@@ -1962,7 +2018,78 @@ class CumulativeRecommendationEngine:
 
 
 # ══════════════════════════════════════════════════════════════════
-#  SINGLETON
+#  SINGLETON & DYNAMIC FACTORY
 # ══════════════════════════════════════════════════════════════════
 
+# Default instance (uses hardcoded catalogues at import time)
 recommendation_engine = CumulativeRecommendationEngine()
+
+# Track whether DB catalogues have been loaded
+_db_catalogues_loaded = False
+
+
+async def get_engine() -> CumulativeRecommendationEngine:
+    """
+    Get the recommendation engine with DB-driven catalogues.
+    
+    On first call, loads elective catalogues from MongoDB via CatalogueLoader
+    and reinitialises the engine. Subsequent calls use cached catalogues
+    (cache TTL = 5 min, invalidated on admin CRUD operations).
+    
+    Falls back to hardcoded catalogues if DB is empty or unavailable.
+    """
+    global recommendation_engine, _db_catalogues_loaded
+
+    if _db_catalogues_loaded:
+        return recommendation_engine
+
+    try:
+        from app.services.catalogue_loader import CatalogueLoader
+        catalogues = await CatalogueLoader.load_all_catalogues()
+
+        if catalogues.get("db_elective_count", 0) > 0:
+            recommendation_engine = CumulativeRecommendationEngine(
+                load_pretrained=True, catalogues=catalogues
+            )
+            _db_catalogues_loaded = True
+            logger.info(
+                f"✅ Engine upgraded with {catalogues['db_elective_count']} "
+                f"DB electives (program={len(catalogues.get('program_labels', []))}, "
+                f"open={len(catalogues.get('open_labels', []))})"
+            )
+        else:
+            logger.info("ℹ No DB electives found — using hardcoded catalogues")
+            _db_catalogues_loaded = True  # Don't retry every call
+    except Exception as e:
+        logger.warning(f"⚠ Failed to load DB catalogues: {e} — using hardcoded fallback")
+        _db_catalogues_loaded = True
+
+    return recommendation_engine
+
+
+async def refresh_engine() -> CumulativeRecommendationEngine:
+    """
+    Force-reload catalogues from DB and reinitialise the engine.
+    Called after admin CRUD operations on electives.
+    """
+    global recommendation_engine, _db_catalogues_loaded
+
+    try:
+        from app.services.catalogue_loader import CatalogueLoader
+        CatalogueLoader.invalidate_cache()
+        catalogues = await CatalogueLoader.load_all_catalogues(force_refresh=True)
+
+        if catalogues.get("db_elective_count", 0) > 0:
+            recommendation_engine = CumulativeRecommendationEngine(
+                load_pretrained=True, catalogues=catalogues
+            )
+            logger.info(f"🔄 Engine refreshed with {catalogues['db_elective_count']} DB electives")
+        else:
+            recommendation_engine = CumulativeRecommendationEngine(load_pretrained=True)
+            logger.info("🔄 Engine refreshed with hardcoded catalogues (no DB electives)")
+
+        _db_catalogues_loaded = True
+    except Exception as e:
+        logger.error(f"❌ Engine refresh failed: {e}", exc_info=True)
+
+    return recommendation_engine
