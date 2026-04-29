@@ -266,6 +266,7 @@ class UniversityStudentResult:
     """
     total_semester_marks: Optional[float] = None
     sgpa: Optional[float] = None
+    cgpa: Optional[float] = None          # CGPI from sheet summary
     earned_credits: Optional[int] = None
     remark: Optional[str] = None          # Pass / Fail / RE codes
     parse_warnings: List[str] = dc_field(default_factory=list)
@@ -749,9 +750,15 @@ class UniversitySheetParser:
                 except (ValueError, TypeError):
                     pass
 
-            elif ("sgpi" in header or "sgpa" in header) and pd.notna(val):
+            elif ("sgpi" in header or "sgpa" in header) and "cgpi" not in header and "cgpa" not in header and pd.notna(val):
                 try:
                     result.sgpa = float(val)
+                except (ValueError, TypeError):
+                    pass
+
+            elif ("cgpi" in header or "cgpa" in header) and pd.notna(val):
+                try:
+                    result.cgpa = float(val)
                 except (ValueError, TypeError):
                     pass
 
@@ -878,6 +885,7 @@ class UniversityExcelParser:
             "subjects": r.subjects,
             "total_semester_marks": r.total_semester_marks,
             "sgpa": r.sgpa,
+            "cgpa": r.cgpa,
             "earned_credits": r.earned_credits,
             "remark": r.remark,
             "parse_warnings": r.parse_warnings,

@@ -1,0 +1,47 @@
+INFO: ================================================================================
+INFO: COMPLETE ENHANCED TRAINING PIPELINE
+INFO: ================================================================================
+INFO: 
+Step 1: Loading Excel data...
+INFO: Parsed 74 records from IT-V-SH 2025
+INFO: Parsed 74 records from IT SEM-IV FH-2025
+INFO: Parsed 74 records from IT SEM-III SH-2024
+INFO:    Loaded 74 students
+INFO: 
+Step 2: Advanced feature engineering...
+INFO: Starting advanced feature engineering...
+INFO: Created 18 engineered features
+INFO: 
+Step 3: Creating diversified labels...
+INFO: Assigning diversified labels...
+INFO: Target distribution: 18 per class (min: 13, max: 28)
+INFO: Initial distribution: {'CCS': 74}
+INFO: Rebalanced ML: +13 students (recruited from other classes)
+INFO: Rebalanced WT: +13 students (recruited from other classes)
+INFO: Rebalanced DWM: +13 students (recruited from other classes)
+INFO: Rebalanced CCS: -19 students (moved to second choices)
+INFO: Final distribution: {'WT': 30, 'CCS': 28, 'DWM': 13, 'ML': 3}
+INFO:    Features: (74, 18)
+INFO:    Labels: {'WT': 30, 'CCS': 28, 'ML': 3, 'DWM': 13}
+INFO: 
+Step 4: Preprocessing...
+INFO: Starting preprocessing pipeline...
+INFO:   - Imputing missing values (KNN)...
+INFO:   - Class distribution: {'CCS': 28, 'DWM': 13, 'ML': 3, 'WT': 30}
+INFO:   - Splitting data...
+INFO:      Using stratified split
+INFO:   - Scaling features (RobustScaler)...
+INFO:   - Balancing classes...
+WARNING:      SMOTE skipped: insufficient samples (min: 3)
+INFO: Preprocessing complete
+INFO:    Train: (59, 18)
+INFO:    Test:  (15, 18)
+INFO:    Train labels: {'CCS': 22, 'WT': 24, 'DWM': 10, 'ML': 3}
+INFO:    Test labels: {'WT': 6, 'CCS': 6, 'DWM': 3}
+INFO: 
+Step 5: Training models...
+INFO: 
+================================================================================
+INFO: ENHANCED MODEL TRAINING
+INFO: ================================================================================
+INFO: Using 3-fold cross-validation

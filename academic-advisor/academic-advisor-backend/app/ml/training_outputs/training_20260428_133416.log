@@ -1,0 +1,66 @@
+INFO: ================================================================================
+INFO: COMPLETE ENHANCED TRAINING PIPELINE
+INFO: ================================================================================
+INFO: 
+Step 1: Loading Excel data...
+INFO: Parsed 74 records from IT-V-SH 2025
+INFO: Parsed 74 records from IT SEM-IV FH-2025
+INFO: Parsed 74 records from IT SEM-III SH-2024
+INFO:    Loaded 74 students
+INFO: 
+Step 2: Advanced feature engineering...
+INFO: Starting advanced feature engineering...
+INFO: Created 18 engineered features
+INFO: 
+Step 3: Creating diversified labels...
+INFO: Assigning diversified labels...
+INFO: Final distribution: {'ML': 19, 'WT': 19, 'DWM': 18, 'CCS': 18}
+INFO:    Features: (74, 18)
+INFO:    Labels: {'ML': 19, 'DWM': 18, 'WT': 19, 'CCS': 18}
+INFO: 
+Step 4: Preprocessing...
+INFO: Starting preprocessing pipeline...
+INFO:   - Imputing missing values (KNN)...
+INFO:   - Class distribution: {'CCS': 18, 'DWM': 18, 'ML': 19, 'WT': 19}
+INFO:   - Splitting data...
+INFO:      Using stratified split
+INFO:   - Scaling features (RobustScaler)...
+INFO:   - Balancing classes...
+INFO:      Original: {0: 14, 1: 15, 2: 15, 3: 15}
+INFO:      Balanced: {0: 15, 1: 15, 2: 15, 3: 15}
+INFO: Preprocessing complete
+INFO:    Train: (60, 18)
+INFO:    Test:  (15, 18)
+INFO:    Train labels: {'WT': 15, 'CCS': 15, 'DWM': 15, 'ML': 15}
+INFO:    Test labels: {'ML': 4, 'CCS': 4, 'WT': 4, 'DWM': 3}
+INFO: 
+Step 5: Training models...
+INFO: 
+================================================================================
+INFO: ENHANCED MODEL TRAINING
+INFO: ================================================================================
+INFO: Using 5-fold cross-validation
+INFO: 
+================================================================================
+INFO: FINAL MODEL COMPARISON
+INFO: ================================================================================
+INFO: 
+Detailed Classification Report:
+INFO: 
+Step 6: Saving models and metadata...
+INFO:    - Saved all models and metadata
+INFO: 
+================================================================================
+INFO: TRAINING COMPLETE
+INFO: ================================================================================
+INFO: 
+SUMMARY:
+INFO:    Best Model:     XGBoost
+INFO:    Accuracy:       80.00%
+INFO:    F1 Score:       79.11%
+INFO:    Students:       74
+INFO:    Features:       18
+INFO: 
+Outputs:
+INFO:    Models:         C:\Users\Sharon Shalom\miniproj2\academic-advisor\academic-advisor-backend\app\ml\saved_models
+INFO:    Logs:           C:\Users\Sharon Shalom\miniproj2\academic-advisor\academic-advisor-backend\app\ml\training_outputs

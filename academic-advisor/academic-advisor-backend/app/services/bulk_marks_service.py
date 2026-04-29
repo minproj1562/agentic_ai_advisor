@@ -156,6 +156,8 @@ class ParsedStudentMarks:
     subjects: List[Dict[str, Any]] = dc_field(default_factory=list)
     errors: List[str] = dc_field(default_factory=list)
     warnings: List[str] = dc_field(default_factory=list)
+    sgpa_from_sheet: Optional[float] = None   # SGPI read directly from XLSX
+    cgpa_from_sheet: Optional[float] = None   # CGPI read directly from XLSX
 
 
 @dataclass
@@ -621,6 +623,8 @@ class BulkMarksService:
             stu = ParsedStudentMarks(
                 roll_number=uni_stu.seat_number,
                 student_name=uni_stu.student_name,
+                sgpa_from_sheet=uni_stu.sgpa,
+                cgpa_from_sheet=uni_stu.cgpa,
             )
 
             for raw_subj in uni_stu.subjects:
@@ -828,6 +832,8 @@ class BulkMarksService:
                 stu = ParsedStudentMarks(
                     roll_number=uni_stu["seat_number"],
                     student_name=uni_stu["student_name"],
+                    sgpa_from_sheet=uni_stu.get("sgpa"),
+                    cgpa_from_sheet=uni_stu.get("cgpa"),
                 )
                 for raw_subj in uni_stu["subjects"]:
                     raw_code = raw_subj.get("subject_code", "").upper().strip()
@@ -1497,7 +1503,9 @@ class BulkMarksService:
                 if s["grade"] != "F":
                     tgp += s["grade_points"] * c
                     ce += c
-            sgpa = round(tgp / tc, 2) if tc > 0 else 0.0
+            # Use SGPI from sheet if available
+            calculated_sgpa = round(tgp / tc, 2) if tc > 0 else 0.0
+            sgpa = stu.sgpa_from_sheet if stu.sgpa_from_sheet is not None and stu.sgpa_from_sheet > 0 else calculated_sgpa
 
             existing = any(sr.semester_number == semester for sr in profile.semester_records)
 
@@ -1591,7 +1599,10 @@ class BulkMarksService:
                         tgp += sd["grade_points"] * c
                         ce += c
 
-                sgpa = round(tgp / tc, 2) if tc > 0 else 0.0
+                # Use SGPI from sheet if available (more accurate than recalculating
+                # since the sheet uses the original MU grading scale)
+                calculated_sgpa = round(tgp / tc, 2) if tc > 0 else 0.0
+                sgpa = stu.sgpa_from_sheet if stu.sgpa_from_sheet is not None and stu.sgpa_from_sheet > 0 else calculated_sgpa
 
                 sem_rec = SemesterRecord(
                     semester_number=semester,
@@ -1621,15 +1632,18 @@ class BulkMarksService:
                     profile.semester_records.append(sem_rec)
                     profile.semester_records.sort(key=lambda x: x.semester_number)
 
-                # Recalculate CGPA
-                agp = ac = ace = 0.0
-                for sr in profile.semester_records:
-                    if sr.is_complete and sr.total_credits > 0:
-                        agp += sr.sgpa * sr.total_credits
-                        ac += sr.total_credits
-                        ace += sr.credits_earned
+                # Use CGPI from sheet if available; otherwise recalculate from semester SGPAs
+                if stu.cgpa_from_sheet is not None and stu.cgpa_from_sheet > 0:
+                    profile.cgpa = round(stu.cgpa_from_sheet, 2)
+                else:
+                    agp = ac = 0.0
+                    for sr in profile.semester_records:
+                        if sr.is_complete and sr.total_credits > 0:
+                            agp += sr.sgpa * sr.total_credits
+                            ac += sr.total_credits
+                    profile.cgpa = round(agp / ac, 2) if ac > 0 else 0.0
 
-                profile.cgpa = round(agp / ac, 2) if ac > 0 else 0.0
+                ace = sum(sr.credits_earned for sr in profile.semester_records if sr.is_complete)
                 profile.total_credits_earned = int(ace)
                 profile.last_updated = datetime.now()
                 profile.marks_synced_at = datetime.now()
@@ -1661,7 +1675,8 @@ class BulkMarksService:
 
                 logger.info(
                     f"✅ Updated marks for {stu.roll_number}: "
-                    f"Sem {semester} SGPA={sgpa}, CGPA={profile.cgpa}"
+                    f"Sem {semester} SGPA={sgpa} (sheet={stu.sgpa_from_sheet}), "
+                    f"CGPA={profile.cgpa} (sheet={stu.cgpa_from_sheet})"
                 )
 
             except Exception as e:
@@ -1711,7 +1726,9 @@ class BulkMarksService:
                 tgp += sd["grade_points"] * c
                 ce += c
 
-        sgpa = round(tgp / tc, 2) if tc > 0 else 0.0
+        # Use SGPI from sheet if available
+        calculated_sgpa = round(tgp / tc, 2) if tc > 0 else 0.0
+        sgpa = stu.sgpa_from_sheet if stu.sgpa_from_sheet is not None and stu.sgpa_from_sheet > 0 else calculated_sgpa
 
         # Extract admission year from roll number
         admission_year_from_roll = None

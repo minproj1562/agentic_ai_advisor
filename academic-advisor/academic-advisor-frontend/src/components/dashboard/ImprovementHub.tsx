@@ -12,6 +12,9 @@ import toast from 'react-hot-toast';
 const QuizGame = lazy(() => import('./games/QuizGame'));
 const ConceptClash = lazy(() => import('./games/ConceptClash'));
 const OutputPredictor = lazy(() => import('./games/OutputPredictor'));
+const BossBattle = lazy(() => import('./games/BossBattle'));
+const CodeStudio = lazy(() => import('./games/CodeStudio'));
+const TheoryEngine = lazy(() => import('./games/TheoryEngine'));
 
 const LEVEL_TITLES = ['Freshman','Learner','Explorer','Scholar','Specialist','Expert','Master','Grandmaster','Legend','Titan'];
 const getLevelTitle = (l: number) => LEVEL_TITLES[Math.min(l - 1, 9)];
@@ -35,11 +38,14 @@ const DIFFICULTIES = [
 
 const ImprovementHub: React.FC = () => {
   const qc = useQueryClient();
-  const [tab, setTab] = useState<'overview'|'practice'|'roadmaps'|'badges'>('overview');
+  const [tab, setTab] = useState<'overview'|'practice'|'roadmaps'|'badges'|'leaderboard'>('overview');
   const [activeQuiz, setActiveQuiz] = useState<{subject:string;type:string;diff:string}|null>(null);
   const [activeGame, setActiveGame] = useState<{subject:string;game:string;diff:string}|null>(null);
   const [selectedSubject, setSelectedSubject] = useState<string|null>(null);
   const [showRoadmapModal, setShowRoadmapModal] = useState(false);
+  const [activeBoss, setActiveBoss] = useState<{subject:string;topic:string;diff:string}|null>(null);
+  const [activeCode, setActiveCode] = useState<{subject:string;diff:string}|null>(null);
+  const [activeTheory, setActiveTheory] = useState<{subject:string;topic:string;diff:string}|null>(null);
 
   const { data: progress } = useQuery({
     queryKey: ['improvement-progress'],
@@ -82,6 +88,48 @@ const ImprovementHub: React.FC = () => {
 
   const level = progress?.level || 1;
   const weakSubjects: any[] = weakData?.weak_subjects || [];
+
+  // Active theory engine
+  if (activeTheory) {
+    return (
+      <div className="space-y-4 p-1">
+        <button onClick={() => setActiveTheory(null)} className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">
+          <ArrowLeft className="w-4 h-4" /> Back to Hub
+        </button>
+        <Suspense fallback={<div className="flex justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-indigo-500" /></div>}>
+          <TheoryEngine subject={activeTheory.subject} topic={activeTheory.topic} difficulty={activeTheory.diff} onComplete={(r) => { handleGameComplete({...r, quizType:'theory_engine'}); }} onBack={() => setActiveTheory(null)} />
+        </Suspense>
+      </div>
+    );
+  }
+
+  // Active code studio
+  if (activeCode) {
+    return (
+      <div className="space-y-4 p-1">
+        <button onClick={() => setActiveCode(null)} className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">
+          <ArrowLeft className="w-4 h-4" /> Back to Hub
+        </button>
+        <Suspense fallback={<div className="flex justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-emerald-500" /></div>}>
+          <CodeStudio subject={activeCode.subject} difficulty={activeCode.diff} onComplete={(r) => { handleGameComplete({...r, quizType:'code_studio'}); }} onBack={() => setActiveCode(null)} />
+        </Suspense>
+      </div>
+    );
+  }
+
+  // Active boss battle rendering
+  if (activeBoss) {
+    return (
+      <div className="space-y-4 p-1">
+        <button onClick={() => setActiveBoss(null)} className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">
+          <ArrowLeft className="w-4 h-4" /> Back to Hub
+        </button>
+        <Suspense fallback={<div className="flex justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-red-500" /></div>}>
+          <BossBattle subject={activeBoss.subject} topic={activeBoss.topic} difficulty={activeBoss.diff} onComplete={(r) => { handleGameComplete({...r, quizType:'boss_battle'}); }} onBack={() => setActiveBoss(null)} />
+        </Suspense>
+      </div>
+    );
+  }
 
   // Active game rendering
   if (activeQuiz || activeGame) {
@@ -134,6 +182,17 @@ const ImprovementHub: React.FC = () => {
               <div className="h-2 bg-white/20 rounded-full"><div className="h-full bg-white/60 rounded-full" style={{width:`${subjectMastery.lanes.theory.mastery_pct}%`}} /></div></div>
             )}
             <div className="space-y-2">
+              {/* AI Theory Engine */}
+              <div className="bg-white/20 rounded-lg p-3 border border-white/20">
+                <div className="flex justify-between items-center mb-2"><span className="text-sm font-bold">🧠 AI Lesson</span><span className="text-[10px] bg-white/20 px-1.5 py-0.5 rounded">NEW</span></div>
+                <p className="text-xs text-white/60 mb-2">Adaptive AI-generated lesson with Ask AI chat</p>
+                <div className="flex gap-1">
+                  {DIFFICULTIES.map(d => (
+                    <button key={d.id} onClick={() => setActiveTheory({subject:selectedSubject,topic:selectedSubject,diff:d.id})}
+                      className="flex-1 text-center py-1.5 bg-white/15 hover:bg-white/25 rounded text-xs transition-colors">{d.emoji}</button>
+                  ))}
+                </div>
+              </div>
               {[{id:'mcq',name:'📝 Theory Quiz',desc:'MCQ questions'},{id:'concept_match',name:'🔗 Concept Clash',desc:'Match terms & definitions'},{id:'fill_blank',name:'✏️ Fill the Gap',desc:'Complete the sentence'}].map(g => (
                 <div key={g.id} className="bg-white/10 rounded-lg p-3">
                   <div className="flex justify-between items-center mb-2"><span className="text-sm font-medium">{g.name}</span></div>
@@ -182,6 +241,17 @@ const ImprovementHub: React.FC = () => {
               <div className="h-2 bg-white/20 rounded-full"><div className="h-full bg-white/60 rounded-full" style={{width:`${subjectMastery.lanes.coding.mastery_pct}%`}} /></div></div>
             )}
             <div className="space-y-2">
+              {/* Code Studio */}
+              <div className="bg-white/20 rounded-lg p-3 border border-white/20">
+                <div className="flex justify-between items-center mb-2"><span className="text-sm font-bold">💻 Code Studio</span><span className="text-[10px] bg-white/20 px-1.5 py-0.5 rounded">NEW</span></div>
+                <p className="text-xs text-white/60 mb-2">In-browser editor with AI tasks & tests</p>
+                <div className="flex gap-1">
+                  {DIFFICULTIES.map(d => (
+                    <button key={d.id} onClick={() => setActiveCode({subject:selectedSubject,diff:d.id})}
+                      className="flex-1 text-center py-1.5 bg-white/15 hover:bg-white/25 rounded text-xs transition-colors">{d.emoji}</button>
+                  ))}
+                </div>
+              </div>
               {[{id:'code_debug',name:'🐛 Bug Hunter',desc:'Find & fix bugs'},{id:'output_predict',name:'🏃 Code Tracer',desc:'Trace variable values'}].map(g => (
                 <div key={g.id+'-coding'} className="bg-white/10 rounded-lg p-3">
                   <div className="flex justify-between items-center mb-2"><span className="text-sm font-medium">{g.name}</span></div>
@@ -206,6 +276,7 @@ const ImprovementHub: React.FC = () => {
     { id: 'practice', label: 'Practice', icon: Brain },
     { id: 'roadmaps', label: 'Roadmaps', icon: Target },
     { id: 'badges', label: 'Badges', icon: Trophy },
+    { id: 'leaderboard', label: 'Ranks', icon: Trophy },
   ] as const;
 
   return (
@@ -347,6 +418,30 @@ const ImprovementHub: React.FC = () => {
                 </div>
               </div>
             )}
+            {/* Boss Battle Section */}
+            <div className="bg-gradient-to-br from-gray-900 to-gray-800 rounded-2xl p-5 border border-red-900/30">
+              <div className="flex items-center gap-2 mb-3">
+                <span className="text-xl">⚔️</span>
+                <h3 className="text-lg font-bold text-white">Boss Battles</h3>
+                <span className="text-xs bg-red-500/20 text-red-400 px-2 py-0.5 rounded-full ml-auto">Bonus XP</span>
+              </div>
+              <p className="text-xs text-gray-400 mb-4">Defeat concept bosses to prove mastery! Each boss guards a prerequisite topic.</p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                {(weakSubjects.length > 0 ? weakSubjects.slice(0, 4) : [{name:'Data Structures and Algorithms'},{name:'Operating Systems'},{name:'Database Management Systems'},{name:'Computer Networks'}]).map((ws: any, i: number) => (
+                  <motion.button key={i} initial={{opacity:0,x:-10}} animate={{opacity:1,x:0}} transition={{delay:i*0.05}}
+                    onClick={() => setActiveBoss({subject:ws.name, topic: ws.name, diff:'medium'})}
+                    whileHover={{scale:1.02}}
+                    className="flex items-center gap-3 p-3 bg-gray-800/50 hover:bg-red-900/20 border border-gray-700 hover:border-red-700 rounded-xl transition-all text-left">
+                    <span className="text-2xl">{['💀','🐉','👻','😈','🧟','🕷️','🦇','🤖'][i % 8]}</span>
+                    <div>
+                      <p className="text-sm font-medium text-white">{ws.name}</p>
+                      <p className="text-xs text-gray-500">Click to challenge</p>
+                    </div>
+                  </motion.button>
+                ))}
+              </div>
+            </div>
+
             <div>
               <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-3 flex items-center gap-2">
                 <BookOpen className="w-5 h-5 text-indigo-500" /> All Subjects
@@ -406,6 +501,15 @@ const ImprovementHub: React.FC = () => {
                 <Trophy className="w-16 h-16 mx-auto mb-3 opacity-20" /><p className="text-lg font-medium">No badges yet</p><p className="text-sm">Complete quizzes and roadmaps to earn badges!</p>
               </div>
             )}
+          </motion.div>
+        )}
+
+        {/* Leaderboard Tab */}
+        {tab === 'leaderboard' && (
+          <motion.div key="lb" initial={{opacity:0,y:10}} animate={{opacity:1,y:0}} exit={{opacity:0,y:-10}}>
+            <Suspense fallback={<div className="flex justify-center py-12"><Loader2 className="w-6 h-6 animate-spin text-amber-500" /></div>}>
+              {React.createElement(lazy(() => import('./games/Leaderboard')), { currentUserXP: progress?.total_xp || 0 })}
+            </Suspense>
           </motion.div>
         )}
       </AnimatePresence>

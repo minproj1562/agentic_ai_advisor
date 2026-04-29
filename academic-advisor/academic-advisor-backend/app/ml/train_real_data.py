@@ -1,12 +1,12 @@
 """
-Enhanced Real Data Training Pipeline - FIXED VERSION
-=====================================================
+Enhanced Real Data Training Pipeline - FINAL FIXED VERSION
+===========================================================
 Fixes:
-1. ✅ Unicode encoding errors (removed emojis from logging)
-2. ✅ Single-class labeling bug (diversified label assignment)
-3. ✅ Proper class balancing
-4. ✅ Correct ensemble handling
-5. ✅ Improved feature engineering
+1. ✅ Proper diversified label assignment (no case issues)
+2. ✅ Guaranteed minimum samples per class
+3. ✅ Controlled randomization for diversity
+4. ✅ Fallback to simpler split if stratification fails
+5. ✅ Full error handling and validation
 """
 
 import os
@@ -17,14 +17,14 @@ import warnings
 import numpy as np
 import pandas as pd
 from typing import Dict, List, Tuple, Any, Optional
-from collections import defaultdict
+from collections import defaultdict, Counter
 from datetime import datetime
 
 warnings.filterwarnings('ignore')
 
 # Visualization
 import matplotlib
-matplotlib.use('Agg')  # Non-interactive backend
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import seaborn as sns
 
@@ -86,34 +86,6 @@ SHEET_SEMESTER_MAP = {
     "IT-V-SH 2025": 5,
 }
 
-# Elective profiles (CORRECT weights)
-ELECTIVE_PROFILES = {
-    "ML": {
-        "math_weight": 0.35,
-        "prog_weight": 0.30,
-        "python_lab_weight": 0.25,
-        "ai_weight": 0.10,
-    },
-    "WT": {
-        "db_weight": 0.30,
-        "web_lab_weight": 0.35,
-        "se_weight": 0.25,
-        "network_weight": 0.10,
-    },
-    "DWM": {
-        "db_weight": 0.35,
-        "math_weight": 0.30,
-        "sql_lab_weight": 0.25,
-        "prog_weight": 0.10,
-    },
-    "CCS": {
-        "network_weight": 0.35,
-        "os_weight": 0.25,
-        "cloud_lab_weight": 0.30,
-        "embedded_weight": 0.10,
-    },
-}
-
 OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "training_outputs")
 MODEL_DIR = os.path.join(os.path.dirname(__file__), "saved_models")
 VIZ_DIR = os.path.join(OUTPUT_DIR, "visualizations")
@@ -123,7 +95,7 @@ os.makedirs(MODEL_DIR, exist_ok=True)
 os.makedirs(VIZ_DIR, exist_ok=True)
 
 # ═══════════════════════════════════════════════════════════════
-#  EXCEL PARSING
+#  EXCEL PARSING (UNCHANGED)
 # ═══════════════════════════════════════════════════════════════
 
 def parse_subject_name(header_cell: str) -> str:
@@ -231,20 +203,21 @@ class FeatureEngineer:
         feature_names = []
         
         # 1. SUBJECT CATEGORY AGGREGATES
-        math_subjects = ["Engineering Mathematics-III_pct", "Engineering Mathematics-IV_pct"]
-        prog_subjects = ["Data Structures & Analysis_pct", "Artificial Intelligence_pct"]
-        db_subjects = ["Database Management System_pct"]
-        network_subjects = ["Computer Network_pct", "Operating System_pct"]
+        math_subjects = [c for c in subject_cols if 'Mathematics' in c]
+        prog_subjects = [c for c in subject_cols if 'Data Structures' in c or 'Artificial Intelligence' in c]
+        db_subjects = [c for c in subject_cols if 'Database' in c]
+        network_subjects = [c for c in subject_cols if 'Network' in c or 'Operating System' in c]
         
-        lab_subjects = [c for c in subject_cols if "Laboratory" in c or "Lab" in c]
+        lab_subjects = [c for c in subject_cols if 'Laboratory' in c or 'Lab' in c]
         theory_subjects = [c for c in subject_cols if c not in lab_subjects]
         
-        df['math_avg'] = df[math_subjects].mean(axis=1, skipna=True).fillna(50)
-        df['prog_avg'] = df[prog_subjects].mean(axis=1, skipna=True).fillna(50)
-        df['db_avg'] = df[db_subjects].mean(axis=1, skipna=True).fillna(50)
-        df['network_avg'] = df[network_subjects].mean(axis=1, skipna=True).fillna(50)
-        df['lab_avg'] = df[lab_subjects].mean(axis=1, skipna=True).fillna(50)
-        df['theory_avg'] = df[theory_subjects].mean(axis=1, skipna=True).fillna(50)
+        # Safe aggregation with fallback
+        df['math_avg'] = df[math_subjects].mean(axis=1, skipna=True).fillna(50) if math_subjects else 50
+        df['prog_avg'] = df[prog_subjects].mean(axis=1, skipna=True).fillna(50) if prog_subjects else 50
+        df['db_avg'] = df[db_subjects].mean(axis=1, skipna=True).fillna(50) if db_subjects else 50
+        df['network_avg'] = df[network_subjects].mean(axis=1, skipna=True).fillna(50) if network_subjects else 50
+        df['lab_avg'] = df[lab_subjects].mean(axis=1, skipna=True).fillna(50) if lab_subjects else 50
+        df['theory_avg'] = df[theory_subjects].mean(axis=1, skipna=True).fillna(50) if theory_subjects else 50
         
         feature_names.extend(['math_avg', 'prog_avg', 'db_avg', 'network_avg', 'lab_avg', 'theory_avg'])
         
@@ -264,18 +237,20 @@ class FeatureEngineer:
         
         feature_names.extend(['theory_lab_gap', 'consistency_score', 'strong_subjects_count', 'weak_subjects_count'])
         
-        # 4. DOMAIN-SPECIFIC AFFINITY SCORES (CORRECTED)
+        # 4. DOMAIN-SPECIFIC AFFINITY SCORES
+        # Extract specific lab scores
         python_lab = df[[c for c in lab_subjects if 'Python' in c]].mean(axis=1, skipna=True).fillna(50)
         web_labs = df[[c for c in lab_subjects if 'Full stack' in c or 'Software Development' in c]].mean(axis=1, skipna=True).fillna(50)
         sql_lab = df[[c for c in lab_subjects if 'SQL' in c]].mean(axis=1, skipna=True).fillna(50)
         cloud_labs = df[[c for c in lab_subjects if 'Cloud' in c or 'Networks' in c]].mean(axis=1, skipna=True).fillna(50)
         
+        # Extract specific subject scores
         se_score = df.get('Software Engineering_pct', pd.Series([50]*len(df))).fillna(50)
         ai_score = df.get('Artificial Intelligence_pct', pd.Series([50]*len(df))).fillna(50)
         os_score = df.get('Operating System_pct', pd.Series([50]*len(df))).fillna(50)
         embedded_score = df.get('Microcontroller and Embedded Systems_pct', pd.Series([50]*len(df))).fillna(50)
         
-        # Calculate affinity scores
+        # Calculate affinity scores (weighted combination)
         df['ml_affinity'] = (
             df['math_avg'] * 0.35 + 
             df['prog_avg'] * 0.30 + 
@@ -311,59 +286,58 @@ class FeatureEngineer:
         return df, feature_names
 
 # ═══════════════════════════════════════════════════════════════
-#  LABEL ASSIGNMENT (FIXED)
+#  PROPER DIVERSIFIED LABEL ASSIGNMENT
 # ═══════════════════════════════════════════════════════════════
 
 def assign_diversified_labels(df: pd.DataFrame) -> pd.Series:
     """
-    Assign labels using affinity scores with diversity enforcement.
-    Ensures all 4 classes have reasonable representation.
+    Assign labels using FORCED balanced distribution.
+    Guarantees exactly n/4 students per class.
     """
     logger.info("Assigning diversified labels...")
     
-    # Calculate normalized affinity scores (0-1 range)
-    affinity_scores = df[['ml_affinity', 'wt_affinity', 'dwm_affinity', 'ccs_affinity']].copy()
+    n_students = len(df)
+    electives = ['ML', 'WT', 'DWM', 'CCS']
     
-    # Add controlled random noise for diversity (±5 points)
+    # Calculate affinity scores
     np.random.seed(42)
-    noise = np.random.uniform(-5, 5, size=affinity_scores.shape)
-    affinity_scores = affinity_scores + noise
     
-    # Get top choice for each student
-    labels = affinity_scores.idxmax(axis=1).str.replace('_affinity', '')
+    scores = pd.DataFrame(index=df.index)
+    for elective in electives:
+        affinity_col = f'{elective.lower()}_affinity'
+        base_score = df[affinity_col].values
+        noise = np.random.uniform(-10, 10, size=len(df))
+        scores[elective] = base_score + noise
     
-    # Check distribution
-    dist = labels.value_counts()
-    logger.info(f"Initial distribution: {dict(dist)}")
+    # Sort students by overall performance
+    sorted_students = df.sort_values('overall_avg', ascending=False).index
     
-    # Rebalance if any class has < 10% of data
-    min_samples = int(len(df) * 0.10)
+    # Round-robin assignment (ensures exact balance)
+    final_labels = pd.Series(index=df.index, dtype=str)
     
-    for elective in ['ML', 'WT', 'DWM', 'CCS']:
-        elective_col = f'{elective.lower()}_affinity'
-        current_count = (labels == elective).sum()
+    for i, idx in enumerate(sorted_students):
+        # Assign to elective with highest affinity that needs students
+        assigned_counts = final_labels.value_counts()
+        target_per_class = n_students // 4
         
-        if current_count < min_samples:
-            # Find students with high affinity but assigned to other classes
-            candidates = df[
-                (labels != elective) & 
-                (affinity_scores[elective_col] > affinity_scores[elective_col].median())
-            ].index
-            
-            # Reassign top candidates
-            need = min_samples - current_count
-            if len(candidates) > 0:
-                to_reassign = candidates[:min(need, len(candidates))]
-                labels.loc[to_reassign] = elective
-                logger.info(f"Rebalanced {elective}: +{len(to_reassign)} students")
+        # Get electives needing students
+        available = [e for e in electives if assigned_counts.get(e, 0) < target_per_class]
+        
+        if available:
+            # Choose best available option by affinity
+            best_elective = max(available, key=lambda e: scores.loc[idx, e])
+            final_labels.loc[idx] = best_elective
+        else:
+            # Fallback: assign to least populated
+            final_labels.loc[idx] = electives[i % 4]
     
-    final_dist = labels.value_counts()
+    final_dist = final_labels.value_counts()
     logger.info(f"Final distribution: {dict(final_dist)}")
     
-    return labels
+    return final_labels
 
 # ═══════════════════════════════════════════════════════════════
-#  PREPROCESSING
+#  PREPROCESSING WITH FALLBACK
 # ═══════════════════════════════════════════════════════════════
 
 class DataPreprocessor:
@@ -380,19 +354,39 @@ class DataPreprocessor:
         le = LabelEncoder()
         y_encoded = le.fit_transform(y)
         
-        # Check for single class issue
-        unique_classes = np.unique(y_encoded)
-        if len(unique_classes) < 2:
-            raise ValueError(f"Only {len(unique_classes)} class found: {le.classes_}. Need at least 2 classes!")
+        # Validate class distribution
+        unique_classes, class_counts = np.unique(y_encoded, return_counts=True)
+        class_dist = dict(zip(le.inverse_transform(unique_classes), class_counts))
         
-        # 3. Stratified split
-        logger.info("  - Splitting data (stratified)...")
-        X_train, X_test, y_train, y_test = train_test_split(
-            X_imputed, y_encoded,
-            test_size=test_size,
-            random_state=random_state,
-            stratify=y_encoded
-        )
+        logger.info(f"  - Class distribution: {class_dist}")
+        
+        if len(unique_classes) < 2:
+            raise ValueError(f"Only {len(unique_classes)} class found. Need at least 2!")
+        
+        min_samples = class_counts.min()
+        if min_samples < 2:
+            raise ValueError(f"Class {le.inverse_transform([unique_classes[class_counts.argmin()]])[0]} has only {min_samples} sample(s). Need at least 2 per class!")
+        
+        # 3. Split data
+        logger.info("  - Splitting data...")
+        try:
+            # Try stratified split first
+            X_train, X_test, y_train, y_test = train_test_split(
+                X_imputed, y_encoded,
+                test_size=test_size,
+                random_state=random_state,
+                stratify=y_encoded
+            )
+            logger.info("     Using stratified split")
+        except ValueError as e:
+            # Fallback to regular split if stratification fails
+            logger.warning(f"     Stratified split failed: {e}")
+            logger.info("     Using regular random split")
+            X_train, X_test, y_train, y_test = train_test_split(
+                X_imputed, y_encoded,
+                test_size=test_size,
+                random_state=random_state
+            )
         
         # 4. Scale features
         logger.info("  - Scaling features (RobustScaler)...")
@@ -400,21 +394,25 @@ class DataPreprocessor:
         X_train_scaled = scaler.fit_transform(X_train)
         X_test_scaled = scaler.transform(X_test)
         
-        # 5. Balance classes with SMOTE
-        logger.info("  - Balancing classes (SMOTE)...")
+        # 5. Balance classes with SMOTE (if possible)
+        logger.info("  - Balancing classes...")
         try:
-            k = min(3, min(np.bincount(y_train)) - 1)
-            if k >= 1:
-                smote = BorderlineSMOTE(random_state=random_state, k_neighbors=k)
+            # Check if SMOTE is possible
+            train_dist = dict(zip(*np.unique(y_train, return_counts=True)))
+            min_train_samples = min(train_dist.values())
+            
+            if min_train_samples >= 6:
+                k = min(5, min_train_samples - 1)
+                smote = SMOTE(random_state=random_state, k_neighbors=k)
                 X_train_balanced, y_train_balanced = smote.fit_resample(X_train_scaled, y_train)
                 
-                logger.info(f"     Original: {dict(zip(*np.unique(y_train, return_counts=True)))}")
+                logger.info(f"     Original: {train_dist}")
                 logger.info(f"     Balanced: {dict(zip(*np.unique(y_train_balanced, return_counts=True)))}")
             else:
+                logger.warning(f"     SMOTE skipped: insufficient samples (min: {min_train_samples})")
                 X_train_balanced, y_train_balanced = X_train_scaled, y_train
-                logger.warning("  - SMOTE skipped: insufficient samples per class")
         except Exception as e:
-            logger.warning(f"  - SMOTE failed: {e}, using original data")
+            logger.warning(f"     SMOTE failed: {e}")
             X_train_balanced, y_train_balanced = X_train_scaled, y_train
         
         logger.info("Preprocessing complete")
@@ -423,13 +421,18 @@ class DataPreprocessor:
                 scaler, le, imputer)
 
 # ═══════════════════════════════════════════════════════════════
-#  MODEL TRAINING (SIMPLIFIED & FIXED)
+#  MODEL TRAINING (SIMPLIFIED)
 # ═══════════════════════════════════════════════════════════════
 
 def train_enhanced_models(X_train, X_test, y_train, y_test, label_encoder):
     logger.info("\n" + "="*80)
     logger.info("ENHANCED MODEL TRAINING")
     logger.info("="*80)
+    
+    # Determine CV folds based on smallest class
+    min_class_count = min(np.bincount(y_train))
+    cv_folds = min(5, max(2, min_class_count))
+    logger.info(f"Using {cv_folds}-fold cross-validation")
     
     models = {
         "RandomForest": RandomForestClassifier(
@@ -445,22 +448,21 @@ def train_enhanced_models(X_train, X_test, y_train, y_test, label_encoder):
             random_state=42, verbose=-1, class_weight='balanced'
         ),
         "LogisticRegression": LogisticRegression(
-            max_iter=2000, random_state=42, class_weight='balanced',
-            solver='lbfgs', multi_class='multinomial'
-        ),
+    max_iter=2000, random_state=42, class_weight='balanced',
+    solver='lbfgs'
+),
         "ExtraTrees": ExtraTreesClassifier(
             n_estimators=200, max_depth=15, random_state=42,
             n_jobs=-1, class_weight='balanced'
         ),
-        "GradientBoosting": GradientBoostingClassifier(
-            n_estimators=150, max_depth=7, learning_rate=0.1,
-            random_state=42
-        ),
-        "KNN": KNeighborsClassifier(n_neighbors=min(7, len(X_train)-1), n_jobs=-1)
+        "KNN": KNeighborsClassifier(
+            n_neighbors=min(7, len(X_train)-1), 
+            n_jobs=-1
+        )
     }
     
     results = {}
-    cv_strategy = StratifiedKFold(n_splits=min(5, len(np.unique(y_train))), shuffle=True, random_state=42)
+    cv_strategy = StratifiedKFold(n_splits=cv_folds, shuffle=True, random_state=42)
     
     print("\n" + "="*80)
     print("TRAINING PROGRESS")
@@ -489,8 +491,13 @@ def train_enhanced_models(X_train, X_test, y_train, y_test, label_encoder):
             f1 = f1_score(y_test, y_pred, average='weighted', zero_division=0)
             
             # Cross-validation
-            print(f"  - Running 5-fold CV...")
-            cv_scores = cross_val_score(model, X_train, y_train, cv=cv_strategy, scoring='f1_weighted', n_jobs=-1)
+            print(f"  - Running {cv_folds}-fold CV...")
+            cv_scores = cross_val_score(
+                model, X_train, y_train, 
+                cv=cv_strategy, 
+                scoring='f1_weighted', 
+                n_jobs=-1
+            )
             
             training_time = time.time() - start_time
             
@@ -518,17 +525,19 @@ def train_enhanced_models(X_train, X_test, y_train, y_test, label_encoder):
             
             # Per-class accuracy
             cm = confusion_matrix(y_test, y_pred)
-            class_acc = cm.diagonal() / cm.sum(axis=1)
-            print(f"\n  Per-Class Accuracy:")
-            for j, label in enumerate(label_encoder.classes_):
-                print(f"     {label}: {class_acc[j]*100:.1f}%")
+            if cm.shape[0] > 1:  # Only if multiple classes in test set
+                class_acc = cm.diagonal() / (cm.sum(axis=1) + 1e-10)
+                print(f"\n  Per-Class Accuracy:")
+                for j, label in enumerate(label_encoder.classes_):
+                    if j < len(class_acc):
+                        print(f"     {label}: {class_acc[j]*100:.1f}%")
             
         except Exception as e:
             print(f"  FAILED: {e}")
             logger.error(f"Model {model_name} failed: {e}", exc_info=True)
             continue
     
-    # Ensemble (only if we have successful models)
+    # Ensemble (only if we have 3+ successful models)
     if len(results) >= 3:
         print("\n" + "="*80)
         print("ENSEMBLE METHODS")
@@ -573,7 +582,7 @@ def train_enhanced_models(X_train, X_test, y_train, y_test, label_encoder):
 # ═══════════════════════════════════════════════════════════════
 
 def run_complete_training_pipeline():
-    # Setup logging WITHOUT emojis
+    # Setup logging
     logging.basicConfig(
         level=logging.INFO,
         format="%(levelname)s: %(message)s",
@@ -601,7 +610,7 @@ def run_complete_training_pipeline():
     logger.info("\nStep 2: Advanced feature engineering...")
     features_df, feature_names = FeatureEngineer.create_enhanced_features(features_df)
     
-    # 3. Label assignment (FIXED)
+    # 3. Label assignment
     logger.info("\nStep 3: Creating diversified labels...")
     features_df['label'] = assign_diversified_labels(features_df)
     
@@ -609,7 +618,14 @@ def run_complete_training_pipeline():
     y = features_df['label'].values
     
     logger.info(f"   Features: {X.shape}")
-    logger.info(f"   Labels: {dict(zip(*np.unique(y, return_counts=True)))}")
+    logger.info(f"   Labels: {dict(Counter(y))}")
+    
+    # Validate label distribution
+    label_counts = Counter(y)
+    if min(label_counts.values()) < 2:
+        logger.error(f"CRITICAL: Some classes have < 2 samples: {label_counts}")
+        logger.error("Cannot proceed with training. Please check label assignment logic.")
+        return None
     
     # 4. Preprocessing
     logger.info("\nStep 4: Preprocessing...")
@@ -618,15 +634,20 @@ def run_complete_training_pipeline():
          scaler, label_encoder, imputer) = DataPreprocessor.preprocess(X, y)
     except ValueError as e:
         logger.error(f"Preprocessing failed: {e}")
-        logger.error("Check label distribution - likely all students assigned to one class!")
         return None
     
     logger.info(f"   Train: {X_train.shape}")
     logger.info(f"   Test:  {X_test.shape}")
+    logger.info(f"   Train labels: {dict(Counter(label_encoder.inverse_transform(y_train)))}")
+    logger.info(f"   Test labels: {dict(Counter(label_encoder.inverse_transform(y_test)))}")
     
     # 5. Train models
     logger.info("\nStep 5: Training models...")
     results = train_enhanced_models(X_train, X_test, y_train, y_test, label_encoder)
+    
+    if not results:
+        logger.error("No models trained successfully!")
+        return None
     
     # 6. Model comparison
     logger.info("\n" + "="*80)
@@ -681,6 +702,11 @@ def run_complete_training_pipeline():
     joblib.dump(label_encoder, os.path.join(MODEL_DIR, "label_enc.joblib"))
     joblib.dump(imputer, os.path.join(MODEL_DIR, "imputer.joblib"))
     
+    # Save all models
+    for model_name, model_data in results.items():
+        safe_name = model_name.replace(" ", "_").lower()
+        joblib.dump(model_data['model'], os.path.join(MODEL_DIR, f"model_{safe_name}.joblib"))
+    
     # Metadata
     metadata = {
         "training_timestamp": datetime.now().isoformat(),
@@ -688,10 +714,7 @@ def run_complete_training_pipeline():
         "total_students": len(features_df),
         "feature_count": len(feature_names),
         "feature_names": feature_names,
-        "label_distribution": {
-            label: int(count)
-            for label, count in zip(*np.unique(y, return_counts=True))
-        },
+        "label_distribution": dict(Counter(y)),
         "best_model": best_name,
         "best_accuracy": float(best_model_data['accuracy']),
         "best_f1_score": float(best_model_data['f1_score']),
@@ -727,7 +750,6 @@ def run_complete_training_pipeline():
     logger.info(f"   F1 Score:       {metadata['best_f1_score']*100:.2f}%")
     logger.info(f"   Students:       {metadata['total_students']}")
     logger.info(f"   Features:       {metadata['feature_count']}")
-    
     logger.info(f"\nOutputs:")
     logger.info(f"   Models:         {MODEL_DIR}")
     logger.info(f"   Logs:           {OUTPUT_DIR}")
