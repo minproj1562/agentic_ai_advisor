@@ -15,6 +15,7 @@ const OutputPredictor = lazy(() => import('./games/OutputPredictor'));
 const BossBattle = lazy(() => import('./games/BossBattle'));
 const CodeStudio = lazy(() => import('./games/CodeStudio'));
 const TheoryEngine = lazy(() => import('./games/TheoryEngine'));
+import SyllabusProgressionView from './games/SyllabusProgressionView';
 
 const LEVEL_TITLES = ['Freshman','Learner','Explorer','Scholar','Specialist','Expert','Master','Grandmaster','Legend','Titan'];
 const getLevelTitle = (l: number) => LEVEL_TITLES[Math.min(l - 1, 9)];
@@ -62,6 +63,18 @@ const ImprovementHub: React.FC = () => {
     queryFn: async () => (await apiClient.get('/improvement/mastery-summary')).data,
   });
 
+  const { data: syllabusData } = useQuery({
+    queryKey: ['syllabus-subjects'],
+    queryFn: async () => {
+      try {
+        const semester = localStorage.getItem('userSemester') || '5';
+        const res = await apiClient.get(`/academic/subjects?semester=${semester}`);
+        return res.data;
+      } catch { return null; }
+    },
+    staleTime: 10 * 60 * 1000,
+  });
+
   const createRoadmap = useMutation({
     mutationFn: async (d: {target_type:string;target_name:string}) => (await apiClient.post('/improvement/roadmap', d)).data,
     onSuccess: () => { toast.success('🗺️ Roadmap created!'); qc.invalidateQueries({queryKey:['improvement-progress']}); setShowRoadmapModal(false); },
@@ -88,6 +101,12 @@ const ImprovementHub: React.FC = () => {
 
   const level = progress?.level || 1;
   const weakSubjects: any[] = weakData?.weak_subjects || [];
+
+  // Build subject list from backend syllabus + weak subjects, with fallback
+  const DEFAULT_SUBJECTS = ['Operating Systems','Database Management Systems','Data Structures and Algorithms','Computer Networks','Software Engineering','Machine Learning','Discrete Mathematics','Object Oriented Programming'];
+  const backendSubjects: string[] = syllabusData?.subjects?.map((s: any) => s.name || s.subject_name || s) || syllabusData?.map?.((s: any) => s.name || s.subject_name || s) || [];
+  const weakNames = weakSubjects.map((w: any) => w.name);
+  const syllabusSubjects = [...new Set([...weakNames, ...(backendSubjects.length > 0 ? backendSubjects : DEFAULT_SUBJECTS)])];
 
   // Active theory engine
   if (activeTheory) {
@@ -153,122 +172,23 @@ const ImprovementHub: React.FC = () => {
     );
   }
 
-  // Subject selection → 3 Learning Lanes
+  // Subject selection → Syllabus Progression View
   if (selectedSubject) {
     const subjectMastery = masteryData?.subjects?.find((s: any) => s.subject === selectedSubject);
-    return (
-      <div className="space-y-6 p-1">
-        <button onClick={() => setSelectedSubject(null)} className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">
-          <ArrowLeft className="w-4 h-4" /> Back
-        </button>
-        <div className="text-center mb-2">
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-white">{selectedSubject}</h2>
-          <p className="text-gray-500 text-sm">Choose your learning lane</p>
-          {subjectMastery && (
-            <div className="mt-2 inline-flex items-center gap-2 px-3 py-1 bg-indigo-50 dark:bg-indigo-900/20 rounded-full">
-              <span className="text-xs font-medium text-indigo-600">Overall Mastery: {subjectMastery.overall_mastery}%</span>
-            </div>
-          )}
-        </div>
+    const overallPct = subjectMastery?.overall_mastery || 0;
 
-        {/* 3 Learning Lanes */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-          {/* Theory Lane */}
-          <div className="bg-gradient-to-br from-indigo-500 to-blue-600 rounded-2xl p-5 text-white shadow-lg">
-            <div className="flex items-center gap-2 mb-3"><BookOpen className="w-5 h-5" /><h3 className="font-bold text-lg">Theory Lane</h3></div>
-            <p className="text-xs text-white/70 mb-4">Concepts, definitions & understanding</p>
-            {subjectMastery?.lanes?.theory && (
-              <div className="mb-3"><div className="flex justify-between text-xs text-white/80 mb-1"><span>Mastery</span><span>{subjectMastery.lanes.theory.mastery_pct}%</span></div>
-              <div className="h-2 bg-white/20 rounded-full"><div className="h-full bg-white/60 rounded-full" style={{width:`${subjectMastery.lanes.theory.mastery_pct}%`}} /></div></div>
-            )}
-            <div className="space-y-2">
-              {/* AI Theory Engine */}
-              <div className="bg-white/20 rounded-lg p-3 border border-white/20">
-                <div className="flex justify-between items-center mb-2"><span className="text-sm font-bold">🧠 AI Lesson</span><span className="text-[10px] bg-white/20 px-1.5 py-0.5 rounded">NEW</span></div>
-                <p className="text-xs text-white/60 mb-2">Adaptive AI-generated lesson with Ask AI chat</p>
-                <div className="flex gap-1">
-                  {DIFFICULTIES.map(d => (
-                    <button key={d.id} onClick={() => setActiveTheory({subject:selectedSubject,topic:selectedSubject,diff:d.id})}
-                      className="flex-1 text-center py-1.5 bg-white/15 hover:bg-white/25 rounded text-xs transition-colors">{d.emoji}</button>
-                  ))}
-                </div>
-              </div>
-              {[{id:'mcq',name:'📝 Theory Quiz',desc:'MCQ questions'},{id:'concept_match',name:'🔗 Concept Clash',desc:'Match terms & definitions'},{id:'fill_blank',name:'✏️ Fill the Gap',desc:'Complete the sentence'}].map(g => (
-                <div key={g.id} className="bg-white/10 rounded-lg p-3">
-                  <div className="flex justify-between items-center mb-2"><span className="text-sm font-medium">{g.name}</span></div>
-                  <p className="text-xs text-white/60 mb-2">{g.desc}</p>
-                  <div className="flex gap-1">
-                    {DIFFICULTIES.map(d => (
-                      <button key={d.id} onClick={() => g.id === 'concept_match' ? setActiveGame({subject:selectedSubject,game:'concept_match',diff:d.id}) : setActiveQuiz({subject:selectedSubject,type:g.id,diff:d.id})}
-                        className="flex-1 text-center py-1.5 bg-white/15 hover:bg-white/25 rounded text-xs transition-colors">{d.emoji}</button>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Practical Lane */}
-          <div className="bg-gradient-to-br from-emerald-500 to-teal-600 rounded-2xl p-5 text-white shadow-lg">
-            <div className="flex items-center gap-2 mb-3"><Award className="w-5 h-5" /><h3 className="font-bold text-lg">Practical Lane</h3></div>
-            <p className="text-xs text-white/70 mb-4">Lab work, output interpretation & applied learning</p>
-            {subjectMastery?.lanes?.practical && (
-              <div className="mb-3"><div className="flex justify-between text-xs text-white/80 mb-1"><span>Mastery</span><span>{subjectMastery.lanes.practical.mastery_pct}%</span></div>
-              <div className="h-2 bg-white/20 rounded-full"><div className="h-full bg-white/60 rounded-full" style={{width:`${subjectMastery.lanes.practical.mastery_pct}%`}} /></div></div>
-            )}
-            <div className="space-y-2">
-              {[{id:'output_predict',name:'🔮 Output Predictor',desc:'Predict code output'},{id:'fill_blank',name:'🧩 Step Sequencer',desc:'Arrange steps correctly'}].map(g => (
-                <div key={g.id} className="bg-white/10 rounded-lg p-3">
-                  <div className="flex justify-between items-center mb-2"><span className="text-sm font-medium">{g.name}</span></div>
-                  <p className="text-xs text-white/60 mb-2">{g.desc}</p>
-                  <div className="flex gap-1">
-                    {DIFFICULTIES.map(d => (
-                      <button key={d.id} onClick={() => g.id === 'output_predict' ? setActiveGame({subject:selectedSubject,game:'output_predict',diff:d.id}) : setActiveQuiz({subject:selectedSubject,type:g.id,diff:d.id})}
-                        className="flex-1 text-center py-1.5 bg-white/15 hover:bg-white/25 rounded text-xs transition-colors">{d.emoji}</button>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Coding Lane */}
-          <div className="bg-gradient-to-br from-red-500 to-rose-600 rounded-2xl p-5 text-white shadow-lg">
-            <div className="flex items-center gap-2 mb-3"><Code className="w-5 h-5" /><h3 className="font-bold text-lg">Coding Lane</h3></div>
-            <p className="text-xs text-white/70 mb-4">Debugging, logic building & code tracing</p>
-            {subjectMastery?.lanes?.coding && (
-              <div className="mb-3"><div className="flex justify-between text-xs text-white/80 mb-1"><span>Mastery</span><span>{subjectMastery.lanes.coding.mastery_pct}%</span></div>
-              <div className="h-2 bg-white/20 rounded-full"><div className="h-full bg-white/60 rounded-full" style={{width:`${subjectMastery.lanes.coding.mastery_pct}%`}} /></div></div>
-            )}
-            <div className="space-y-2">
-              {/* Code Studio */}
-              <div className="bg-white/20 rounded-lg p-3 border border-white/20">
-                <div className="flex justify-between items-center mb-2"><span className="text-sm font-bold">💻 Code Studio</span><span className="text-[10px] bg-white/20 px-1.5 py-0.5 rounded">NEW</span></div>
-                <p className="text-xs text-white/60 mb-2">In-browser editor with AI tasks & tests</p>
-                <div className="flex gap-1">
-                  {DIFFICULTIES.map(d => (
-                    <button key={d.id} onClick={() => setActiveCode({subject:selectedSubject,diff:d.id})}
-                      className="flex-1 text-center py-1.5 bg-white/15 hover:bg-white/25 rounded text-xs transition-colors">{d.emoji}</button>
-                  ))}
-                </div>
-              </div>
-              {[{id:'code_debug',name:'🐛 Bug Hunter',desc:'Find & fix bugs'},{id:'output_predict',name:'🏃 Code Tracer',desc:'Trace variable values'}].map(g => (
-                <div key={g.id+'-coding'} className="bg-white/10 rounded-lg p-3">
-                  <div className="flex justify-between items-center mb-2"><span className="text-sm font-medium">{g.name}</span></div>
-                  <p className="text-xs text-white/60 mb-2">{g.desc}</p>
-                  <div className="flex gap-1">
-                    {DIFFICULTIES.map(d => (
-                      <button key={d.id} onClick={() => g.id === 'output_predict' ? setActiveGame({subject:selectedSubject,game:'output_predict',diff:d.id}) : setActiveQuiz({subject:selectedSubject,type:g.id,diff:d.id})}
-                        className="flex-1 text-center py-1.5 bg-white/15 hover:bg-white/25 rounded text-xs transition-colors">{d.emoji}</button>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </div>
-    );
+    return <SyllabusProgressionView
+      subject={selectedSubject}
+      overallPct={overallPct}
+      subjectMastery={subjectMastery}
+      onBack={() => setSelectedSubject(null)}
+      onTheory={(topic: string, diff: string) => setActiveTheory({subject: selectedSubject, topic, diff})}
+      onQuiz={(type: string, diff: string) => setActiveQuiz({subject: selectedSubject, type, diff})}
+      onGame={(game: string, diff: string) => setActiveGame({subject: selectedSubject, game, diff})}
+      onCode={(diff: string) => setActiveCode({subject: selectedSubject, diff})}
+      onBoss={(topic: string, diff: string) => setActiveBoss({subject: selectedSubject, topic, diff})}
+      onComplete={handleGameComplete}
+    />;
   }
 
   const tabs = [
@@ -427,7 +347,7 @@ const ImprovementHub: React.FC = () => {
               </div>
               <p className="text-xs text-gray-400 mb-4">Defeat concept bosses to prove mastery! Each boss guards a prerequisite topic.</p>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                {(weakSubjects.length > 0 ? weakSubjects.slice(0, 4) : [{name:'Data Structures and Algorithms'},{name:'Operating Systems'},{name:'Database Management Systems'},{name:'Computer Networks'}]).map((ws: any, i: number) => (
+                {(weakSubjects.length > 0 ? weakSubjects.slice(0, 4) : syllabusSubjects.slice(0, 4).map(n => ({name: n}))).map((ws: any, i: number) => (
                   <motion.button key={i} initial={{opacity:0,x:-10}} animate={{opacity:1,x:0}} transition={{delay:i*0.05}}
                     onClick={() => setActiveBoss({subject:ws.name, topic: ws.name, diff:'medium'})}
                     whileHover={{scale:1.02}}
@@ -444,18 +364,15 @@ const ImprovementHub: React.FC = () => {
 
             <div>
               <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-3 flex items-center gap-2">
-                <BookOpen className="w-5 h-5 text-indigo-500" /> All Subjects
+                <BookOpen className="w-5 h-5 text-indigo-500" /> Syllabus Subjects
               </h3>
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-                {['Operating Systems','Database Management Systems','Data Structures and Algorithms','Computer Networks',
-                  'Artificial Intelligence','Software Engineering','Machine Learning','Discrete Mathematics',
-                  'Theory of Computation','Computer Organization','Object Oriented Programming','Cloud Computing'
-                ].map((subj, i) => (
+                {syllabusSubjects.map((subj: string, i: number) => (
                   <motion.button key={subj} initial={{opacity:0,scale:0.95}} animate={{opacity:1,scale:1}} transition={{delay:i*0.03}}
                     onClick={() => setSelectedSubject(subj)} whileHover={{scale:1.03}}
                     className="p-4 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 hover:border-indigo-400 hover:shadow-md transition-all text-left">
                     <h4 className="font-medium text-gray-900 dark:text-white text-sm">{subj}</h4>
-                    <p className="text-xs text-indigo-500 mt-1 flex items-center gap-1"><Play className="w-3 h-3" /> Start Practice</p>
+                    <p className="text-xs text-indigo-500 mt-1 flex items-center gap-1"><Play className="w-3 h-3" /> 5 Engines</p>
                   </motion.button>
                 ))}
               </div>
@@ -521,16 +438,39 @@ const ImprovementHub: React.FC = () => {
             className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setShowRoadmapModal(false)}>
             <motion.div initial={{scale:0.9,y:20}} animate={{scale:1,y:0}} exit={{scale:0.9,y:20}} onClick={e => e.stopPropagation()}
               className="bg-white dark:bg-gray-800 rounded-2xl p-6 max-w-md w-full shadow-2xl">
-              <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-4">🗺️ Create Improvement Roadmap</h3>
-              <p className="text-sm text-gray-500 mb-6">Choose a goal. We'll build a personalized step-by-step plan with XP rewards.</p>
-              <div className="space-y-3">
-                {[
-                  {type:'subject',name:'Weak Subjects',icon:'📚',desc:'Strengthen your weakest areas'},
-                  {type:'career',name:'Data Scientist',icon:'📊',desc:'Prepare for data science career'},
-                  {type:'career',name:'Software Developer',icon:'💻',desc:'Build full-stack skills'},
-                  {type:'elective',name:'Machine Learning',icon:'🤖',desc:'Get ready for ML elective'},
-                  {type:'elective',name:'Cloud Computing',icon:'☁️',desc:'Prepare for cloud computing'},
-                ].map(o => (
+              <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-4">🗺️ Create Personalized Roadmap</h3>
+              <p className="text-sm text-gray-500 mb-6">Based on your performance and goals, here are recommended roadmaps. We'll build a step-by-step plan with XP rewards.</p>
+              <div className="space-y-3 max-h-80 overflow-y-auto">
+                {/* Personalized weak subject roadmaps */}
+                {weakSubjects.slice(0, 3).map((ws: any) => (
+                  <button key={`weak-${ws.name}`} onClick={() => createRoadmap.mutate({target_type:'subject',target_name:ws.name})} disabled={createRoadmap.isPending}
+                    className="w-full flex items-center gap-3 p-3 rounded-xl border border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-900/10 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors text-left">
+                    <span className="text-2xl">{ws.severity === 'critical' ? '🚨' : '⚠️'}</span>
+                    <div className="flex-1">
+                      <p className="font-medium text-gray-900 dark:text-white text-sm">{ws.name}</p>
+                      <p className="text-xs text-red-600 dark:text-red-400">Score: {ws.marks}/100 • {ws.severity} priority</p>
+                    </div>
+                    <ChevronRight className="w-4 h-4 ml-auto text-gray-400" />
+                  </button>
+                ))}
+                {/* Career roadmaps from localStorage goals */}
+                {(() => {
+                  const savedGoals = JSON.parse(localStorage.getItem('careerGoals') || '[]');
+                  const savedInterests = JSON.parse(localStorage.getItem('studentInterests') || '[]');
+                  const careerOptions = savedGoals.length > 0 
+                    ? savedGoals.slice(0, 2).map((g: string) => ({ type: 'career', name: g, icon: '🎯', desc: `Personalized path for ${g}` }))
+                    : [
+                        { type: 'career', name: 'Data Scientist', icon: '📊', desc: 'Prepare for data science career' },
+                        { type: 'career', name: 'Software Developer', icon: '💻', desc: 'Build full-stack skills' },
+                      ];
+                  const electiveOptions = savedInterests.length > 0
+                    ? savedInterests.slice(0, 2).map((i: string) => ({ type: 'elective', name: i, icon: '✨', desc: `Deep dive into ${i}` }))
+                    : [
+                        { type: 'elective', name: 'Machine Learning', icon: '🤖', desc: 'Get ready for ML elective' },
+                        { type: 'elective', name: 'Cloud Computing', icon: '☁️', desc: 'Prepare for cloud computing' },
+                      ];
+                  return [...careerOptions, ...electiveOptions];
+                })().map((o: any) => (
                   <button key={o.name} onClick={() => createRoadmap.mutate({target_type:o.type,target_name:o.name})} disabled={createRoadmap.isPending}
                     className="w-full flex items-center gap-3 p-3 rounded-xl border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors text-left">
                     <span className="text-2xl">{o.icon}</span>

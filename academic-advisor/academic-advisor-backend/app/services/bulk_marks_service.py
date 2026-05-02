@@ -1648,6 +1648,16 @@ class BulkMarksService:
                 profile.last_updated = datetime.now()
                 profile.marks_synced_at = datetime.now()
 
+                # ✅ FIX: Update current_semester to highest completed semester
+                # This ensures student_analysis filters work correctly
+                completed_sems = [
+                    sr.semester_number
+                    for sr in profile.semester_records
+                    if sr.is_complete
+                ]
+                if completed_sems:
+                    profile.current_semester = max(completed_sems)
+
                 # Reset pending_marks_checked so the student's next login picks up changes
                 profile.pending_marks_checked = False
 

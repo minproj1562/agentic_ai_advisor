@@ -318,6 +318,7 @@ const FacultyDashboard: React.FC = () => {
           theme={theme as 'light' | 'dark'}
           stats={stats}
           onLogout={handleLogout}
+          onNotificationClick={() => setActiveSection('notifications')}
         />
 
         <div className="flex h-[calc(100vh-64px)] relative">

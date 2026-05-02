@@ -1367,11 +1367,11 @@ export const StudyResources: React.FC<StudyResourcesProps> = ({
   selectedSubject = null,
   highlightNew = false 
 }) => {
-  const [activeTab, setActiveTab] = useState<'recommended' | 'bookmarked'>('recommended');
+  const [activeTab, setActiveTab] = useState<'recommended' | 'faculty' | 'bookmarked'>('recommended');
   const [selectedFilter, setSelectedFilter] = useState('all');
   const { data: metrics } = usePerformanceMetrics();
   const { data: rawResources, isLoading, error, refetch } = useStudyResources(
-    activeTab === 'recommended' ? { type: selectedFilter !== 'all' ? selectedFilter : undefined } : undefined
+    (activeTab === 'recommended' || activeTab === 'faculty') ? { type: selectedFilter !== 'all' ? selectedFilter : undefined } : undefined
   );
   const { data: rawBookmarked } = useBookmarkedResources();
   const toggleBookmark = useToggleBookmark();
@@ -1384,6 +1384,11 @@ export const StudyResources: React.FC<StudyResourcesProps> = ({
     return normalized.map((item, index) => transformResourceItem(item, index));
   }, [rawResources]);
 
+  // Faculty-uploaded resources (filtered by source)
+  const facultyResources = useMemo(() => {
+    return resources.filter((r: any) => r.source === 'faculty' || r.platform === 'Academic Advisor');
+  }, [resources]);
+
   const bookmarked = useMemo(() => {
     const normalized = normalizeResourcesData(rawBookmarked);
     return normalized.map((item, index) => transformResourceItem(item, index));
@@ -1391,7 +1396,7 @@ export const StudyResources: React.FC<StudyResourcesProps> = ({
 
   // Get current resources with filtering
   const currentResources = useMemo(() => {
-    let data = activeTab === 'recommended' ? resources : bookmarked;
+    let data = activeTab === 'faculty' ? facultyResources : activeTab === 'recommended' ? resources : bookmarked;
     
     // Filter by type if not 'all'
     if (selectedFilter !== 'all' && activeTab === 'recommended') {
@@ -1532,6 +1537,17 @@ export const StudyResources: React.FC<StudyResourcesProps> = ({
             )}
           >
             🎯 AI Recommended ({resources.length})
+          </button>
+          <button
+            onClick={() => setActiveTab('faculty')}
+            className={cn(
+              'px-4 py-2 rounded-lg font-semibold transition-all',
+              activeTab === 'faculty'
+                ? 'bg-indigo-600 text-white shadow-lg'
+                : 'bg-indigo-50 text-indigo-600 hover:bg-indigo-100'
+            )}
+          >
+            📚 Faculty Resources ({facultyResources.length})
           </button>
           <button
             onClick={() => setActiveTab('bookmarked')}
@@ -1731,14 +1747,16 @@ export const StudyResources: React.FC<StudyResourcesProps> = ({
             >
               <GraduationCap className="w-12 h-12 text-purple-400 mx-auto mb-4" />
               <h3 className="text-lg font-semibold text-gray-900 mb-2">
-                {activeTab === 'bookmarked' ? 'No Bookmarked Resources' : 'No Resources Found'}
+                {activeTab === 'bookmarked' ? 'No Bookmarked Resources' : activeTab === 'faculty' ? 'No Faculty Resources Yet' : 'No Resources Found'}
               </h3>
               <p className="text-gray-600 mb-4">
                 {activeTab === 'bookmarked' 
                   ? 'Bookmark resources to access them quickly later.'
-                  : selectedFilter !== 'all'
-                    ? `No ${selectedFilter} resources found. Try a different filter.`
-                    : 'Resources will appear based on your interests and weaknesses.'}
+                  : activeTab === 'faculty'
+                    ? 'Your faculty members haven\'t uploaded any resources yet. Check back later!'
+                    : selectedFilter !== 'all'
+                      ? `No ${selectedFilter} resources found. Try a different filter.`
+                      : 'Resources will appear based on your interests and weaknesses.'}
               </p>
               {selectedFilter !== 'all' && (
                 <button

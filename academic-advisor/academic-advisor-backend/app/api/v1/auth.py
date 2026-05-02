@@ -404,3 +404,151 @@ async def admin_reset_student_password(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to reset password",
         )
+
+
+# ==================== Forgot Password (Student) ====================
+
+class ForgotPasswordRequest(BaseModel):
+    roll_number: str = Field(..., min_length=7, max_length=7)
+    email: str = Field(..., min_length=5)
+
+
+@router.post("/student/forgot-password")
+async def student_forgot_password(request: ForgotPasswordRequest):
+    """
+    Student forgot password — verifies roll number + email match,
+    then resets password to the default (roll_number-based) password.
+    """
+    try:
+        db = get_mongo_database()
+        if db is None:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Database connection failed",
+            )
+
+        student = await db.student_profiles.find_one({
+            "roll_number": request.roll_number,
+        })
+
+        if not student:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No account found with this roll number",
+            )
+
+        # Verify email matches (case-insensitive)
+        stored_email = (student.get("email") or "").lower().strip()
+        request_email = request.email.lower().strip()
+
+        if not stored_email or stored_email != request_email:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Email does not match our records for this roll number",
+            )
+
+        # Reset to default password
+        default_pw = generate_student_password(
+            request.roll_number,
+            student.get("admission_year"),
+        )
+        pw_hash = hash_password(default_pw)
+
+        await db.student_profiles.update_one(
+            {"_id": student["_id"]},
+            {
+                "$set": {
+                    "password_hash":     pw_hash,
+                    "password_changed":  False,
+                    "password_reset_at": datetime.utcnow(),
+                }
+            },
+        )
+
+        logger.info(f"✅ Password reset via forgot-password for {request.roll_number}")
+
+        return {
+            "success": True,
+            "message": "Password has been reset successfully",
+            "default_password": default_pw,
+            "requires_change": True,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Forgot password error: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to reset password. Please contact admin.",
+        )
+
+
+# ==================== Faculty Password Change ====================
+
+class FacultyChangePasswordRequest(BaseModel):
+    current_password: str = Field(..., min_length=8)
+    new_password:     str = Field(..., min_length=8)
+    confirm_password: str = Field(..., min_length=8)
+
+
+@router.post("/faculty/change-password")
+async def change_faculty_password(
+    request: FacultyChangePasswordRequest,
+    current_user: FirebaseUser = Depends(get_current_user),
+):
+    """Allow faculty to change their password via Firebase."""
+    try:
+        if current_user.role not in ("faculty", "admin"):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Faculty/admin access required",
+            )
+
+        if request.new_password != request.confirm_password:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="New passwords do not match",
+            )
+
+        is_valid, error_msg = validate_password_strength(request.new_password)
+        if not is_valid:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=error_msg)
+
+        # Update password in Firebase
+        import firebase_admin.auth as fb_auth
+        try:
+            fb_auth.update_user(current_user.uid, password=request.new_password)
+        except Exception as e:
+            logger.error(f"Firebase password update failed: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to update password in authentication system",
+            )
+
+        # Update must_change_password flag in Firestore
+        try:
+            from app.core.firebase_admin import firestore_db
+            if firestore_db:
+                firestore_db.collection('users').document(current_user.uid).update({
+                    'must_change_password': False,
+                    'password_changed_at': datetime.utcnow(),
+                })
+        except Exception as e:
+            logger.warning(f"Firestore flag update failed (non-critical): {e}")
+
+        logger.info(f"✅ Faculty password changed: {current_user.email}")
+
+        return {
+            "success": True,
+            "message": "Password changed successfully",
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Faculty password change error: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to change password",
+        )

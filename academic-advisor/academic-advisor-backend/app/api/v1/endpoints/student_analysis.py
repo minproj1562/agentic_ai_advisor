@@ -315,9 +315,15 @@ async def get_students_list(
         if department:
             query_filters["branch"] = department
         
-        # ✅ FIX: Add semester filter  
+        # ✅ FIX: Semester filter checks both current_semester AND
+        # whether semester_records contain data for the requested semester.
+        # This ensures bulk-uploaded marks are visible even if current_semester
+        # wasn't updated yet (e.g. for older uploads).
         if semester:
-            query_filters["current_semester"] = semester
+            query_filters["$or"] = [
+                {"current_semester": semester},
+                {"semester_records.semester_number": semester},
+            ]
         
         # ✅ FIX: Add batch filter
         if batch:

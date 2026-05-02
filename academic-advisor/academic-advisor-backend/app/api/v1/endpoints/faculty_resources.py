@@ -198,10 +198,36 @@ async def student_resources(
 ):
     """Get resources for students (filtered by semester/branch)."""
     query = {"is_active": True, "branch": branch}
-    if semester:
-        query["$or"] = [{"semester": semester}, {"semester": 0}]
     if subject:
         query["subject"] = subject
 
     resources = await FacultyResource.find(query).sort("-created_at").to_list()
-    return {"count": len(resources), "resources": [r.dict() for r in resources]}
+
+    # If semester filter requested, include semester 0 (all semesters) too
+    if semester:
+        resources = [
+            r for r in resources
+            if r.semester == semester or r.semester == 0
+        ]
+
+    # Serialize with _id included — ensure datetime/enum fields are JSON-safe
+    result = []
+    for r in resources:
+        try:
+            d = r.dict() if not hasattr(r, 'model_dump') else r.model_dump()
+        except Exception:
+            d = r.dict()
+        d["_id"] = str(r.id)
+        # Ensure datetime fields are ISO strings
+        if hasattr(d.get("created_at"), "isoformat"):
+            d["created_at"] = d["created_at"].isoformat()
+        if hasattr(d.get("updated_at"), "isoformat"):
+            d["updated_at"] = d["updated_at"].isoformat()
+        # Ensure resource_type is a plain string
+        if hasattr(d.get("resource_type"), "value"):
+            d["resource_type"] = d["resource_type"].value
+        result.append(d)
+
+    logger.info(f"Returning {len(result)} resources for student (branch={branch}, semester={semester})")
+    return {"count": len(result), "resources": result}
+

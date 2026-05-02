@@ -964,28 +964,75 @@ export const engineeringService = {
     filters?: { type?: string; difficulty?: string; topic?: string; subject?: string }
   ): Promise<StudyResource[]> {
     try {
-      const params: Record<string, string> = {};
-      if (filters?.type) params.type = filters.type;
-      if (filters?.topic) params.subject = filters.topic;
-      if (filters?.subject) params.subject = filters.subject;
+      // Fetch faculty-uploaded resources (the real resources from faculty dashboard)
+      let facultyResources: StudyResource[] = [];
+      try {
+        const params: Record<string, string> = { branch: 'IT' };
+        if (filters?.subject) params.subject = filters.subject;
+        
+        const facultyRes = await apiClient.get('/faculty/resources/student', { params });
+        const facultyData = facultyRes.data;
+        
+        if (facultyData?.resources && Array.isArray(facultyData.resources)) {
+          facultyResources = facultyData.resources.map((r: any, index: number) => ({
+            id: r._id || `faculty-res-${index}`,
+            title: r.title || 'Untitled Resource',
+            type: r.resource_type || 'link',
+            url: r.url || r.file_url || '#',
+            duration: 'N/A',
+            rating: 4.5,
+            reviews: 0,
+            difficulty: 'Intermediate',
+            language: 'English',
+            examRelevance: 'High',
+            completionStatus: 0,
+            tags: r.tags || [],
+            provider: r.faculty_name || 'Faculty',
+            platform: 'Academic Advisor',
+            lastUpdated: r.created_at ? new Date(r.created_at).toLocaleDateString() : 'Recently',
+            thumbnailUrl: null,
+            icon: r.resource_type === 'pdf' ? '📄' : r.resource_type === 'video' ? '🎬' : r.resource_type === 'ppt' ? '📊' : '🔗',
+            aiReason: `Shared by ${r.faculty_name || 'Faculty'} for ${r.subject || 'your course'}`,
+            isBookmarked: false,
+            subject: r.subject || '',
+            description: r.description || '',
+            source: 'faculty'
+          }));
+        }
+      } catch (facultyErr) {
+        console.warn('📖 Could not fetch faculty resources:', facultyErr);
+      }
+
+      // Also try the student resources endpoint
+      let apiResources: StudyResource[] = [];
+      try {
+        const params: Record<string, string> = {};
+        if (filters?.type) params.type = filters.type;
+        if (filters?.topic) params.subject = filters.topic;
+        if (filters?.subject) params.subject = filters.subject;
+        
+        const response = await apiClient.get(`/students/${userId}/resources`, { params });
+        const data = response.data;
+        
+        if (Array.isArray(data)) {
+          apiResources = data;
+        } else if (data?.resources && Array.isArray(data.resources)) {
+          apiResources = data.resources;
+        }
+      } catch (apiErr) {
+        // Expected to fail with 501 - that's OK
+      }
+
+      // Merge: faculty resources first, then API resources, then defaults
+      const merged = [...facultyResources, ...apiResources];
       
-      const response = await apiClient.get(`/students/${userId}/resources`, { params });
-      const data = response.data;
-      
-      // Handle various response formats
-      let resources: StudyResource[] = [];
-      
-      if (Array.isArray(data)) {
-        resources = data;
-      } else if (data?.resources && Array.isArray(data.resources)) {
-        resources = data.resources;
+      if (merged.length > 0) {
+        // Add some default resources too for variety
+        const defaults = filterResources(DEFAULT_STUDY_RESOURCES, filters);
+        return [...merged, ...defaults];
       }
       
-      if (resources.length > 0) {
-        return resources;
-      }
-      
-      // Return filtered default resources
+      // Return filtered default resources as fallback
       console.warn('📖 Using default study resources');
       return filterResources(DEFAULT_STUDY_RESOURCES, filters);
     } catch (error) {

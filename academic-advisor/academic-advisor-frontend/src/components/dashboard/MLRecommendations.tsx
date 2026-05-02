@@ -816,13 +816,13 @@ export const MLRecommendations: React.FC = () => {
                       >
                         {chosenElective === elective.elective_code ? '✓ Chosen' : 'Choose This'}
                       </button>
-                      <button
+                      {/* <button
                         onClick={() => handleViewRoadmap(elective.elective_code, elective.elective_name, false)}
                         className="px-3 py-1.5 rounded-lg text-xs font-medium bg-orange-100 text-orange-700 hover:bg-orange-200 transition"
                         title="View improvement roadmap"
                       >
                         📋 Roadmap
-                      </button>
+                      </button> */}
                       <button
                         onClick={() => openFeedbackModal('elective', elective.elective_code, elective.elective_name)}
                         className="p-2 hover:bg-purple-50 rounded-lg transition text-gray-500 hover:text-purple-600"
@@ -982,13 +982,13 @@ export const MLRecommendations: React.FC = () => {
                       >
                         {chosenElective === elective.elective_code ? '✓ Chosen' : 'Choose This'}
                       </button>
-                      <button
+                      {/* <button
                         onClick={() => handleViewRoadmap(elective.elective_code, elective.elective_name, true)}
                         className="px-3 py-1.5 rounded-lg text-xs font-medium bg-orange-100 text-orange-700 hover:bg-orange-200 transition"
                         title="View improvement roadmap"
                       >
                         📋 Roadmap
-                      </button>
+                      </button> */}
                       <button
                         onClick={() => openFeedbackModal('elective', elective.elective_code, elective.elective_name)}
                         className="p-2 hover:bg-teal-50 rounded-lg transition text-gray-500 hover:text-teal-600"

@@ -2,7 +2,7 @@
 // ENHANCED VERSION - All improvements implemented
 // Changes marked with ✅ NEW or ✅ ENHANCED
 
-import React, { useState, useEffect, useCallback, useRef, useMemo, Component, ErrorInfo } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo, Component, ErrorInfo, Suspense, lazy } from 'react';
 import StudentMeetingRequest from '../../components/meetings/StudentMeetingRequest';
 import { motion, AnimatePresence, LayoutGroup } from 'framer-motion';
 
@@ -86,13 +86,17 @@ import {
   PredictionResult,
   WeaknessData,
 } from '../../modules/agent1/student-analysis/types/student-analysis.types';
-import TrendAnalyzer from '../../modules/agent1/performance-analytics/components/TrendAnalyzer';
-import SubjectPerformance from '../../modules/agent1/performance-analytics/components/SubjectPerformance';
+// ✅ LAZY-LOADED heavy components for faster initial dashboard render
+const TrendAnalyzer = lazy(() => import('../../modules/agent1/performance-analytics/components/TrendAnalyzer'));
+const SubjectPerformance = lazy(() => import('../../modules/agent1/performance-analytics/components/SubjectPerformance'));
+const MLRecommendations = lazy(() => import('../../components/dashboard/MLRecommendations'));
+const AcademicChatbot = lazy(() => import('../../components/dashboard/AcademicChatbot'));
+const MeetingsCalendar = lazy(() => import('../../components/meetings/MeetingsCalendar'));
+const ReadinessIndicator = lazy(() => import('../../components/dashboard/ReadinessIndicator'));
 import {
   WeaknessAnalyzer,
   StudyResources,
 } from '../../components/dashboard/EngineeringGuidance';
-import MLRecommendations from '../../components/dashboard/MLRecommendations';
 import {
   mlService,
   LegacyProjectAnalysisResult,
@@ -103,14 +107,22 @@ import { AcademicDataEntry } from '../../components/dashboard/AcademicDataEntry'
 import { InterestManagement } from '../../components/dashboard/InterestManagement';
 import { AcademicInsights } from '../../components/dashboard/AcademicInsights';
 import { auth } from '../../services/firebase.config';
-import MeetingsCalendar from '../../components/meetings/MeetingsCalendar';
 import { ComprehensiveAnalysis } from '../../services/student_projects_cloudinary.service';
 import { ReadinessAnalysis } from '../../components/dashboard/ReadinessAnalysis';
 import { useStudentInterests, useSyncInterests } from '../../hooks/useEngineeringGuidance';
-import ReadinessIndicator from '../../components/dashboard/ReadinessIndicator';
 import { getWeaknessService } from '../../services/weakness.service';
-import AcademicChatbot from '../../components/dashboard/AcademicChatbot';
-// import ImprovementHub from '../../components/dashboard/ImprovementHub'; // ❌ GAMING HUB COMMENTED OUT
+// import ImprovementHub from '../../components/dashboard/ImprovementHub'; // COMMENTED OUT — Game Hub disabled
+const PersonalizedRoadmap = lazy(() => import('../../components/dashboard/PersonalizedRoadmap'));
+
+// ✅ Suspense fallback for lazy-loaded tabs
+const TabLoader = () => (
+  <div className="flex items-center justify-center py-16">
+    <div className="flex flex-col items-center gap-3">
+      <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
+      <p className="text-sm text-gray-500">Loading section...</p>
+    </div>
+  </div>
+);
 
 // ==================== Interfaces ====================
 
@@ -1188,7 +1200,9 @@ const StudentDashboardContent: React.FC = () => {
     | 'meetings'
     | 'readiness'
     | 'chatbot'
-    // | 'improvement' // ❌ GAMING HUB COMMENTED OUT
+    | 'notifications'
+    // | 'roadmap'
+    // | 'improvement' // COMMENTED OUT — Game Hub disabled
   >('overview');
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -1230,7 +1244,7 @@ const StudentDashboardContent: React.FC = () => {
   const [showFloatingChatbot, setShowFloatingChatbot] = useState(false);
 
   const engineeringMetrics = usePerformanceMetrics();
-  const userDisplayName = (user as AuthUser)?.displayName || 'Student';
+  const userDisplayName = user?.name || user?.rollNumber || user?.email?.split('@')[0] || 'Student';
 
   // ==================== Refs ====================
 
@@ -1253,6 +1267,9 @@ const StudentDashboardContent: React.FC = () => {
     resources: { label: 'Resources', description: 'Study materials' },
     meetings: { label: 'Meetings', description: 'Faculty sessions' },
     readiness: { label: 'Readiness', description: 'Career readiness' },
+    notifications: { label: 'Notifications', description: 'Activity updates' },
+    roadmap: { label: 'AI Roadmap', description: 'Personalized learning path' },
+    // improvement: { label: 'Game Hub', description: 'Games, roadmaps & badges' }, // COMMENTED OUT
   };
 
   // ==================== ✅ NEW: Persist interests to localStorage ====================
@@ -2175,15 +2192,14 @@ const StudentDashboardContent: React.FC = () => {
                 </ul>
               </div>
 
-              {/* Growth Section */}
-              {/* ❌ GAMING HUB (IMPROVEMENT HUB) COMMENTED OUT - START */}
+              {/* Growth Section — Game Learning Hub — COMMENTED OUT */}
               {/* <div className="mb-6">
                 <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-3 px-3">
                   Growth
                 </p>
                 <ul className="space-y-1" role="list">
                   {[
-                    { id: 'improvement', icon: Rocket, label: 'Improvement Hub', badge: 'XP', badgeColor: 'bg-gradient-to-r from-amber-500 to-orange-500', description: 'Games, roadmaps & badges' },
+                    { id: 'improvement', icon: Rocket, label: 'Game Hub', badge: 'XP', badgeColor: 'bg-gradient-to-r from-amber-500 to-orange-500', description: 'Games, roadmaps & badges' },
                   ].map((item) => (
                     <li key={item.id}>
                       <motion.button
@@ -2226,7 +2242,6 @@ const StudentDashboardContent: React.FC = () => {
                   ))}
                 </ul>
               </div> */}
-              {/* ❌ GAMING HUB (IMPROVEMENT HUB) COMMENTED OUT - END */}
 
               {/* Resources Section */}
               <div>
@@ -2237,6 +2252,8 @@ const StudentDashboardContent: React.FC = () => {
                   {[
                     { id: 'resources', icon: BookOpen, label: 'Study Resources', badge: 'New', badgeColor: 'bg-green-500' },
                     { id: 'meetings', icon: Calendar, label: 'Faculty Meetings', badge: 'Book', badgeColor: 'bg-indigo-500' },
+                    { id: 'notifications', icon: Bell, label: 'Notifications', badge: '•', badgeColor: 'bg-red-500' },
+                    // { id: 'roadmap', icon: Rocket, label: 'AI Roadmap', badge: 'AI', badgeColor: 'bg-violet-500' },
                   ].map((item) => (
                     <li key={item.id}>
                       <motion.button
@@ -2367,6 +2384,18 @@ const StudentDashboardContent: React.FC = () => {
                     <Clock className="h-3.5 w-3.5" aria-hidden="true" />
                     <span>Updated {lastUpdated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                   </div>
+
+                  {/* Notification Bell */}
+                  <motion.button
+                    whileHover={{ scale: 1.1 }}
+                    whileTap={{ scale: 0.9 }}
+                    onClick={() => setActiveTab('notifications')}
+                    className="relative p-2 rounded-lg hover:bg-gray-100 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    title="Notifications"
+                    aria-label="View notifications"
+                  >
+                    <Bell className="h-4 w-4 text-gray-600" />
+                  </motion.button>
 
                   {/* Refresh Button */}
                   <motion.button
@@ -3211,7 +3240,9 @@ const StudentDashboardContent: React.FC = () => {
                   className="h-[calc(100vh-140px)] max-w-7xl mx-auto"
                 >
                   <div className="bg-white rounded-2xl shadow-lg overflow-hidden h-full">
-                    <AcademicChatbot isFloating={false} defaultOpen={true} className="h-full" />
+                    <Suspense fallback={<TabLoader />}>
+                      <AcademicChatbot isFloating={false} defaultOpen={true} className="h-full" />
+                    </Suspense>
                   </div>
                 </motion.div>
               )}
@@ -3500,7 +3531,9 @@ const StudentDashboardContent: React.FC = () => {
                         animate={{ opacity: 1, y: 0 }}
                         exit={{ opacity: 0, y: -10 }}
                       >
-                        <MeetingsCalendar />
+                        <Suspense fallback={<TabLoader />}>
+                          <MeetingsCalendar />
+                        </Suspense>
                       </motion.div>
                     )}
                   </AnimatePresence>
@@ -3580,7 +3613,173 @@ const StudentDashboardContent: React.FC = () => {
                 </motion.div>
               )}
 
-              {/* ==================== IMPROVEMENT HUB TAB - ❌ COMMENTED OUT ==================== */}
+              {/* ==================== NOTIFICATIONS TAB ==================== */}
+              {activeTab === 'notifications' && (
+                <motion.div
+                  key="notifications"
+                  variants={animationVariants.fadeIn}
+                  initial="initial"
+                  animate="animate"
+                  exit="exit"
+                  transition={{ duration: 0.3 }}
+                  className="max-w-4xl mx-auto space-y-6"
+                >
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h2 className="text-2xl font-bold text-gray-900">Notifications</h2>
+                      <p className="text-sm text-gray-500 mt-1">Stay updated with your academic activities</p>
+                    </div>
+                  </div>
+
+                  {/* Notification Cards */}
+                  <div className="space-y-3">
+                    {/* Marks Update Notification */}
+                    {studentData && (studentData.cgpa ?? 0) > 0 && (
+                      <motion.div
+                        initial={{ opacity: 0, x: -20 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        className="bg-white border border-blue-100 rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow"
+                      >
+                        <div className="flex items-start gap-3">
+                          <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
+                            <BarChart3 className="w-5 h-5 text-blue-600" />
+                          </div>
+                          <div className="flex-1">
+                            <p className="font-medium text-gray-900">Academic Performance Updated</p>
+                            <p className="text-sm text-gray-500 mt-0.5">
+                              Your CGPA has been updated to <span className="font-semibold text-blue-600">{studentData.cgpa?.toFixed(2)}</span>.
+                              {studentData.improvement_trend === 'improving' && ' Great progress! Keep it up! 🎉'}
+                              {studentData.improvement_trend === 'declining' && ' Consider focusing on weak subjects.'}
+                            </p>
+                            <p className="text-xs text-gray-400 mt-1.5">Academic Records</p>
+                          </div>
+                        </div>
+                      </motion.div>
+                    )}
+
+                    {/* Weakness Alert */}
+                    {studentData && (studentData.weakness_count || 0) > 0 && (
+                      <motion.div
+                        initial={{ opacity: 0, x: -20 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ delay: 0.1 }}
+                        className="bg-white border border-orange-100 rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow"
+                      >
+                        <div className="flex items-start gap-3">
+                          <div className="w-10 h-10 rounded-full bg-orange-100 flex items-center justify-center flex-shrink-0">
+                            <AlertCircle className="w-5 h-5 text-orange-600" />
+                          </div>
+                          <div className="flex-1">
+                            <p className="font-medium text-gray-900">Weakness Areas Detected</p>
+                            <p className="text-sm text-gray-500 mt-0.5">
+                              AI analysis found {studentData.weakness_count} areas that need attention. 
+                              <button onClick={() => handleTabChange('weaknesses')} className="text-orange-600 font-medium ml-1 hover:underline">
+                                View Analysis →
+                              </button>
+                            </p>
+                            <p className="text-xs text-gray-400 mt-1.5">AI Insights</p>
+                          </div>
+                        </div>
+                      </motion.div>
+                    )}
+
+                    {/* Elective Recommendations */}
+                    {recommendationStats.electivesRecommended > 0 && (
+                      <motion.div
+                        initial={{ opacity: 0, x: -20 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ delay: 0.2 }}
+                        className="bg-white border border-purple-100 rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow"
+                      >
+                        <div className="flex items-start gap-3">
+                          <div className="w-10 h-10 rounded-full bg-purple-100 flex items-center justify-center flex-shrink-0">
+                            <Sparkles className="w-5 h-5 text-purple-600" />
+                          </div>
+                          <div className="flex-1">
+                            <p className="font-medium text-gray-900">New Elective Recommendations</p>
+                            <p className="text-sm text-gray-500 mt-0.5">
+                              {recommendationStats.electivesRecommended} electives recommended based on your interests and performance.
+                              <button onClick={() => handleTabChange('electives')} className="text-purple-600 font-medium ml-1 hover:underline">
+                                Explore →
+                              </button>
+                            </p>
+                            <p className="text-xs text-gray-400 mt-1.5">AI Recommendations</p>
+                          </div>
+                        </div>
+                      </motion.div>
+                    )}
+
+                    {/* Profile Completeness */}
+                    {studentInterests.length === 0 && (
+                      <motion.div
+                        initial={{ opacity: 0, x: -20 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ delay: 0.3 }}
+                        className="bg-white border border-yellow-100 rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow"
+                      >
+                        <div className="flex items-start gap-3">
+                          <div className="w-10 h-10 rounded-full bg-yellow-100 flex items-center justify-center flex-shrink-0">
+                            <Heart className="w-5 h-5 text-yellow-600" />
+                          </div>
+                          <div className="flex-1">
+                            <p className="font-medium text-gray-900">Complete Your Profile</p>
+                            <p className="text-sm text-gray-500 mt-0.5">
+                              Add your interests to unlock personalized elective and career recommendations.
+                              <button onClick={() => handleTabChange('interests')} className="text-yellow-600 font-medium ml-1 hover:underline">
+                                Add Interests →
+                              </button>
+                            </p>
+                            <p className="text-xs text-gray-400 mt-1.5">Profile Setup</p>
+                          </div>
+                        </div>
+                      </motion.div>
+                    )}
+
+                    {/* Welcome Notification (always shown) */}
+                    <motion.div
+                      initial={{ opacity: 0, x: -20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: 0.4 }}
+                      className="bg-white border border-green-100 rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow"
+                    >
+                      <div className="flex items-start gap-3">
+                        <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0">
+                          <Bot className="w-5 h-5 text-green-600" />
+                        </div>
+                        <div className="flex-1">
+                          <p className="font-medium text-gray-900">AI Assistant Available</p>
+                          <p className="text-sm text-gray-500 mt-0.5">
+                            Need help with syllabus, faculty info, or career guidance?
+                            <button onClick={() => handleTabChange('chatbot')} className="text-green-600 font-medium ml-1 hover:underline">
+                              Start a chat →
+                            </button>
+                          </p>
+                          <p className="text-xs text-gray-400 mt-1.5">System</p>
+                        </div>
+                      </div>
+                    </motion.div>
+                  </div>
+                </motion.div>
+              )}
+
+              {/* ==================== AI ROADMAP TAB ==================== */}
+              {/* {activeTab === 'roadmap' && (
+                <motion.div
+                  key="roadmap"
+                  variants={animationVariants.fadeIn}
+                  initial="initial"
+                  animate="animate"
+                  exit="exit"
+                  transition={{ duration: 0.3 }}
+                  className="max-w-7xl mx-auto"
+                >
+                  <Suspense fallback={<TabLoader />}>
+                    <PersonalizedRoadmap />
+                  </Suspense>
+                </motion.div>
+              )} */}
+
+              {/* ==================== GAME LEARNING HUB TAB — COMMENTED OUT ==================== */}
               {/* {activeTab === 'improvement' && (
                 <motion.div
                   key="improvement"
@@ -3603,7 +3802,9 @@ const StudentDashboardContent: React.FC = () => {
 
       {/* ==================== FLOATING CHATBOT ==================== */}
       {activeTab !== 'chatbot' && (
-        <AcademicChatbot isFloating={true} defaultOpen={showFloatingChatbot} className="" />
+        <Suspense fallback={null}>
+          <AcademicChatbot isFloating={true} defaultOpen={showFloatingChatbot} className="" />
+        </Suspense>
       )}
     </div>
   );

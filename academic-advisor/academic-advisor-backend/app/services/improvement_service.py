@@ -613,6 +613,759 @@ Return ONLY a JSON array (no markdown, no explanation) in this exact format:
             "generated": False,
         }
 
+    # ── Syllabus-Driven Progression ─────────────────────────────
+
+    CODING_SUBJECTS = {
+        "Data Structures and Algorithms", "Object Oriented Programming",
+        "Software Engineering", "Machine Learning", "Artificial Intelligence",
+        "Computer Networks", "Database Management Systems", "Cloud Computing",
+        "Web Development", "Python Programming", "Computer Organization",
+    }
+
+    async def get_syllabus_progress(self, student_id: str, subject_name: str) -> Dict[str, Any]:
+        """Get unit-by-unit syllabus progress for a subject."""
+        units_list = []
+
+        try:
+            from app.models.syllabus import Subject, SubjectUnit
+            import asyncio
+
+            # Find subject with timeout
+            subject_doc = await asyncio.wait_for(
+                Subject.find_one({"name": {"$regex": f"^{subject_name}$", "$options": "i"}}),
+                timeout=5.0
+            )
+
+            if subject_doc:
+                # Try SubjectUnit collection first
+                units = await asyncio.wait_for(
+                    SubjectUnit.find(
+                        {"$or": [
+                            {"subject_code": subject_doc.code},
+                            {"subject": subject_doc.id},
+                        ]}
+                    ).sort("unit_number").to_list(),
+                    timeout=5.0
+                )
+
+                if not units and subject_doc.units:
+                    for i, u in enumerate(subject_doc.units):
+                        units_list.append({
+                            "unit_number": u.get("unit_number", i + 1),
+                            "title": u.get("title", f"Unit {i+1}"),
+                            "topics": [t.get("name", t) if isinstance(t, dict) else str(t) for t in u.get("topics", [])],
+                            "keywords": u.get("keywords", []),
+                        })
+                else:
+                    for u in units:
+                        topics = []
+                        for t in (u.topics or []):
+                            topics.append(t.get("name", t.get("title", str(t))) if isinstance(t, dict) else str(t))
+                        units_list.append({
+                            "unit_number": u.unit_number or 0,
+                            "title": u.title or f"Unit {u.unit_number}",
+                            "topics": topics,
+                            "keywords": u.keywords or [],
+                        })
+        except Exception as e:
+            logger.warning(f"Syllabus lookup failed for {subject_name}: {e}")
+            units_list = []
+
+        # Fallback: generate generic units if none found
+        if not units_list:
+            units_list = [
+                {"unit_number": i + 1, "title": f"Module {i+1}: {subject_name}", "topics": [subject_name], "keywords": []}
+                for i in range(5)
+            ]
+
+        # Merge with student mastery
+        has_coding = subject_name in self.CODING_SUBJECTS
+        total_units = len(units_list)
+        completed_units = 0
+
+        try:
+            progress = await self._get_or_create_progress(student_id)
+            subject_masteries = [m for m in progress.topic_masteries if m.subject == subject_name]
+        except Exception:
+            subject_masteries = []
+
+        for unit in units_list:
+            unit_key = f"unit_{unit['unit_number']}"
+            unit_mastery = 0
+            unit_attempts = 0
+            for m in subject_masteries:
+                if m.topic == unit_key or m.topic in [t for t in unit.get("topics", [])]:
+                    unit_mastery = max(unit_mastery, m.mastery_pct)
+                    unit_attempts += m.attempts
+
+            unit["mastery_pct"] = round(unit_mastery, 1)
+            unit["attempts"] = unit_attempts
+            unit["completed"] = unit_mastery >= 60
+            unit["locked"] = False
+
+            if unit["completed"]:
+                completed_units += 1
+
+        for i, unit in enumerate(units_list):
+            if i > 0 and not units_list[i - 1]["completed"]:
+                unit["locked"] = True
+
+        grand_finale_unlocked = completed_units >= total_units
+
+        return {
+            "subject": subject_name,
+            "has_coding": has_coding,
+            "units": units_list,
+            "total_units": total_units,
+            "completed_units": completed_units,
+            "overall_progress": round((completed_units / max(total_units, 1)) * 100, 1),
+            "grand_finale_unlocked": grand_finale_unlocked,
+            "lane_mastery": {m.lane: m.mastery_pct for m in subject_masteries},
+        }
+
+    async def generate_grand_finale(self, student_id: str, subject: str) -> Dict[str, Any]:
+        """Generate a comprehensive grand finale exam spanning all units."""
+        syllabus = await self.get_syllabus_progress(student_id, subject)
+        all_topics = []
+        for unit in syllabus.get("units", []):
+            all_topics.extend(unit.get("topics", []))
+
+        topic_str = ", ".join(all_topics[:20])  # Cap at 20 topics
+
+        try:
+            from app.services.chatbot.llm_service import llm_service
+            prompt = f"""Generate exactly 10 challenging multiple-choice questions for a GRAND FINALE EXAM on "{subject}".
+These questions must cover ALL these topics comprehensively: {topic_str}.
+Mix difficulty levels: 3 easy recall, 4 medium application, 3 hard analysis questions.
+Each question should test deep understanding, not just memorization.
+
+Return ONLY a JSON array in this format:
+[{{"question": "...", "options": ["A", "B", "C", "D"], "correct": 0, "explanation": "...", "topic": "which topic this tests", "difficulty": "easy|medium|hard"}}]"""
+
+            raw = await llm_service.generate_response(prompt, context_type="quiz_generation")
+            if raw:
+                import json, re
+                json_match = re.search(r'\[.*\]', raw, re.DOTALL)
+                if json_match:
+                    questions = json.loads(json_match.group())
+                    return {
+                        "subject": subject, "quiz_type": "grand_finale",
+                        "questions": questions[:10], "generated": True,
+                        "total_topics": len(all_topics),
+                        "is_grand_finale": True,
+                    }
+        except Exception as e:
+            logger.warning(f"Grand finale generation failed: {e}")
+
+        # Fallback
+        return self._fallback_quiz(subject, "mcq", 10, "hard")
+
+    async def complete_grand_finale(
+        self, student_id: str, subject: str, score: int,
+        total_questions: int, correct: int, time_spent: int = 0,
+    ) -> Dict[str, Any]:
+        """Complete grand finale. If score >= 80%, mark subject as improved and update recommendations."""
+        progress = await self._get_or_create_progress(student_id)
+        percentage = int((correct / max(total_questions, 1)) * 100)
+        passed = percentage >= 80
+
+        # Award XP (grand finale gives 3x normal XP)
+        base_xp = int((score / 100) * 30) + 5
+        xp = base_xp * 3  # Triple XP for grand finale
+        progress.add_xp(xp, f"grand_finale:{subject}")
+        progress.games_played += 1
+        progress.quizzes_taken += 1
+        if passed:
+            progress.quizzes_passed += 1
+
+        # Update all lane masteries for this subject
+        for m in progress.topic_masteries:
+            if m.subject == subject:
+                if passed:
+                    m.mastery_pct = max(m.mastery_pct, percentage)
+                    m.best_score = max(m.best_score, score)
+
+        # Award grand finale badge
+        earned_ids = {b.badge_id for b in progress.badges}
+        if passed and "grand_finale_champion" not in earned_ids:
+            from app.models.improvement import Badge, BadgeCategory
+            badge = Badge(
+                badge_id="grand_finale_champion",
+                name="Grand Finale Champion",
+                description=f"Passed the Grand Finale for {subject} with {percentage}%",
+                icon="👑", category=BadgeCategory.MASTERY, xp_bonus=300,
+            )
+            progress.badges.append(badge)
+            progress.add_xp(300)
+
+        await self._update_streak(progress)
+        await progress.save()
+
+        # If passed, update student profile to mark subject as improved
+        recommendation_updated = False
+        if passed:
+            try:
+                profile = await StudentProfile.find_one(StudentProfile.user_id == student_id)
+                if profile:
+                    # Update the marks for this subject to reflect improvement
+                    for sem in (profile.semester_records or []):
+                        for subj in (sem.subjects or []):
+                            if subj.subject_name.lower() == subject.lower():
+                                # Add improvement metadata
+                                if not hasattr(subj, 'improvement_data'):
+                                    subj.improvement_data = {}
+                                subj.improvement_data = {
+                                    "game_hub_score": percentage,
+                                    "improved_at": datetime.utcnow().isoformat(),
+                                    "grand_finale_passed": True,
+                                }
+                    await profile.save()
+                    recommendation_updated = True
+                    logger.info(f"Student {student_id} improved in {subject} via Grand Finale ({percentage}%)")
+            except Exception as e:
+                logger.warning(f"Failed to update profile for grand finale: {e}")
+
+        return {
+            "passed": passed,
+            "percentage": percentage,
+            "correct": correct,
+            "total": total_questions,
+            "xp_earned": xp + (300 if passed else 0),
+            "total_xp": progress.total_xp,
+            "level": progress.level,
+            "subject": subject,
+            "recommendation_updated": recommendation_updated,
+            "message": f"🏆 GRAND FINALE {'PASSED' if passed else 'FAILED'}! {percentage}% ({correct}/{total_questions})"
+                       + (" Your recommendations have been updated!" if recommendation_updated else ""),
+        }
+
+    # ── AI-Powered Personalized Roadmap ──────────────────────────
+
+    DOMAIN_CATALOG = {
+        "Machine Learning": {
+            "icon": "🤖", "color": "#8B5CF6",
+            "prereqs": ["Python", "Statistics", "Linear Algebra"],
+            "career_titles": ["ML Engineer", "Data Scientist", "AI Researcher"],
+        },
+        "Web Development": {
+            "icon": "🌐", "color": "#3B82F6",
+            "prereqs": ["HTML/CSS", "JavaScript", "Git"],
+            "career_titles": ["Full Stack Developer", "Frontend Engineer", "Backend Developer"],
+        },
+        "Data Science": {
+            "icon": "📊", "color": "#10B981",
+            "prereqs": ["Python", "SQL", "Statistics"],
+            "career_titles": ["Data Scientist", "Data Analyst", "Business Intelligence"],
+        },
+        "Cloud & DevOps": {
+            "icon": "☁️", "color": "#F59E0B",
+            "prereqs": ["Linux", "Networking", "Docker basics"],
+            "career_titles": ["DevOps Engineer", "Cloud Architect", "SRE"],
+        },
+        "Cybersecurity": {
+            "icon": "🔒", "color": "#EF4444",
+            "prereqs": ["Networking", "Operating Systems", "Linux"],
+            "career_titles": ["Security Analyst", "Penetration Tester", "SOC Analyst"],
+        },
+        "Mobile Development": {
+            "icon": "📱", "color": "#EC4899",
+            "prereqs": ["OOP", "JavaScript/Dart", "UI/UX basics"],
+            "career_titles": ["Android Developer", "iOS Developer", "React Native Dev"],
+        },
+        "Blockchain": {
+            "icon": "⛓️", "color": "#6366F1",
+            "prereqs": ["Cryptography", "Data Structures", "JavaScript/Solidity"],
+            "career_titles": ["Blockchain Developer", "Smart Contract Engineer"],
+        },
+        "Competitive Programming": {
+            "icon": "⚡", "color": "#F97316",
+            "prereqs": ["DSA", "Mathematics", "Any programming language"],
+            "career_titles": ["Software Engineer (FAANG)", "Problem Setter"],
+        },
+        "UI/UX Design": {
+            "icon": "🎨", "color": "#D946EF",
+            "prereqs": ["Design Thinking", "Figma/Sketch", "User Research"],
+            "career_titles": ["UI/UX Designer", "Product Designer", "UX Researcher"],
+        },
+        "Product Management": {
+            "icon": "📋", "color": "#0EA5E9",
+            "prereqs": ["Business Analysis", "Agile/Scrum", "Communication"],
+            "career_titles": ["Product Manager", "Technical PM", "Program Manager"],
+        },
+        "Game Development": {
+            "icon": "🎮", "color": "#A855F7",
+            "prereqs": ["OOP", "Mathematics", "Graphics basics"],
+            "career_titles": ["Game Developer", "Unity/Unreal Dev", "Game Designer"],
+        },
+        "Internet of Things": {
+            "icon": "📡", "color": "#14B8A6",
+            "prereqs": ["Embedded Systems", "Networking", "Python/C"],
+            "career_titles": ["IoT Engineer", "Embedded Developer", "Hardware Engineer"],
+        },
+        "Natural Language Processing": {
+            "icon": "💬", "color": "#7C3AED",
+            "prereqs": ["Python", "Machine Learning", "Probability"],
+            "career_titles": ["NLP Engineer", "Conversational AI Dev", "AI Researcher"],
+        },
+        "Embedded Systems": {
+            "icon": "🔌", "color": "#64748B",
+            "prereqs": ["C/C++", "Microcontrollers", "Digital Electronics"],
+            "career_titles": ["Embedded Engineer", "Firmware Developer", "VLSI Engineer"],
+        },
+        "Quantum Computing": {
+            "icon": "⚛️", "color": "#2563EB",
+            "prereqs": ["Linear Algebra", "Quantum Mechanics basics", "Python"],
+            "career_titles": ["Quantum Developer", "Research Scientist", "Quantum Analyst"],
+        },
+    }
+
+    # Curated, real resources per domain
+    DOMAIN_RESOURCES = {
+        "Machine Learning": {
+            "courses": [
+                {"title": "Andrew Ng's ML Course", "url": "https://www.coursera.org/learn/machine-learning", "platform": "Coursera", "free": False},
+                {"title": "Fast.ai Practical DL", "url": "https://course.fast.ai/", "platform": "Fast.ai", "free": True},
+                {"title": "StatQuest ML Playlist", "url": "https://www.youtube.com/playlist?list=PLblh5JKOoLUICTaGLRoHQDuF_7q2GfuJF", "platform": "YouTube", "free": True},
+            ],
+            "projects": [
+                {"title": "House Price Predictor", "difficulty": "beginner", "skills": ["pandas", "scikit-learn", "EDA"], "description": "Build a regression model to predict house prices using the Kaggle dataset"},
+                {"title": "Image Classifier (CNN)", "difficulty": "intermediate", "skills": ["PyTorch", "CNN", "Transfer Learning"], "description": "Classify images using a custom CNN or fine-tuned ResNet"},
+                {"title": "Sentiment Analysis API", "difficulty": "intermediate", "skills": ["NLP", "Flask", "HuggingFace"], "description": "Deploy a sentiment analysis model as a REST API"},
+                {"title": "Recommendation Engine", "difficulty": "advanced", "skills": ["Collaborative Filtering", "Matrix Factorization"], "description": "Build a movie/product recommendation system"},
+            ],
+            "certifications": ["Google ML Crash Course", "AWS ML Specialty", "TensorFlow Developer Certificate"],
+        },
+        "Web Development": {
+            "courses": [
+                {"title": "The Odin Project", "url": "https://www.theodinproject.com/", "platform": "TOP", "free": True},
+                {"title": "Full Stack Open", "url": "https://fullstackopen.com/", "platform": "Helsinki", "free": True},
+                {"title": "JavaScript.info", "url": "https://javascript.info/", "platform": "JS.info", "free": True},
+            ],
+            "projects": [
+                {"title": "Personal Portfolio Website", "difficulty": "beginner", "skills": ["HTML", "CSS", "JavaScript"], "description": "Design a responsive portfolio showcasing your projects"},
+                {"title": "Task Manager (CRUD App)", "difficulty": "beginner", "skills": ["React", "Node.js", "MongoDB"], "description": "Full-stack task management with auth and real-time updates"},
+                {"title": "E-commerce Platform", "difficulty": "intermediate", "skills": ["Next.js", "Stripe", "Prisma"], "description": "Build a full e-commerce site with payment integration"},
+                {"title": "Real-time Chat App", "difficulty": "advanced", "skills": ["WebSocket", "React", "Redis"], "description": "Build a Slack-like chat with channels, typing indicators, and file sharing"},
+            ],
+            "certifications": ["freeCodeCamp Full Stack", "Meta Front-End Certificate", "AWS Cloud Practitioner"],
+        },
+        "Data Science": {
+            "courses": [
+                {"title": "Kaggle Learn", "url": "https://www.kaggle.com/learn", "platform": "Kaggle", "free": True},
+                {"title": "Python for Data Analysis (Wes McKinney)", "url": "https://wesmckinney.com/book/", "platform": "Book", "free": True},
+                {"title": "Statistics 110 (Harvard)", "url": "https://projects.iq.harvard.edu/stat110", "platform": "Harvard", "free": True},
+            ],
+            "projects": [
+                {"title": "COVID-19 Dashboard", "difficulty": "beginner", "skills": ["pandas", "matplotlib", "Streamlit"], "description": "Interactive dashboard analyzing pandemic trends"},
+                {"title": "Customer Segmentation", "difficulty": "intermediate", "skills": ["K-Means", "PCA", "seaborn"], "description": "Segment customers using unsupervised learning"},
+                {"title": "Stock Price Predictor", "difficulty": "advanced", "skills": ["Time Series", "LSTM", "yfinance"], "description": "Predict stock trends using deep learning"},
+            ],
+            "certifications": ["Google Data Analytics", "IBM Data Science Professional", "DataCamp certifications"],
+        },
+        "Cloud & DevOps": {
+            "courses": [
+                {"title": "Docker & Kubernetes Course", "url": "https://www.youtube.com/watch?v=kTp5xUtcalw", "platform": "YouTube", "free": True},
+                {"title": "AWS Cloud Practitioner", "url": "https://aws.amazon.com/training/", "platform": "AWS", "free": False},
+                {"title": "Linux Command Line Basics", "url": "https://linuxcommand.org/", "platform": "LinuxCommand", "free": True},
+            ],
+            "projects": [
+                {"title": "Dockerized Web App", "difficulty": "beginner", "skills": ["Docker", "Nginx", "Node.js"], "description": "Containerize a full-stack app with Docker Compose"},
+                {"title": "CI/CD Pipeline", "difficulty": "intermediate", "skills": ["GitHub Actions", "Docker", "AWS"], "description": "Automate testing and deployment pipeline"},
+                {"title": "Kubernetes Cluster", "difficulty": "advanced", "skills": ["K8s", "Helm", "Terraform"], "description": "Deploy microservices on a managed K8s cluster"},
+            ],
+            "certifications": ["AWS Solutions Architect", "Google Cloud Associate", "CKA (Kubernetes)"],
+        },
+        "Cybersecurity": {
+            "courses": [
+                {"title": "TryHackMe Learning Paths", "url": "https://tryhackme.com/", "platform": "TryHackMe", "free": True},
+                {"title": "CS50 Cybersecurity", "url": "https://cs50.harvard.edu/cybersecurity/", "platform": "Harvard", "free": True},
+                {"title": "PortSwigger Web Security", "url": "https://portswigger.net/web-security", "platform": "PortSwigger", "free": True},
+            ],
+            "projects": [
+                {"title": "Vulnerability Scanner", "difficulty": "beginner", "skills": ["Python", "Nmap", "Networking"], "description": "Build a network port scanner tool"},
+                {"title": "Password Cracker", "difficulty": "intermediate", "skills": ["Hashing", "Python", "Cryptography"], "description": "Implement rainbow table and dictionary attacks"},
+                {"title": "SIEM Dashboard", "difficulty": "advanced", "skills": ["ELK Stack", "Splunk", "Log Analysis"], "description": "Build a security monitoring dashboard"},
+            ],
+            "certifications": ["CompTIA Security+", "CEH (Certified Ethical Hacker)", "OSCP"],
+        },
+        "Mobile Development": {
+            "courses": [
+                {"title": "React Native Docs", "url": "https://reactnative.dev/docs/getting-started", "platform": "Meta", "free": True},
+                {"title": "Flutter & Dart Complete Guide", "url": "https://flutter.dev/learn", "platform": "Google", "free": True},
+                {"title": "CS193p (Stanford iOS)", "url": "https://cs193p.sites.stanford.edu/", "platform": "Stanford", "free": True},
+            ],
+            "projects": [
+                {"title": "Expense Tracker App", "difficulty": "beginner", "skills": ["React Native", "AsyncStorage"], "description": "Track daily expenses with charts"},
+                {"title": "Social Media App", "difficulty": "intermediate", "skills": ["Flutter", "Firebase", "Push Notifications"], "description": "Build an Instagram-like app with stories"},
+                {"title": "E-commerce Mobile App", "difficulty": "advanced", "skills": ["React Native", "Stripe", "Redux"], "description": "Full e-commerce app with payments"},
+            ],
+            "certifications": ["Google Associate Android Developer", "Meta React Native Certificate"],
+        },
+        "UI/UX Design": {
+            "courses": [
+                {"title": "Google UX Design Certificate", "url": "https://grow.google/certificates/ux-design/", "platform": "Coursera", "free": False},
+                {"title": "Figma Tutorial for Beginners", "url": "https://www.youtube.com/watch?v=FTFaQWZBqQ8", "platform": "YouTube", "free": True},
+                {"title": "Laws of UX", "url": "https://lawsofux.com/", "platform": "LawsOfUX", "free": True},
+            ],
+            "projects": [
+                {"title": "Redesign a Popular App", "difficulty": "beginner", "skills": ["Figma", "Wireframing", "UI"], "description": "Redesign the UI of a popular app with improvements"},
+                {"title": "Design System", "difficulty": "intermediate", "skills": ["Figma", "Components", "Tokens"], "description": "Create a reusable design system with components"},
+                {"title": "UX Case Study", "difficulty": "advanced", "skills": ["User Research", "Prototyping", "Testing"], "description": "Full UX case study with user interviews and testing"},
+            ],
+            "certifications": ["Google UX Design Professional", "Nielsen Norman UX Certification"],
+        },
+        "Product Management": {
+            "courses": [
+                {"title": "Product Management 101", "url": "https://www.productplan.com/learn/product-management-101/", "platform": "ProductPlan", "free": True},
+                {"title": "Inspired by Marty Cagan", "url": "https://www.svpg.com/inspired-how-to-create-products-customers-love/", "platform": "Book", "free": False},
+                {"title": "Product School Free Resources", "url": "https://productschool.com/resources/", "platform": "Product School", "free": True},
+            ],
+            "projects": [
+                {"title": "Product Spec Document", "difficulty": "beginner", "skills": ["PRD Writing", "User Stories", "Prioritization"], "description": "Write a full PRD for a new feature"},
+                {"title": "Market Analysis Report", "difficulty": "intermediate", "skills": ["Research", "Competitive Analysis", "Sizing"], "description": "Complete market analysis for a product idea"},
+            ],
+            "certifications": ["Google Project Management", "Pragmatic Institute PMC", "PSPO (Scrum.org)"],
+        },
+        "Game Development": {
+            "courses": [
+                {"title": "Unity Learn", "url": "https://learn.unity.com/", "platform": "Unity", "free": True},
+                {"title": "CS50 Game Development", "url": "https://cs50.harvard.edu/games/", "platform": "Harvard", "free": True},
+                {"title": "Godot Engine Tutorials", "url": "https://docs.godotengine.org/en/stable/getting_started/", "platform": "Godot", "free": True},
+            ],
+            "projects": [
+                {"title": "2D Platformer Game", "difficulty": "beginner", "skills": ["Unity", "C#", "Sprites"], "description": "Build a Mario-style platformer game"},
+                {"title": "Multiplayer Card Game", "difficulty": "intermediate", "skills": ["Networking", "Game Logic", "UI"], "description": "Online card game with matchmaking"},
+                {"title": "3D RPG Game", "difficulty": "advanced", "skills": ["Unreal/Unity", "3D Modeling", "AI"], "description": "Open world RPG with quests and NPC AI"},
+            ],
+            "certifications": ["Unity Certified Developer", "Unreal Engine Certification"],
+        },
+        "Competitive Programming": {
+            "courses": [
+                {"title": "Codeforces EDU", "url": "https://codeforces.com/edu/courses", "platform": "Codeforces", "free": True},
+                {"title": "USACO Guide", "url": "https://usaco.guide/", "platform": "USACO", "free": True},
+                {"title": "CP Handbook (Laaksonen)", "url": "https://cses.fi/book/book.pdf", "platform": "CSES", "free": True},
+            ],
+            "projects": [
+                {"title": "Solve 100 Easy Problems", "difficulty": "beginner", "skills": ["Arrays", "Strings", "Sorting"], "description": "Build problem-solving foundation"},
+                {"title": "Contest Participation", "difficulty": "intermediate", "skills": ["Graphs", "DP", "Binary Search"], "description": "Participate in 10 online contests"},
+                {"title": "Create a Problem Set", "difficulty": "advanced", "skills": ["Problem Setting", "Test Cases", "Editorial Writing"], "description": "Design and publish original problems"},
+            ],
+            "certifications": ["ICPC Regional Qualification", "Google Kickstart", "Meta Hacker Cup"],
+        },
+    }
+
+    async def get_personalized_domains(self, student_id: str) -> Dict[str, Any]:
+        """Get domain suggestions personalized to the student's profile."""
+        profile = await StudentProfile.find_one(StudentProfile.user_id == student_id)
+
+        interests = []
+        career_goals = []
+        strong_subjects = []
+        weak_subjects = []
+        cgpa = 0.0
+
+        if profile:
+            cgpa = profile.cgpa or 0.0
+            interests = getattr(profile, 'interests', []) or []
+            career_goals = getattr(profile, 'career_goals', []) or []
+
+            for sem in (profile.semester_records or []):
+                for subj in (sem.subjects or []):
+                    if subj.total_marks >= 75:
+                        strong_subjects.append(subj.subject_name)
+                    elif subj.total_marks < 50:
+                        weak_subjects.append(subj.subject_name)
+
+        # Score each domain based on student profile
+        scored_domains = []
+        for domain_name, info in self.DOMAIN_CATALOG.items():
+            score = 50  # base score
+
+            # Boost if student interests match
+            for interest in interests:
+                if interest.lower() in domain_name.lower() or domain_name.lower() in interest.lower():
+                    score += 30
+
+            # Boost if career goals match
+            for goal in career_goals:
+                for title in info["career_titles"]:
+                    if goal.lower() in title.lower() or title.lower() in goal.lower():
+                        score += 25
+
+            # Boost if strong subjects align with prereqs
+            for subj in strong_subjects:
+                for prereq in info["prereqs"]:
+                    if prereq.lower() in subj.lower() or subj.lower() in prereq.lower():
+                        score += 10
+
+            scored_domains.append({
+                "name": domain_name,
+                "icon": info["icon"],
+                "color": info["color"],
+                "prereqs": info["prereqs"],
+                "career_titles": info["career_titles"],
+                "match_score": min(score, 100),
+                "recommended": score >= 70,
+            })
+
+        # Sort by match score
+        scored_domains.sort(key=lambda x: x["match_score"], reverse=True)
+
+        return {
+            "domains": scored_domains,
+            "student_context": {
+                "cgpa": cgpa,
+                "interests": interests[:5],
+                "career_goals": career_goals[:3],
+                "strong_subjects": strong_subjects[:5],
+                "weak_subjects": weak_subjects[:5],
+            },
+        }
+
+    async def generate_ai_roadmap(
+        self, student_id: str, domain: str, goal: str = "", timeline_weeks: int = 12,
+    ) -> Dict[str, Any]:
+        """Generate a deeply personalized, AI-driven improvement roadmap."""
+        profile = await StudentProfile.find_one(StudentProfile.user_id == student_id)
+
+        # Gather student context
+        cgpa = 0.0
+        semester = 1
+        strong = []
+        weak = []
+        interests = []
+
+        if profile:
+            cgpa = profile.cgpa or 0.0
+            semester = profile.current_semester or 1
+            interests = getattr(profile, 'interests', []) or []
+            for sem in (profile.semester_records or []):
+                for subj in (sem.subjects or []):
+                    if subj.total_marks >= 75:
+                        strong.append(subj.subject_name)
+                    elif subj.total_marks < 50:
+                        weak.append(subj.subject_name)
+
+        domain_info = self.DOMAIN_CATALOG.get(domain, {})
+        domain_resources = self.DOMAIN_RESOURCES.get(domain, {})
+
+        # Determine skill level
+        if cgpa >= 8.0:
+            skill_level = "intermediate-advanced"
+        elif cgpa >= 6.5:
+            skill_level = "intermediate"
+        else:
+            skill_level = "beginner"
+
+        # Build phases based on timeline
+        num_phases = min(max(timeline_weeks // 3, 3), 6)
+        weeks_per_phase = timeline_weeks // num_phases
+
+        # Try LLM for personalized steps
+        llm_phases = None
+        try:
+            from app.services.chatbot.llm_service import llm_service
+            if llm_service and llm_service.is_available:
+                prompt = f"""Generate a personalized {domain} learning roadmap for an engineering student.
+
+Student Context:
+- CGPA: {cgpa}/10, Semester: {semester}
+- Strong subjects: {', '.join(strong[:5]) or 'None identified'}
+- Weak subjects: {', '.join(weak[:5]) or 'None identified'}
+- Interests: {', '.join(interests[:5]) or domain}
+- Goal: {goal or f'Become proficient in {domain}'}
+- Skill level: {skill_level}
+- Timeline: {timeline_weeks} weeks ({num_phases} phases, ~{weeks_per_phase} weeks each)
+
+Generate exactly {num_phases} phases. Each phase should build on the previous one.
+For each phase, provide:
+1. A clear title (e.g., "Foundation: Python & Math Basics")
+2. A description (2-3 sentences)
+3. 3-4 specific learning objectives
+4. 1-2 mini-project ideas with clear descriptions
+5. Key skills that will be developed
+
+Return ONLY a JSON array in this exact format:
+[{{"phase": 1, "title": "...", "description": "...", "weeks": {weeks_per_phase}, "objectives": ["obj1", "obj2", "obj3"], "projects": [{{"title": "...", "description": "...", "difficulty": "beginner"}}], "skills": ["skill1", "skill2"]}}]"""
+
+                import json, re
+                raw = await llm_service.generate_response(prompt, context_type="roadmap_generation")
+                if raw:
+                    json_match = re.search(r'\[.*\]', raw, re.DOTALL)
+                    if json_match:
+                        llm_phases = json.loads(json_match.group())
+                        logger.info(f"LLM generated {len(llm_phases)} phases for {domain} roadmap")
+        except Exception as e:
+            logger.warning(f"LLM roadmap generation failed: {e}")
+
+        # Build roadmap phases (LLM or fallback)
+        if llm_phases and isinstance(llm_phases, list) and len(llm_phases) >= 2:
+            phases = []
+            for i, p in enumerate(llm_phases[:num_phases]):
+                phases.append({
+                    "phase": i + 1,
+                    "title": p.get("title", f"Phase {i+1}"),
+                    "description": p.get("description", ""),
+                    "weeks": p.get("weeks", weeks_per_phase),
+                    "status": "current" if i == 0 else "locked",
+                    "objectives": p.get("objectives", [])[:4],
+                    "projects": p.get("projects", [])[:2],
+                    "skills": p.get("skills", [])[:5],
+                    "completed": False,
+                })
+        else:
+            # Intelligent fallback with curated content
+            phases = self._build_fallback_phases(domain, domain_info, skill_level, num_phases, weeks_per_phase)
+
+        # Attach curated resources
+        courses = domain_resources.get("courses", [])[:4]
+        projects = domain_resources.get("projects", [])[:4]
+        certifications = domain_resources.get("certifications", [])[:3]
+
+        # Calculate total milestones
+        total_objectives = sum(len(p.get("objectives", [])) for p in phases)
+        total_projects = sum(len(p.get("projects", [])) for p in phases)
+
+        return {
+            "domain": domain,
+            "domain_icon": domain_info.get("icon", "📚"),
+            "domain_color": domain_info.get("color", "#3B82F6"),
+            "goal": goal or f"Master {domain}",
+            "timeline_weeks": timeline_weeks,
+            "skill_level": skill_level,
+            "student_context": {
+                "cgpa": cgpa,
+                "semester": semester,
+                "strong_subjects": strong[:3],
+                "weak_subjects": weak[:3],
+            },
+            "phases": phases,
+            "curated_resources": {
+                "courses": courses,
+                "projects": projects,
+                "certifications": certifications,
+            },
+            "stats": {
+                "total_phases": len(phases),
+                "total_objectives": total_objectives,
+                "total_projects": total_projects,
+                "estimated_hours": timeline_weeks * 10,  # ~10 hrs/week
+            },
+        }
+
+    def _build_fallback_phases(self, domain, domain_info, skill_level, num_phases, weeks_per_phase):
+        """Build intelligent fallback phases when LLM is unavailable."""
+        templates = {
+            "Machine Learning": [
+                {"title": "🐍 Python & Math Foundations", "objectives": ["Master NumPy & Pandas", "Review Linear Algebra concepts", "Understand probability & statistics"], "skills": ["Python", "NumPy", "Statistics"]},
+                {"title": "📊 Data Analysis & Visualization", "objectives": ["Clean real-world datasets", "Create insightful visualizations", "Perform EDA on Kaggle datasets"], "skills": ["Pandas", "Matplotlib", "Seaborn"]},
+                {"title": "🤖 Classical ML Algorithms", "objectives": ["Implement regression & classification", "Cross-validation & hyperparameter tuning", "Feature engineering techniques"], "skills": ["Scikit-learn", "Model evaluation"]},
+                {"title": "🧠 Deep Learning & Neural Networks", "objectives": ["Build neural networks from scratch", "Transfer learning with pre-trained models", "Train CNNs for image tasks"], "skills": ["PyTorch", "TensorFlow", "CNNs"]},
+                {"title": "🚀 Advanced ML & Deployment", "objectives": ["NLP with Transformers", "Model deployment with FastAPI", "MLOps basics (Docker, CI/CD)"], "skills": ["HuggingFace", "Docker", "FastAPI"]},
+                {"title": "💼 Portfolio & Interview Prep", "objectives": ["Build 3 end-to-end projects", "Practice ML system design", "Prepare for technical interviews"], "skills": ["System Design", "Communication"]},
+            ],
+            "Web Development": [
+                {"title": "🎨 HTML, CSS & JavaScript Basics", "objectives": ["Build responsive layouts", "Master CSS Flexbox & Grid", "JavaScript fundamentals & DOM"], "skills": ["HTML5", "CSS3", "JavaScript"]},
+                {"title": "⚛️ React & Modern Frontend", "objectives": ["Component architecture", "State management (hooks, context)", "Routing & API integration"], "skills": ["React", "React Router", "Axios"]},
+                {"title": "🖧 Backend & APIs", "objectives": ["Build REST APIs with Node.js/Express", "Database design (MongoDB/PostgreSQL)", "Authentication & authorization"], "skills": ["Node.js", "Express", "MongoDB"]},
+                {"title": "🔧 Full Stack Projects", "objectives": ["Deploy full-stack apps", "CI/CD with GitHub Actions", "Cloud hosting (Vercel/AWS)"], "skills": ["Full Stack", "Deployment", "Git"]},
+            ],
+            "Data Science": [
+                {"title": "📐 Python & Statistics", "objectives": ["Python data structures", "Descriptive & inferential statistics", "Hypothesis testing"], "skills": ["Python", "Statistics"]},
+                {"title": "🗃️ Data Wrangling & SQL", "objectives": ["Advanced Pandas operations", "SQL queries & joins", "Data cleaning pipelines"], "skills": ["Pandas", "SQL", "ETL"]},
+                {"title": "📈 Visualization & Storytelling", "objectives": ["Dashboard creation", "Statistical visualization", "Business insights communication"], "skills": ["Plotly", "Tableau", "Storytelling"]},
+                {"title": "🔬 ML for Data Science", "objectives": ["Predictive modeling", "A/B testing", "Time series analysis"], "skills": ["Scikit-learn", "Time Series"]},
+            ],
+            "Cloud & DevOps": [
+                {"title": "🐧 Linux & Networking Basics", "objectives": ["Master Linux CLI commands", "Understand TCP/IP & DNS", "SSH & file permissions"], "skills": ["Linux", "Networking", "Bash"]},
+                {"title": "🐳 Containers & Docker", "objectives": ["Build Docker images", "Docker Compose multi-container apps", "Container registries & versioning"], "skills": ["Docker", "Docker Compose"]},
+                {"title": "☸️ Kubernetes & Orchestration", "objectives": ["Deploy apps on K8s", "Services, Ingress & ConfigMaps", "Helm charts & package management"], "skills": ["Kubernetes", "Helm", "kubectl"]},
+                {"title": "🔄 CI/CD & Cloud Deployment", "objectives": ["GitHub Actions pipelines", "AWS/GCP basics & IAM", "Infrastructure as Code (Terraform)"], "skills": ["CI/CD", "AWS", "Terraform"]},
+            ],
+            "Cybersecurity": [
+                {"title": "🌐 Networking & OS Security", "objectives": ["TCP/IP deep dive", "Linux security hardening", "Common vulnerabilities (OWASP Top 10)"], "skills": ["Networking", "Linux", "OWASP"]},
+                {"title": "🔍 Ethical Hacking Basics", "objectives": ["Reconnaissance techniques", "Port scanning with Nmap", "Web app vulnerability testing"], "skills": ["Nmap", "Burp Suite", "OSINT"]},
+                {"title": "🛡️ Defense & Monitoring", "objectives": ["Firewall & IDS configuration", "Log analysis & SIEM", "Incident response procedures"], "skills": ["SIEM", "Splunk", "Incident Response"]},
+                {"title": "🏆 CTF & Certification Prep", "objectives": ["Participate in CTF competitions", "Practice penetration testing labs", "CompTIA Security+ preparation"], "skills": ["CTF", "Pentesting", "Security+"]},
+            ],
+            "Mobile Development": [
+                {"title": "📱 Mobile Fundamentals", "objectives": ["React Native / Flutter setup", "Component-based UI development", "Navigation & routing"], "skills": ["React Native", "Flutter", "Dart"]},
+                {"title": "🔌 APIs & State Management", "objectives": ["REST API integration", "State management (Redux/Provider)", "Authentication flows"], "skills": ["Redux", "API Integration", "Auth"]},
+                {"title": "💾 Data & Native Features", "objectives": ["Local storage & SQLite", "Camera, GPS & push notifications", "Platform-specific code"], "skills": ["SQLite", "Push Notifications", "Native Modules"]},
+                {"title": "🚀 Publishing & Portfolio", "objectives": ["App Store/Play Store submission", "Performance optimization", "Build 2 portfolio apps"], "skills": ["App Store", "Performance", "CI/CD"]},
+            ],
+            "UI/UX Design": [
+                {"title": "🎨 Design Thinking Basics", "objectives": ["Learn design thinking process", "User persona creation", "Empathy mapping & problem framing"], "skills": ["Design Thinking", "User Research"]},
+                {"title": "🖌️ Figma & Wireframing", "objectives": ["Master Figma tools & shortcuts", "Create low/high-fidelity wireframes", "Design responsive layouts"], "skills": ["Figma", "Wireframing", "Responsive Design"]},
+                {"title": "🎯 Prototyping & Testing", "objectives": ["Interactive prototypes", "Conduct usability tests", "Iterate based on user feedback"], "skills": ["Prototyping", "Usability Testing", "Iteration"]},
+                {"title": "💼 Design System & Portfolio", "objectives": ["Build a reusable design system", "Create 2 complete case studies", "Present your design portfolio"], "skills": ["Design Systems", "Case Study", "Presentation"]},
+            ],
+            "Product Management": [
+                {"title": "📋 PM Foundations", "objectives": ["Understand the PM role", "Agile & Scrum fundamentals", "User story writing"], "skills": ["Agile", "Scrum", "User Stories"]},
+                {"title": "📊 Analytics & Prioritization", "objectives": ["Product metrics & KPIs", "RICE/ICE prioritization frameworks", "A/B testing basics"], "skills": ["Analytics", "Prioritization", "Metrics"]},
+                {"title": "🗺️ Strategy & Roadmapping", "objectives": ["Market research & competitive analysis", "Build a product roadmap", "Stakeholder communication"], "skills": ["Strategy", "Roadmapping", "Communication"]},
+                {"title": "🚀 Launch & Growth", "objectives": ["Go-to-market strategy", "Growth hacking techniques", "PM interview preparation"], "skills": ["GTM", "Growth", "Interviews"]},
+            ],
+            "Game Development": [
+                {"title": "🎮 Game Engine Setup", "objectives": ["Install Unity/Godot engine", "Learn the editor interface", "Create first 2D scene"], "skills": ["Unity", "Godot", "C#"]},
+                {"title": "🕹️ Game Mechanics & Physics", "objectives": ["Player movement & input handling", "Collision detection & physics", "Enemy AI with state machines"], "skills": ["Game Physics", "AI", "State Machines"]},
+                {"title": "🎨 Art, Audio & UI", "objectives": ["Sprite animation & particles", "Sound effects & background music", "HUD & menu systems"], "skills": ["Animation", "Audio", "Game UI"]},
+                {"title": "🏆 Polish & Publishing", "objectives": ["Save/load system", "Build a complete game demo", "Publish to itch.io or Steam"], "skills": ["Publishing", "Polish", "Marketing"]},
+            ],
+            "Competitive Programming": [
+                {"title": "⚡ Fundamentals & STL", "objectives": ["Master arrays, strings, math", "Learn C++/Python STL containers", "Solve 50 easy problems"], "skills": ["Arrays", "Strings", "STL"]},
+                {"title": "📐 Algorithms & Techniques", "objectives": ["Binary search & two pointers", "Greedy algorithms", "Dynamic programming intro"], "skills": ["Binary Search", "Greedy", "DP"]},
+                {"title": "🌳 Advanced Data Structures", "objectives": ["Graphs: BFS, DFS, shortest paths", "Trees: segment tree, BIT", "Advanced DP & bitmask"], "skills": ["Graphs", "Segment Tree", "Advanced DP"]},
+                {"title": "🏅 Contest Performance", "objectives": ["Participate in 10+ contests", "Achieve Codeforces Specialist rating", "Solve 200+ problems total"], "skills": ["Speed Solving", "Contest Strategy"]},
+            ],
+            "Internet of Things": [
+                {"title": "🔌 Electronics & Microcontrollers", "objectives": ["Basic circuit design", "Arduino/ESP32 programming", "Sensor interfacing"], "skills": ["Arduino", "Electronics", "C"]},
+                {"title": "📡 Communication Protocols", "objectives": ["MQTT, HTTP & WebSocket", "Bluetooth & WiFi connectivity", "Edge computing basics"], "skills": ["MQTT", "WiFi", "Protocols"]},
+                {"title": "☁️ Cloud Integration", "objectives": ["Send sensor data to cloud", "Build IoT dashboards", "AWS IoT / ThingsBoard setup"], "skills": ["AWS IoT", "Dashboards", "Data Pipeline"]},
+                {"title": "🏠 Smart Project", "objectives": ["Build a home automation system", "Implement OTA updates", "Security best practices for IoT"], "skills": ["Home Automation", "OTA", "Security"]},
+            ],
+            "Natural Language Processing": [
+                {"title": "📝 Text Processing Basics", "objectives": ["Tokenization & stemming", "Regex & text cleaning", "Bag of words & TF-IDF"], "skills": ["NLTK", "Regex", "Text Processing"]},
+                {"title": "📊 Classical NLP", "objectives": ["Named entity recognition", "Sentiment analysis", "Text classification with ML"], "skills": ["SpaCy", "Scikit-learn", "NER"]},
+                {"title": "🤖 Transformers & LLMs", "objectives": ["Understand attention mechanism", "Fine-tune BERT/GPT models", "HuggingFace ecosystem"], "skills": ["Transformers", "BERT", "HuggingFace"]},
+                {"title": "💬 NLP Applications", "objectives": ["Build a chatbot", "Summarization & translation", "Deploy NLP model as API"], "skills": ["Chatbots", "Summarization", "Deployment"]},
+            ],
+            "Embedded Systems": [
+                {"title": "💻 C/C++ & Architecture", "objectives": ["Advanced C programming", "CPU architecture & memory model", "Assembly language basics"], "skills": ["C", "C++", "Architecture"]},
+                {"title": "🔧 Microcontroller Programming", "objectives": ["ARM Cortex-M development", "Peripheral drivers (UART, SPI, I2C)", "Interrupt handling & timers"], "skills": ["ARM", "UART", "SPI"]},
+                {"title": "⚡ RTOS & Real-Time Systems", "objectives": ["FreeRTOS task management", "Semaphores & mutexes", "Real-time scheduling"], "skills": ["FreeRTOS", "RTOS", "Scheduling"]},
+                {"title": "🏗️ System Design & Debug", "objectives": ["PCB design basics", "Logic analyzer & oscilloscope", "Build a complete embedded project"], "skills": ["PCB", "Debugging", "System Design"]},
+            ],
+            "Quantum Computing": [
+                {"title": "📐 Math & Quantum Basics", "objectives": ["Linear algebra refresher", "Quantum bits & superposition", "Quantum gates & circuits"], "skills": ["Linear Algebra", "Qubits", "Quantum Gates"]},
+                {"title": "💻 Qiskit & Programming", "objectives": ["Install & use IBM Qiskit", "Build quantum circuits", "Simulate on quantum backend"], "skills": ["Qiskit", "Python", "IBM Quantum"]},
+                {"title": "🔬 Quantum Algorithms", "objectives": ["Grover's search algorithm", "Shor's factoring algorithm", "Quantum error correction"], "skills": ["Grover", "Shor", "Error Correction"]},
+                {"title": "🚀 Applications & Research", "objectives": ["Quantum ML basics", "Optimization problems", "Read & present a research paper"], "skills": ["QML", "Optimization", "Research"]},
+            ],
+        }
+
+        domain_templates = templates.get(domain, [
+            {"title": f"📚 {domain} Foundations", "objectives": [f"Learn {domain} basics", "Set up development environment", "Complete introductory tutorial"], "skills": domain_info.get("prereqs", ["Programming"])[:3]},
+            {"title": f"🔨 {domain} Core Skills", "objectives": ["Build first project", "Deep dive into core concepts", "Practice with exercises"], "skills": [domain]},
+            {"title": f"🚀 Advanced {domain}", "objectives": ["Build portfolio project", "Learn industry best practices", "Prepare for interviews"], "skills": [domain, "System Design"]},
+        ])
+
+        phases = []
+        for i in range(min(num_phases, len(domain_templates))):
+            t = domain_templates[i]
+            phases.append({
+                "phase": i + 1,
+                "title": t["title"],
+                "description": f"Week {i * weeks_per_phase + 1}-{(i+1) * weeks_per_phase}: {t['title'].split(' ', 1)[-1] if ' ' in t['title'] else t['title']}",
+                "weeks": weeks_per_phase,
+                "status": "current" if i == 0 else "locked",
+                "objectives": t["objectives"],
+                "projects": [{"title": f"Mini-project: {t['objectives'][-1]}", "description": f"Apply {', '.join(t['skills'][:2])}", "difficulty": ["beginner", "intermediate", "advanced"][min(i, 2)]}],
+                "skills": t.get("skills", []),
+                "completed": False,
+            })
+        return phases
+
 
 improvement_service = ImprovementService()
 

@@ -7,6 +7,8 @@ Supports Program Electives + Open Electives (Sem VII)
 
 import logging
 import time
+import json
+import os
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 
@@ -27,6 +29,23 @@ from app.schemas.recommendation_schemas import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _get_best_model_names() -> list:
+    """Read best model names from training metadata."""
+    try:
+        meta_path = os.path.join(
+            os.path.dirname(__file__), '..', 'ml', 'saved_models', 'training_metadata.json'
+        )
+        if os.path.exists(meta_path):
+            with open(meta_path) as f:
+                meta = json.load(f)
+            best = meta.get('best_model', 'Ensemble')
+            ranking = meta.get('model_ranking', [])[:3]
+            return ranking if ranking else [best]
+    except Exception:
+        pass
+    return ['Ensemble']
 
 
 class RecommendationService:
@@ -234,7 +253,7 @@ class RecommendationService:
                     confidence=e.get('confidence'),
                 ))
             if engine.is_trained:
-                models_used = ['RandomForest', 'KNN', 'Rule-Based']
+                models_used = _get_best_model_names()
 
         # ── Open Electives (Sem VII) ──
         if include_open_electives:
@@ -269,8 +288,8 @@ class RecommendationService:
                     confidence=oe.get('confidence'),
                 ))
             if engine.oe_is_trained:
-                if 'OE-RandomForest' not in models_used:
-                    models_used.append('OE-RandomForest')
+                if 'OE-Ensemble' not in models_used:
+                    models_used.append('OE-Ensemble')
 
         # ── Honours ──
         if include_honours:
@@ -467,7 +486,7 @@ class RecommendationService:
             'is_trained': self.engine.is_trained,
             'is_oe_trained': self.engine.oe_is_trained,
             'model_version': '3.0.0',
-            'models_available': ['Rule-Based', 'RandomForest', 'KNN', 'OE-RandomForest'],
+            'models_available': _get_best_model_names() + ['Rule-Based'],
             'feature_dimension': 35,
             'electives_supported': list(self.engine.ELECTIVE_META.keys()),
             'open_electives_supported': list(self.engine.OPEN_ELECTIVE_META.keys()),

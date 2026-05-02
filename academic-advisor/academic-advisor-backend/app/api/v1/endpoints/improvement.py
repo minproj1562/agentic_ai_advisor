@@ -230,9 +230,87 @@ async def update_mastery(
     )
 
 
+@router.get("/syllabus-progress/{subject_name}")
+async def get_syllabus_progress(
+    subject_name: str,
+    current_user: FirebaseUser = Depends(get_current_user),
+):
+    """Get unit-by-unit syllabus progress for a subject, merged with student mastery."""
+    return await improvement_service.get_syllabus_progress(current_user.uid, subject_name)
+
+
+@router.post("/grand-finale")
+async def grand_finale(
+    req: QuizRequest,
+    current_user: FirebaseUser = Depends(get_current_user),
+):
+    """Generate a grand-finale cumulative exam spanning all units of a subject."""
+    return await improvement_service.generate_grand_finale(current_user.uid, req.subject)
+
+
+class GrandFinaleSubmit(BaseModel):
+    subject: str
+    score: int
+    total_questions: int
+    correct_answers: int
+    time_spent_seconds: int = 0
+
+
+@router.post("/grand-finale-complete")
+async def grand_finale_complete(
+    req: GrandFinaleSubmit,
+    current_user: FirebaseUser = Depends(get_current_user),
+):
+    """Submit grand finale results. If score >= 80%, mark subject as improved and update recommendations."""
+    return await improvement_service.complete_grand_finale(
+        student_id=current_user.uid,
+        subject=req.subject,
+        score=req.score,
+        total_questions=req.total_questions,
+        correct=req.correct_answers,
+        time_spent=req.time_spent_seconds,
+    )
+
+
 @router.get("/mastery-summary")
 async def get_mastery_summary(
     current_user: FirebaseUser = Depends(get_current_user),
 ):
     """Get per-subject mastery overview with lane breakdown."""
     return await improvement_service.get_mastery_summary(current_user.uid)
+
+
+# ── AI-Powered Personalized Roadmap ────────────────────────────
+
+
+class AIRoadmapRequest(BaseModel):
+    domain: str  # e.g. "Machine Learning", "Web Development", "Data Science"
+    goal: str = ""  # e.g. "Get placed at Google", "Build a startup"
+    timeline_weeks: int = 12
+
+
+@router.post("/ai-roadmap")
+async def generate_ai_roadmap(
+    req: AIRoadmapRequest,
+    current_user: FirebaseUser = Depends(get_current_user),
+):
+    """
+    Generate a deeply personalized, AI-powered improvement roadmap.
+    Uses the student's actual profile (CGPA, weak/strong subjects, interests)
+    to create tailored steps with real resources, projects, and milestones.
+    """
+    return await improvement_service.generate_ai_roadmap(
+        student_id=current_user.uid,
+        domain=req.domain,
+        goal=req.goal,
+        timeline_weeks=req.timeline_weeks,
+    )
+
+
+@router.get("/ai-roadmap/domains")
+async def get_available_domains(
+    current_user: FirebaseUser = Depends(get_current_user),
+):
+    """Get personalized domain suggestions based on student profile."""
+    return await improvement_service.get_personalized_domains(current_user.uid)
+

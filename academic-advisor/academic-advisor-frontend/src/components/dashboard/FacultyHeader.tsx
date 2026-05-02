@@ -26,6 +26,7 @@ interface FacultyHeaderProps {
   theme: 'light' | 'dark';
   stats?: DashboardStats;
   onLogout: () => Promise<void>;
+  onNotificationClick?: () => void;
 }
 
 const FacultyHeader: React.FC<FacultyHeaderProps> = ({
@@ -34,7 +35,8 @@ const FacultyHeader: React.FC<FacultyHeaderProps> = ({
   onThemeToggle,
   theme,
   stats,
-  onLogout
+  onLogout,
+  onNotificationClick
 }) => {
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
@@ -189,7 +191,7 @@ const FacultyHeader: React.FC<FacultyHeaderProps> = ({
             <motion.button
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
-              onClick={() => navigate('/notifications')}
+              onClick={() => onNotificationClick ? onNotificationClick() : toast('No new notifications', { icon: '🔔' })}
               className="relative p-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
               aria-label="Notifications"
             >

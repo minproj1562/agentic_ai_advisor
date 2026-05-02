@@ -538,6 +538,25 @@ _CURATED_RESOURCES = {
 # FACULTY SEARCH — searches correct collections+fields
 # ══════════════════════════════════════════════════════════
 
+# Approved faculty emails — only these should appear in chatbot recommendations
+# Must match seed_faculty.py and faculty_profile.py APPROVED_FACULTY_EMAILS
+_APPROVED_FACULTY_EMAILS = [
+    "poonam.bari@fcrit.ac.in",
+    "shubhangi.vaikole@fcrit.ac.in",
+    "trupti.lotlikar@fcrit.ac.in",
+    "anand.pardeshi@fcrit.ac.in",
+    "dhanashree.hadsul@fcrit.ac.in",
+    "mukta.nivelkar@fcrit.ac.in",
+    "lakshmi.gadhikar@fcrit.ac.in",
+    "neelima.kulkarni@fcrit.ac.in",
+    "rupali.deshmukh@fcrit.ac.in",
+    "sharlene.rebeiro@fcrit.ac.in",
+    "supriya.joshi@fcrit.ac.in",
+    "suraj.khandare@fcrit.ac.in",
+    "vaishali.bodade@fcrit.ac.in",
+    "archana.shirke@fcrit.ac.in",
+]
+
 async def _search_faculty(subject_name: str, limit: int = 5) -> list:
     p = re.escape(subject_name)
     for col_name in ["faculty", "faculty_members"]:
@@ -546,20 +565,31 @@ async def _search_faculty(subject_name: str, limit: int = 5) -> list:
             continue
 
         try:
-            count = await col.count_documents({})
-            if count == 0:
-                continue
-            results = await col.find(
-                {"$or": [
-                    {"teaching_subjects": {"$regex": p, "$options": "i"}},
-                    {"specializations": {"$regex": p, "$options": "i"}},
-                    {"subjects_taught": {"$regex": p, "$options": "i"}},
-                    {"subjects": {"$regex": p, "$options": "i"}},
-                    {"research_areas": {"$regex": p, "$options": "i"}},
-                ]}
-            ).limit(limit).to_list(length=limit)
+            # Only search within approved/seeded faculty
+            base_filter = {"email": {"$in": _APPROVED_FACULTY_EMAILS}}
+
+            # Search by subject in multiple fields including CV-parsed uniform_profile
+            search_filter = {
+                "$and": [
+                    base_filter,
+                    {"$or": [
+                        {"teaching_subjects": {"$regex": p, "$options": "i"}},
+                        {"specializations": {"$regex": p, "$options": "i"}},
+                        {"subjects_taught": {"$regex": p, "$options": "i"}},
+                        {"subjects": {"$regex": p, "$options": "i"}},
+                        {"research_areas": {"$regex": p, "$options": "i"}},
+                        # CV-parsed uniform_profile fields
+                        {"uniform_profile.teaching.current_subjects": {"$regex": p, "$options": "i"}},
+                        {"uniform_profile.research_expertise.primary_areas": {"$regex": p, "$options": "i"}},
+                        {"uniform_profile.research_expertise.keywords": {"$regex": p, "$options": "i"}},
+                        {"uniform_profile.teaching.preferred_areas": {"$regex": p, "$options": "i"}},
+                    ]}
+                ]
+            }
+
+            results = await col.find(search_filter).limit(limit).to_list(length=limit)
             if results:
-                logger.info(f"Found {len(results)} faculty for '{subject_name}' in {col_name}")
+                logger.info(f"Found {len(results)} approved faculty for '{subject_name}' in {col_name}")
                 return results
         except Exception as e:
             logger.debug(f"Faculty search in {col_name} failed: {e}")
@@ -567,7 +597,7 @@ async def _search_faculty(subject_name: str, limit: int = 5) -> list:
 
 
 def _fmt_faculty(f: dict) -> dict:
-    """Format faculty doc — handles all field name variants."""
+    """Format faculty doc — handles all field name variants + CV-parsed uniform_profile."""
     subjects = (f.get("teaching_subjects")
                 or f.get("subjects_taught")
                 or f.get("subjects")
@@ -580,16 +610,43 @@ def _fmt_faculty(f: dict) -> dict:
              (s.get("name", str(s)) if isinstance(s, dict) else str(s))
              for s in specs]
 
+    # Enrich from CV-parsed uniform_profile if available
+    up = f.get("uniform_profile") or {}
+    if up and isinstance(up, dict):
+        teaching = up.get("teaching", {}) or {}
+        research = up.get("research_expertise", {}) or {}
+        position = up.get("current_position", {}) or {}
+
+        # Fill in subjects from CV if base fields are empty
+        if not subjects:
+            subjects = teaching.get("current_subjects", []) or teaching.get("preferred_areas", []) or []
+
+        # Fill in specializations from CV research areas
+        if not specs:
+            specs = research.get("primary_areas", []) or []
+
+        # Enrich designation/department from CV
+        designation = f.get("designation", "") or position.get("designation", "")
+        department = f.get("department", "") or position.get("department", "")
+        yoe = f.get("years_of_experience", 0) or position.get("years_of_experience", 0)
+        research_keywords = research.get("keywords", []) or []
+    else:
+        designation = f.get("designation", "")
+        department = f.get("department", "")
+        yoe = f.get("years_of_experience", 0)
+        research_keywords = []
+
     return {
         "name": f.get("name", ""),
-        "department": f.get("department", ""),
-        "designation": f.get("designation", ""),
+        "department": department,
+        "designation": designation,
         "email": str(f.get("email", "")),
         "phone": f.get("phone", ""),
         "office_location": f.get("office_location", ""),
         "subjects_taught": subjects,
         "specializations": specs,
-        "years_of_experience": f.get("years_of_experience", 0),
+        "research_keywords": research_keywords[:5],
+        "years_of_experience": yoe,
     }
 
 
@@ -1076,13 +1133,13 @@ class ResponseGenerator:
                                 "suggestions": ["Show all faculty", "Who teaches ML?", "Who teaches OS?"]},
                     "confidence": "Medium"}
 
-        # List all faculty
+        # List all faculty — only approved ones
         for col_name in ["faculty", "faculty_members"]:
             col = _col(col_name)
             if col is None:  # ← FIXED: was "if not col:"
                 continue
             try:
-                all_f = await col.find().limit(15).to_list(length=15)
+                all_f = await col.find({"email": {"$in": _APPROVED_FACULTY_EMAILS}}).limit(15).to_list(length=15)
                 if all_f:
                     return {"type": "faculty_list", "intent": "FACULTY_QUERY",
                             "content": {"faculty": [_fmt_faculty(f) for f in all_f],

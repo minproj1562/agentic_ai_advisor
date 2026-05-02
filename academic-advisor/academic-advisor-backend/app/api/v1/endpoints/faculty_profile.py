@@ -1136,6 +1136,24 @@ async def get_faculty_student_view(
 
 # ==================== Faculty List ====================
 
+# Only these 14 seeded faculty should be visible in meetings & admin
+APPROVED_FACULTY_EMAILS = [
+    "poonam.bari@fcrit.ac.in",
+    "shubhangi.vaikole@fcrit.ac.in",
+    "trupti.lotlikar@fcrit.ac.in",
+    "anand.pardeshi@fcrit.ac.in",
+    "dhanashree.hadsul@fcrit.ac.in",
+    "mukta.nivelkar@fcrit.ac.in",
+    "lakshmi.gadhikar@fcrit.ac.in",
+    "neelima.kulkarni@fcrit.ac.in",
+    "rupali.deshmukh@fcrit.ac.in",
+    "sharlene.rebeiro@fcrit.ac.in",
+    "supriya.joshi@fcrit.ac.in",
+    "suraj.khandare@fcrit.ac.in",
+    "vaishali.bodade@fcrit.ac.in",
+    "archana.shirke@fcrit.ac.in",
+]
+
 @router.get("/list")
 async def get_faculty_list(
     department: Optional[str] = None,
@@ -1145,14 +1163,14 @@ async def get_faculty_list(
 ):
     """
     Get list of faculty for student browsing.
+    Only returns approved/seeded faculty.
     """
     try:
         skip = (page - 1) * page_size
         
-        # Build query
+        # Build query — only approved faculty emails
         query_filter = {
-            "status": FacultyStatus.ACTIVE,
-            "profile_setup_complete": True
+            "email": {"$in": APPROVED_FACULTY_EMAILS},
         }
         
         if department:

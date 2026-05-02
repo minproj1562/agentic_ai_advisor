@@ -586,7 +586,11 @@ class AdminService:
         limit: int = 25,
     ) -> Dict[str, Any]:
         try:
-            query_filter: Dict[str, Any] = {}
+            # Only show approved/seeded faculty
+            from app.api.v1.endpoints.faculty_profile import APPROVED_FACULTY_EMAILS
+            query_filter: Dict[str, Any] = {
+                "email": {"$in": APPROVED_FACULTY_EMAILS},
+            }
             if department:
                 query_filter["department"] = department
             if status:

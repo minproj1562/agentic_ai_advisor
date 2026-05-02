@@ -298,6 +298,13 @@ const Login: React.FC = () => {
   const { login, resetPassword } = useAuth();
   const [userType, setUserType]   = useState<UserType>('student');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showForgotModal, setShowForgotModal] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState('');
+  const [forgotRoll, setForgotRoll] = useState('');
+  const [forgotLoading, setForgotLoading] = useState(false);
+  const [resetResult, setResetResult] = useState<{ success: boolean; password?: string } | null>(null);
+
+  const API_BASE = (import.meta as any).env?.VITE_API_URL || 'http://localhost:8000';
 
   const handleTabChange = (type: UserType) => setUserType(type);
 
@@ -318,7 +325,6 @@ const Login: React.FC = () => {
       await login(credentials);
     } catch (error: any) {
       console.error('Login error:', error);
-      // Errors are shown via toast in AuthContext
     } finally {
       setIsSubmitting(false);
     }
@@ -326,18 +332,53 @@ const Login: React.FC = () => {
 
   const handleForgotPassword = async (identifier: string) => {
     if (userType === 'student') {
-      toast.error('Contact your administrator to reset your password.');
+      setForgotRoll(identifier || '');
+      setForgotEmail('');
+      setResetResult(null);
+      setShowForgotModal(true);
       return;
     }
+    // Faculty: use Firebase sendPasswordResetEmail
     if (!identifier) {
       toast.error('Please enter your email first.');
       return;
     }
     try {
       await resetPassword(identifier);
-      toast.success('Password reset email sent!');
+      toast.success('Password reset email sent! Check your inbox.');
     } catch {
       toast.error('Failed to send reset email.');
+    }
+  };
+
+  const handleStudentForgotSubmit = async () => {
+    if (!forgotRoll || forgotRoll.length !== 7) {
+      toast.error('Enter a valid 7-digit roll number.');
+      return;
+    }
+    if (!forgotEmail || !forgotEmail.includes('@')) {
+      toast.error('Enter a valid email address.');
+      return;
+    }
+    setForgotLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/auth/student/forgot-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ roll_number: forgotRoll, email: forgotEmail }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setResetResult({ success: true, password: data.default_password });
+        toast.success('Password has been reset!');
+      } else {
+        toast.error(data.detail || 'Failed to reset password.');
+        setResetResult({ success: false });
+      }
+    } catch {
+      toast.error('Server error. Try again later.');
+    } finally {
+      setForgotLoading(false);
     }
   };
 
@@ -480,6 +521,110 @@ const Login: React.FC = () => {
           🔒 Your data is encrypted and secure
         </p>
       </motion.div>
+
+      {/* ✅ Student Forgot Password Modal */}
+      <AnimatePresence>
+        {showForgotModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+            onClick={() => setShowForgotModal(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.9, y: 20 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white rounded-2xl p-6 max-w-md w-full shadow-2xl"
+            >
+              <h3 className="text-xl font-bold text-gray-900 mb-1">🔐 Reset Password</h3>
+              <p className="text-sm text-gray-500 mb-5">
+                Verify your identity to reset your password to the default.
+              </p>
+
+              {resetResult?.success ? (
+                <div className="space-y-4">
+                  <div className="bg-green-50 border border-green-200 rounded-xl p-4">
+                    <p className="text-sm font-medium text-green-800 mb-2">✅ Password reset successful!</p>
+                    <p className="text-sm text-green-700">
+                      Your new password is:{' '}
+                      <code className="bg-green-100 px-2 py-0.5 rounded font-mono font-bold">
+                        {resetResult.password}
+                      </code>
+                    </p>
+                    <p className="text-xs text-green-600 mt-2">
+                      Please login and change it immediately.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setShowForgotModal(false)}
+                    className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors"
+                  >
+                    Back to Login
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Roll Number</label>
+                    <div className="relative">
+                      <Hash className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                      <input
+                        type="text"
+                        value={forgotRoll}
+                        onChange={(e) => setForgotRoll(e.target.value)}
+                        placeholder="e.g. 5023152"
+                        maxLength={7}
+                        inputMode="numeric"
+                        className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Registered Email</label>
+                    <div className="relative">
+                      <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                      <input
+                        type="email"
+                        value={forgotEmail}
+                        onChange={(e) => setForgotEmail(e.target.value)}
+                        placeholder="your.email@example.com"
+                        className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                      />
+                    </div>
+                    <p className="text-xs text-gray-400 mt-1">
+                      Must match the email registered with your roll number.
+                    </p>
+                  </div>
+                  <div className="flex gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setShowForgotModal(false)}
+                      className="flex-1 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-sm font-medium transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleStudentForgotSubmit}
+                      disabled={forgotLoading}
+                      className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2"
+                    >
+                      {forgotLoading ? (
+                        <><Loader2 className="w-4 h-4 animate-spin" /> Verifying...</>
+                      ) : (
+                        'Reset Password'
+                      )}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

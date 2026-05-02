@@ -4,9 +4,27 @@ ML Package — Academic Advisor
 Provides model health checks and status reporting.
 """
 
+import os
+import json
 import logging
 
 logger = logging.getLogger(__name__)
+
+def _get_best_model_name() -> str:
+    """Read best model name from training metadata."""
+    try:
+        meta_path = os.path.join(
+            os.path.dirname(__file__), "saved_models", "training_metadata.json"
+        )
+        if os.path.exists(meta_path):
+            with open(meta_path) as f:
+                meta = json.load(f)
+            best = meta.get("best_model", "Ensemble")
+            acc = meta.get("best_accuracy", 0)
+            return f"{best} ({acc*100:.1f}% acc)"
+    except Exception:
+        pass
+    return "Ensemble ML"
 
 
 def get_model_status() -> dict:
@@ -17,7 +35,7 @@ def get_model_status() -> dict:
         from app.ml.models.recommendation_engine import recommendation_engine
         status["elective_recommender"] = {
             "loaded": recommendation_engine.is_trained,
-            "type": "RandomForest(200) + KNN(5)",
+            "type": _get_best_model_name(),
         }
     except Exception as e:
         status["elective_recommender"] = {"loaded": False, "error": str(e)}
