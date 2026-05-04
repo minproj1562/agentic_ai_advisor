@@ -1889,17 +1889,22 @@ const StudentDashboardContent: React.FC = () => {
       user.uid,
       (metrics: any[]) => {
         if (metrics && metrics.length > 0) {
+          // Sort metrics by semester to ensure correct trend calculation
+          const sortedMetrics = [...metrics].sort((a, b) => a.semester - b.semester);
+          const latest = sortedMetrics[sortedMetrics.length - 1];
+          const previous = sortedMetrics.length > 1 ? sortedMetrics[sortedMetrics.length - 2] : latest;
+          
           const stats = {
-            currentSGPI: metrics[0].sgpi,
-            previousSGPI: metrics[1]?.sgpi || metrics[0].sgpi,
-            trend: metrics[0].sgpi > (metrics[1]?.sgpi || 0) ? 'up' : 'down',
-            percentageChange: metrics[1]
-              ? ((metrics[0].sgpi - metrics[1].sgpi) / metrics[1].sgpi) * 100
+            currentSGPI: latest.sgpi,
+            previousSGPI: previous.sgpi,
+            trend: (latest.sgpi > previous.sgpi ? 'up' : latest.sgpi < previous.sgpi ? 'down' : 'stable') as 'up' | 'down' | 'stable',
+            percentageChange: previous.sgpi > 0
+              ? ((latest.sgpi - previous.sgpi) / previous.sgpi) * 100
               : 0,
           };
           const chartData = {
             ...stats,
-            semesterWiseData: metrics.map((m: any) => ({
+            semesterWiseData: sortedMetrics.map((m: any) => ({
               semester: m.semester,
               sgpi: m.sgpi,
               credits: m.credits,

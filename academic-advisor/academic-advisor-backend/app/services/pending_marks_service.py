@@ -16,29 +16,18 @@ class PendingMarksService:
     ) -> int:
         """
         Link any pending marks to a newly registered student profile.
+        Uses roll_number as the primary key for matching.
+        Seat number is kept as a legacy fallback only.
         Returns number of semesters linked.
         """
         try:
-            # FIX: Search by both roll_number AND seat_number
-            query_conditions = [
-                {"roll_number": student_profile.roll_number, "linked_to_profile": False}
-            ]
+            # PRIMARY: Search by roll_number
+            query_conditions = {
+                "roll_number": student_profile.roll_number, 
+                "linked_to_profile": False
+            }
             
-            if student_profile.current_seat_number:
-                query_conditions.append({
-                    "seat_number": student_profile.current_seat_number,
-                    "linked_to_profile": False
-                })
-            
-            for seat_rec in student_profile.seat_number_history:
-                query_conditions.append({
-                    "seat_number": seat_rec.seat_number,
-                    "linked_to_profile": False
-                })
-            
-            pending_marks = await PendingStudentMarks.find({
-                "$or": query_conditions
-            }).to_list()
+            pending_marks = await PendingStudentMarks.find(query_conditions).to_list()
             
             if not pending_marks:
                 logger.info(f"No pending marks found for {student_profile.roll_number}")

@@ -243,14 +243,14 @@ async def lifespan(app: FastAPI):
             f"✅ Recommendation engine loaded (trained={recommendation_engine.is_trained})"
         )
         
-        if not recommendation_engine.is_trained:
-            logger.info("🔄 No pre-trained model found. Training with synthetic data...")
-            try:
-                from app.ml.utils.training import train_recommendation_model
-                metrics = await train_recommendation_model(n_synthetic=150, include_feedback=True)
-                logger.info(f"✅ Auto-training complete! Accuracy: {metrics['accuracy']:.4f}")
-            except Exception as train_err:
-                logger.warning(f"⚠️ Auto-training failed (non-critical): {train_err}")
+        # if not recommendation_engine.is_trained:
+        #     logger.info("🔄 No pre-trained model found. Training with synthetic data...")
+        #     try:
+        #         from app.ml.utils.training import train_recommendation_model
+        #         metrics = await train_recommendation_model(n_synthetic=150, include_feedback=True)
+        #         logger.info(f"✅ Auto-training complete! Accuracy: {metrics['accuracy']:.4f}")
+        #     except Exception as train_err:
+        #         logger.warning(f"⚠️ Auto-training failed (non-critical): {train_err}")
     except Exception as e:
         logger.warning(f"⚠️ Recommendation engine not loaded: {e}")
 

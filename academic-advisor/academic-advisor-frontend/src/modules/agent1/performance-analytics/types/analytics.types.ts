@@ -16,6 +16,8 @@ export interface PerformanceTrend {
   dataPoints: DataPoint[];
   currentGPA?: number;
   percentile?: number;
+  rank?: number;
+  totalStudents?: number;
   subjects?: SubjectData[];
   lastUpdated?: string;
   projection?: DataPoint[];
@@ -39,6 +41,8 @@ export interface TrendAnalysis {
   projectedGPA: number;
   gpaChange: number;
   percentile: number;
+  rank?: number;
+  totalStudents?: number;
   percentileChange: number;
   improvementRate: number;
   dataPointsCount: number;

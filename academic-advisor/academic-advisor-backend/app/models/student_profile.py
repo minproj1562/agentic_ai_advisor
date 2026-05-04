@@ -68,15 +68,25 @@ class SemesterRecord(BaseModel):
 
 
 class StudentProfile(Document):
-    """Student profile - MongoDB Document"""
+    """
+    Student profile - MongoDB Document.
+
+    Identification Strategy:
+        roll_number = PRIMARY KEY for all student identification.
+                      Used for fetching marks, matching profiles,
+                      and all academic data retrieval.
+        seat_number = OPTIONAL internal mapping.
+                      Changes each semester; NOT required for
+                      fetching marks or any data retrieval.
+    """
     user_id: str
-    roll_number: str = ""
+    roll_number: str = ""              # PRIMARY KEY — unique student identifier
     name: str = ""
     email: str = ""
     branch: str = "IT"
     admission_year: int = 2020
     
-    # Seat number tracking
+    # Seat number tracking (optional — NOT used for fetching marks)
     current_seat_number: Optional[str] = Field(None, pattern="^[0-9]{5}$")
     seat_number_history: List[SeatNumberRecord] = []
     

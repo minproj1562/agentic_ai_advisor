@@ -1,17 +1,41 @@
 // src/services/weakness.service.ts
-// FIXED VERSION - saveInterests sends ALL fields, response verification added
+// Updated to match corrected backend response shapes.
+// Adds: effort_readiness_score, total_gap_hours, study_load_warning,
+//       effort_detail, low_confidence_flag, credits on weaknesses.
 
 import axios, { AxiosInstance } from 'axios';
 import { auth } from './firebase.config';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const API_BASE_URL =
+  import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
-// ============== Types ==============
+// ══════════════════════════════════════════════════════════════
+//  SHARED TYPES
+// ══════════════════════════════════════════════════════════════
 
-export type AnalysisBasis = 'interest' | 'electives' | 'honours_minors' | 'performance' | 'combined';
+export type AnalysisBasis =
+  | 'interest'
+  | 'electives'
+  | 'honours_minors'
+  | 'performance'
+  | 'combined';
+
 export type SeverityLevel = 'low' | 'medium' | 'high' | 'critical';
-export type ReadinessLevel = 'excellent' | 'good' | 'moderate' | 'low' | 'not_ready';
-export type RecommendationType = 'proceed' | 'proceed_with_caution' | 'improve_first' | 'do_not_proceed';
+export type ReadinessLevel =
+  | 'excellent'
+  | 'good'
+  | 'moderate'
+  | 'low'
+  | 'not_ready';
+export type RecommendationType =
+  | 'proceed'
+  | 'proceed_with_caution'
+  | 'improve_first'
+  | 'do_not_proceed';
+
+// ══════════════════════════════════════════════════════════════
+//  WEAKNESS ANALYSIS TYPES (unchanged from original)
+// ══════════════════════════════════════════════════════════════
 
 export interface WeaknessArea {
   id: string;
@@ -42,40 +66,6 @@ export interface ResourceItem {
   duration?: string;
 }
 
-export interface StudyPlanPhase {
-  name: string;
-  weeks: string;
-  focus: string[];
-  goals: string[];
-  daily_hours?: number;
-}
-
-export interface StudyPlanMilestone {
-  week: number;
-  target: string;
-}
-
-export interface FocusArea {
-  subject: string;
-  priority: number;
-  current_score: number;
-  target_score: number;
-  weekly_hours: number;
-  severity: string;
-}
-
-export interface StudyPlan {
-  duration: string;
-  weekly_hours: number;
-  weekly_commitment: string;
-  focus_areas: FocusArea[];
-  phases: StudyPlanPhase[];
-  milestones: StudyPlanMilestone[];
-  current_readiness: number;
-  target_readiness: number;
-  recommendation: string;
-}
-
 export interface WeaknessAnalysisResponse {
   student_id: string;
   analysis_basis: AnalysisBasis;
@@ -83,7 +73,7 @@ export interface WeaknessAnalysisResponse {
   overall_risk_score: number;
   priority_areas: string[];
   recommended_resources: ResourceItem[];
-  study_plan?: StudyPlan;
+  study_plan?: Record<string, any> | null;
   analysis_timestamp: string;
   total_weaknesses: number;
   critical_count: number;
@@ -116,8 +106,14 @@ export interface WeaknessSummary {
   last_analyzed?: string;
 }
 
-// ============== Readiness Types ==============
+// ══════════════════════════════════════════════════════════════
+//  READINESS TYPES — Updated to match backend
+// ══════════════════════════════════════════════════════════════
 
+/**
+ * Per-weakness entry from the readiness engine.
+ * Matches WeaknessEntry in app/models/readiness.py
+ */
 export interface ReadinessWeakness {
   id?: string;
   subject: string;
@@ -125,31 +121,198 @@ export interface ReadinessWeakness {
   current_score: number;
   target_score: number;
   gap: number;
-  linked_goals?: string[];
-  suggestions?: string[];
-  estimated_hours?: number;
+  importance: number;
+  importance_label: string;
+  confidence: number;
+
+  /**
+   * True when subject was matched with confidence < 0.7
+   * (partial or word-overlap match).
+   * Frontend can show this as a softer warning.
+   */
+  low_confidence_flag: boolean;
+
+  /** Credits from the student's actual SubjectScore record. */
+  credits: number;
+
+  linked_goals: string[];
+  goal_types: string[];
+  suggestions: string[];
+  resources: Array<{
+    type: string;
+    platform: string;
+    title: string;
+    url: string;
+  }>;
+
+  /**
+   * Total hours to close this gap.
+   * Formula: gap × credits × 0.1 × multipliers
+   * Study plan divides this by duration_weeks for weekly hours.
+   */
+  estimated_hours: number;
+
+  priority_rank: number;
 }
 
+/**
+ * Per-subject effort estimate from the effort calculator.
+ * Matches SubjectStudyEstimate in app/models/readiness.py
+ */
+export interface SubjectStudyEstimate {
+  subject_name: string;
+  subject_code?: string;
+  credits: number;
+  current_score: number;
+  required_min: number;
+  is_backlog: boolean;
+  is_taken: boolean;
+  semester: number;
+  gap_to_target: number;
+
+  /**
+   * coverage_ratio = min(score / min_score, 1.0)
+   * Represents how much of the requirement is already satisfied.
+   */
+  coverage_ratio: number;
+
+  /**
+   * Total hours needed to close the gap for this subject.
+   * Formula: gap × credits × 0.1 × backlog_mult × semester_mult
+   */
+  study_hours_to_close_gap: number;
+}
+
+/**
+ * Effort readiness result block.
+ * Matches EffortReadinessResult in app/models/readiness.py
+ */
+export interface EffortDetail {
+  /**
+   * Credit-weighted coverage ratio × 100 (0–100).
+   * Higher = more requirements already satisfied by current marks.
+   * Capped at 60 if any subject is below passing grade (40%).
+   */
+  effort_readiness_score: number;
+
+  /**
+   * Named for API compatibility.
+   * Actually stores TOTAL gap hours (not per-week).
+   * Study plan divides by duration_weeks.
+   */
+  estimated_study_load_weekly: number;
+
+  /** Σ(credits × 2) for all required subjects. */
+  total_required_min_hours: number;
+
+  has_backlog: boolean;
+  study_load_warning: string | null;
+  per_subject_estimates: SubjectStudyEstimate[];
+}
+
+export interface StudyPlanFocusArea {
+  subject: string;
+  priority: number;
+  current_score: number;
+  target_score: number;
+
+  /** Total hours for this subject across the full plan. */
+  total_hours: number;
+
+  /** Hours per week allocated to this subject. */
+  weekly_hours: number;
+
+  severity: string;
+  credits: number;
+}
+
+export interface StudyPlanPhase {
+  name: string;
+  weeks: string;
+  focus: string[];
+  goals: string[];
+}
+
+export interface StudyPlanMilestone {
+  week: number;
+  target: string;
+}
+
+export interface StudyPlan {
+  duration_weeks: number;
+  weekly_hours: number;
+  weekly_commitment: string;
+
+  /** Σ estimated_hours for top 6 weaknesses. */
+  total_gap_hours: number;
+
+  /**
+   * Weekly extra study budget used for duration calculation.
+   * 20 if credits < 15, 15 if 15–20, 10 if > 20.
+   */
+  extra_budget_per_week: number;
+
+  focus_areas: StudyPlanFocusArea[];
+  phases: StudyPlanPhase[];
+  milestones: StudyPlanMilestone[];
+  current_readiness: number;
+  target_readiness: number;
+  total_credits_registered: number;
+  recommendation: string;
+
+  /** Present when no weaknesses detected. */
+  message?: string;
+}
+
+/**
+ * Main readiness response.
+ * Matches ReadinessResponse in app/models/readiness.py
+ */
 export interface ReadinessResponse {
   student_id: string;
+
+  // Core scores
   overall_readiness_score: number;
   readiness_level: ReadinessLevel;
   recommendation_type: RecommendationType;
   primary_recommendation: string;
+
+  // Category scores
   interest_readiness: number;
   elective_readiness: number;
   honours_readiness: number;
   interest_breakdown: Record<string, number>;
   elective_breakdown: Record<string, number>;
   honours_breakdown: Record<string, number>;
+
+  // Flags
   has_critical_weakness: boolean;
   has_blockers: boolean;
   is_first_semester: boolean;
+
+  // Focus + timing
   subjects_to_focus: string[];
   estimated_preparation_time: string;
   detailed_recommendations: string[];
+
+  // Weaknesses + study plan
   weaknesses: ReadinessWeakness[];
-  study_plan?: StudyPlan | null;
+  study_plan: StudyPlan | null;
+
+  // Effort fields
+  effort_readiness_score: number;
+
+  /**
+   * total_gap_hours: Σ estimated_hours across all weaknesses.
+   * This is TOTAL hours, not per-week.
+   */
+  total_gap_hours: number;
+
+  study_load_warning: string | null;
+
+  /** Full effort breakdown — null if calculation failed. */
+  effort_detail: EffortDetail | null;
+
   analysis_timestamp: string;
 }
 
@@ -170,14 +333,36 @@ export interface ReadinessSummary {
   timestamp: string;
 }
 
+export interface PrerequisiteDetail {
+  subject_name: string;
+  subject_code?: string;
+  current_score: number;
+  required_score: number;
+  gap: number;
+  coverage_ratio: number;
+  importance: number;
+  importance_label: string;
+  status: 'strong' | 'adequate' | 'weak' | 'missing';
+  is_taken: boolean;
+  confidence: number;
+  low_confidence_flag: boolean;
+}
+
 export interface ElectiveReadiness {
   student_id: string;
   elective: string;
+  elective_code?: string;
   readiness_score: number;
+  readiness_level: string;
   is_ready: boolean;
   recommendation: string;
+  prerequisites: PrerequisiteDetail[];
+  strengths: string[];
+  gaps: string[];
   subjects_to_focus: string[];
+  preparation_plan: string[];
   preparation_time: string;
+  estimated_preparation_weeks: number;
 }
 
 export interface HonoursReadiness {
@@ -222,7 +407,9 @@ export interface AvailableHonours {
   min_cgpa: number;
 }
 
-// ============== Service Class ==============
+// ══════════════════════════════════════════════════════════════
+//  SERVICE CLASS
+// ══════════════════════════════════════════════════════════════
 
 class WeaknessService {
   private api: AxiosInstance;
@@ -241,11 +428,11 @@ class WeaknessService {
       headers: { 'Content-Type': 'application/json' },
     });
 
-    [this.api, this.readinessApi].forEach((client) => {
+    // Attach auth token to both clients
+    [this.api, this.readinessApi].forEach(client => {
       client.interceptors.request.use(
-        async (config) => {
+        async config => {
           try {
-            // 1. Firebase user (faculty/admin)
             const currentUser = auth.currentUser;
             if (currentUser) {
               const token = await currentUser.getIdToken();
@@ -255,7 +442,6 @@ class WeaknessService {
               return config;
             }
 
-            // 2. Student JWT from localStorage (students don't use Firebase)
             const storedToken =
               localStorage.getItem('auth_token') ||
               sessionStorage.getItem('auth_token');
@@ -267,26 +453,36 @@ class WeaknessService {
           }
           return config;
         },
-        (error) => Promise.reject(error)
+        error => Promise.reject(error)
       );
 
       client.interceptors.response.use(
-        (response) => response,
-        (error) => {
+        response => response,
+        error => {
           if (error.response?.status === 401) {
-            console.error('Unauthorized - redirecting to login');
+            console.error('Unauthorized');
           }
-          return Promise.reject(error);
+          const message =
+            error.response?.data?.detail ||
+            error.response?.data?.message ||
+            error.message ||
+            'An unexpected error occurred';
+          return Promise.reject(new Error(message));
         }
       );
     });
   }
 
-  // ============== Weakness Analysis Methods ==============
+  // ── Weakness Analysis ────────────────────────────────────────
 
-  async analyzeWeaknesses(request: WeaknessAnalysisRequest): Promise<WeaknessAnalysisResponse> {
-    const response = await this.api.post<WeaknessAnalysisResponse>('/analyze', request);
-    return response.data;
+  async analyzeWeaknesses(
+    request: WeaknessAnalysisRequest
+  ): Promise<WeaknessAnalysisResponse> {
+    const { data } = await this.api.post<WeaknessAnalysisResponse>(
+      '/analyze',
+      request
+    );
+    return data;
   }
 
   async getWeaknessByInterest(
@@ -299,14 +495,12 @@ class WeaknessService {
       include_resources: includeResources,
       include_study_plan: includeStudyPlan,
     };
-    if (interests?.length) {
-      params.interests = interests.join(',');
-    }
-    const response = await this.api.get<WeaknessAnalysisResponse>(
+    if (interests?.length) params.interests = interests.join(',');
+    const { data } = await this.api.get<WeaknessAnalysisResponse>(
       `/${studentId}/by-interest`,
       { params }
     );
-    return response.data;
+    return data;
   }
 
   async getWeaknessByElectives(
@@ -319,14 +513,12 @@ class WeaknessService {
       include_resources: includeResources,
       include_study_plan: includeStudyPlan,
     };
-    if (electives?.length) {
-      params.electives = electives.join(',');
-    }
-    const response = await this.api.get<WeaknessAnalysisResponse>(
+    if (electives?.length) params.electives = electives.join(',');
+    const { data } = await this.api.get<WeaknessAnalysisResponse>(
       `/${studentId}/by-electives`,
       { params }
     );
-    return response.data;
+    return data;
   }
 
   async getWeaknessByHonours(
@@ -339,14 +531,12 @@ class WeaknessService {
       include_resources: includeResources,
       include_study_plan: includeStudyPlan,
     };
-    if (programmes?.length) {
-      params.programmes = programmes.join(',');
-    }
-    const response = await this.api.get<WeaknessAnalysisResponse>(
+    if (programmes?.length) params.programmes = programmes.join(',');
+    const { data } = await this.api.get<WeaknessAnalysisResponse>(
       `/${studentId}/by-honours`,
       { params }
     );
-    return response.data;
+    return data;
   }
 
   async getWeaknessByPerformance(
@@ -354,11 +544,16 @@ class WeaknessService {
     includeResources = true,
     includeStudyPlan = true
   ): Promise<WeaknessAnalysisResponse> {
-    const response = await this.api.get<WeaknessAnalysisResponse>(
+    const { data } = await this.api.get<WeaknessAnalysisResponse>(
       `/${studentId}/by-performance`,
-      { params: { include_resources: includeResources, include_study_plan: includeStudyPlan } }
+      {
+        params: {
+          include_resources: includeResources,
+          include_study_plan: includeStudyPlan,
+        },
+      }
     );
-    return response.data;
+    return data;
   }
 
   async getCombinedAnalysis(
@@ -376,39 +571,54 @@ class WeaknessService {
     if (interests?.length) params.interests = interests.join(',');
     if (electives?.length) params.electives = electives.join(',');
     if (honours?.length) params.honours = honours.join(',');
-
-    const response = await this.api.get<WeaknessAnalysisResponse>(
+    const { data } = await this.api.get<WeaknessAnalysisResponse>(
       `/${studentId}/combined`,
       { params }
     );
-    return response.data;
+    return data;
   }
 
-  async getLatestAnalysis(studentId: string): Promise<WeaknessAnalysisResponse | null> {
+  async getLatestAnalysis(
+    studentId: string
+  ): Promise<WeaknessAnalysisResponse | null> {
     try {
-      const response = await this.api.get(`/${studentId}/latest`);
-      return response.data;
+      const { data } = await this.api.get(`/${studentId}/latest`);
+      return data;
     } catch (error: any) {
       if (error.response?.status === 404) return null;
       throw error;
     }
   }
 
-  async getAnalysisHistory(studentId: string, limit = 10): Promise<any> {
-    const response = await this.api.get(`/${studentId}/history`, { params: { limit } });
-    return response.data;
+  async getAnalysisHistory(
+    studentId: string,
+    limit = 10
+  ): Promise<any> {
+    const { data } = await this.api.get(`/${studentId}/history`, {
+      params: { limit },
+    });
+    return data;
   }
 
-  async getWeaknessSummary(studentId: string): Promise<WeaknessSummary> {
-    const response = await this.api.get<WeaknessSummary>(`/${studentId}/summary`);
-    return response.data;
+  async getWeaknessSummary(
+    studentId: string
+  ): Promise<WeaknessSummary> {
+    const { data } = await this.api.get<WeaknessSummary>(
+      `/${studentId}/summary`
+    );
+    return data;
   }
 
-  // ============== Readiness Methods ==============
+  // ── Readiness ────────────────────────────────────────────────
 
-  async calculateReadiness(request: ReadinessRequest): Promise<ReadinessResponse> {
-    const response = await this.readinessApi.post<ReadinessResponse>('/calculate', request);
-    return response.data;
+  async calculateReadiness(
+    request: ReadinessRequest
+  ): Promise<ReadinessResponse> {
+    const { data } = await this.readinessApi.post<ReadinessResponse>(
+      '/calculate',
+      request
+    );
+    return data;
   }
 
   async getReadiness(
@@ -422,49 +632,44 @@ class WeaknessService {
     if (electives?.length) params.electives = electives.join(',');
     if (honours?.length) params.honours = honours.join(',');
 
-    const response = await this.readinessApi.get<ReadinessResponse>(`/${studentId}`, {
-      params,
-    });
-    return response.data;
+    const { data } = await this.readinessApi.get<ReadinessResponse>(
+      `/${studentId}`,
+      { params }
+    );
+    return data;
   }
 
-  async getReadinessSummary(studentId: string): Promise<ReadinessSummary> {
-    const response = await this.readinessApi.get<ReadinessSummary>(`/${studentId}/summary`);
-    return response.data;
+  async getReadinessSummary(
+    studentId: string
+  ): Promise<ReadinessSummary> {
+    const { data } = await this.readinessApi.get<ReadinessSummary>(
+      `/${studentId}/summary`
+    );
+    return data;
   }
 
   async getElectiveReadiness(
     studentId: string,
     electiveCode: string
   ): Promise<ElectiveReadiness> {
-    const response = await this.readinessApi.get<ElectiveReadiness>(
+    const { data } = await this.readinessApi.get<ElectiveReadiness>(
       `/${studentId}/for-elective/${electiveCode}`
     );
-    return response.data;
+    return data;
   }
 
   async getHonoursReadiness(
     studentId: string,
     programme: string
   ): Promise<HonoursReadiness> {
-    const response = await this.readinessApi.get<HonoursReadiness>(
+    const { data } = await this.readinessApi.get<HonoursReadiness>(
       `/${studentId}/for-honours/${encodeURIComponent(programme)}`
     );
-    return response.data;
+    return data;
   }
 
-  // ============== Interest Management — ✅ FIXED ==============
+  // ── Interest Management ──────────────────────────────────────
 
-  /**
-   * ✅ FIXED: Now sends ALL fields to the POST endpoint.
-   *
-   * The backend POST endpoint has been updated to accept:
-   *   interests, career_goals, skills, interest_levels,
-   *   skill_levels, preferred_electives, honours_minors_interest
-   *
-   * Previously only `interests` and `interest_levels` were sent/accepted,
-   * causing career_goals and skills to be silently dropped.
-   */
   async saveInterests(
     studentId: string,
     interests: string[],
@@ -477,56 +682,21 @@ class WeaknessService {
       career_goals: careerGoals || [],
       skills: skills || [],
     };
-
     if (interestLevels && Object.keys(interestLevels).length > 0) {
       payload.interest_levels = interestLevels;
     }
-
-    console.log('📤 weakness.service saveInterests POST payload:', {
-      endpoint: `POST /weakness/${studentId}/interests`,
-      interests: payload.interests.length,
-      career_goals: payload.career_goals.length,
-      skills: payload.skills.length,
-    });
-
-    const response = await this.api.post(`/${studentId}/interests`, payload);
-    const data = response.data;
-
-    // ✅ Verify the response includes all fields we sent
-    console.log('📥 weakness.service saveInterests response:', {
-      saved_interests: data.interests?.length ?? '?',
-      saved_career_goals: data.career_goals?.length ?? '?',
-      saved_skills: data.skills?.length ?? '?',
-    });
-
-    if (data.career_goals === undefined && (careerGoals?.length ?? 0) > 0) {
-      console.error(
-        '❌ Backend POST /interests did NOT return career_goals. ' +
-        'The backend endpoint may need updating. ' +
-        'Expected career_goals in response but got undefined.'
-      );
-    }
-    if (data.skills === undefined && (skills?.length ?? 0) > 0) {
-      console.error(
-        '❌ Backend POST /interests did NOT return skills. ' +
-        'The backend endpoint may need updating. ' +
-        'Expected skills in response but got undefined.'
-      );
-    }
-
+    const { data } = await this.api.post(
+      `/${studentId}/interests`,
+      payload
+    );
     return data;
   }
 
-  /**
-   * Get student interest profile — returns ALL fields.
-   * ✅ Returns empty profile on 404 instead of throwing.
-   */
   async getInterests(studentId: string): Promise<InterestProfile> {
     try {
-      const response = await this.api.get<InterestProfile>(`/${studentId}/interests`);
-      const data = response.data;
-
-      // Normalize response to guarantee all fields exist
+      const { data } = await this.api.get<InterestProfile>(
+        `/${studentId}/interests`
+      );
       return {
         student_id: data.student_id || studentId,
         interests: data.interests || [],
@@ -539,7 +709,6 @@ class WeaknessService {
       };
     } catch (error: any) {
       if (error.response?.status === 404) {
-        console.log('No interest profile found, returning empty');
         return {
           student_id: studentId,
           interests: [],
@@ -555,10 +724,6 @@ class WeaknessService {
     }
   }
 
-  /**
-   * ✅ FIXED: Update interests with explicit logging to verify what's sent/received.
-   * Sends ALL fields in the PUT payload.
-   */
   async updateInterests(
     studentId: string,
     updates: Partial<Omit<InterestProfile, 'student_id'>>
@@ -572,76 +737,53 @@ class WeaknessService {
       preferred_electives: updates.preferred_electives || [],
       honours_minors_interest: updates.honours_minors_interest || [],
     };
-
-    console.log('📤 weakness.service updateInterests PUT payload:', {
-      endpoint: `PUT /weakness/${studentId}/interests`,
-      interests: payload.interests.length,
-      career_goals: payload.career_goals.length,
-      skills: payload.skills.length,
-      preferred_electives: payload.preferred_electives.length,
-      honours_minors_interest: payload.honours_minors_interest.length,
-    });
-
-    try {
-      const response = await this.api.put(`/${studentId}/interests`, payload);
-      const data = response.data;
-
-      console.log('✅ weakness.service updateInterests response:', {
-        status: data.status,
-        profile_interests: data.profile?.interests?.length ?? '?',
-        profile_career_goals: data.profile?.career_goals?.length ?? '?',
-        profile_skills: data.profile?.skills?.length ?? '?',
-      });
-
-      return data;
-    } catch (error: any) {
-      console.error('❌ weakness.service updateInterests PUT failed:', {
-        status: error.response?.status,
-        data: error.response?.data,
-        message: error.message,
-      });
-      throw error;
-    }
+    const { data } = await this.api.put(
+      `/${studentId}/interests`,
+      payload
+    );
+    return data;
   }
 
   async syncInterests(studentId: string): Promise<any> {
-    const response = await this.api.get(`/${studentId}/sync-interests`);
-    return response.data;
+    const { data } = await this.api.get(
+      `/${studentId}/sync-interests`
+    );
+    return data;
   }
 
-  // ============== Available Options ==============
+  // ── Available Options ────────────────────────────────────────
 
   async getAvailableInterests(): Promise<AvailableInterest[]> {
-    const response = await this.api.get<{ interests: AvailableInterest[] }>(
-      '/options/interests'
-    );
-    return response.data.interests;
+    const { data } = await this.api.get<{
+      interests: AvailableInterest[];
+    }>('/options/interests');
+    return data.interests;
   }
 
   async getAvailableElectives(): Promise<AvailableElective[]> {
-    const response = await this.api.get<{ electives: AvailableElective[] }>(
-      '/options/electives'
-    );
-    return response.data.electives;
+    const { data } = await this.api.get<{
+      electives: AvailableElective[];
+    }>('/options/electives');
+    return data.electives;
   }
 
   async getAvailableHonours(): Promise<AvailableHonours[]> {
-    const response = await this.api.get<{ programmes: AvailableHonours[] }>(
-      '/options/honours'
-    );
-    return response.data.programmes;
+    const { data } = await this.api.get<{
+      programmes: AvailableHonours[];
+    }>('/options/honours');
+    return data.programmes;
   }
 }
 
-// ============== Singleton Instance ==============
+// ══════════════════════════════════════════════════════════════
+//  SINGLETON
+// ══════════════════════════════════════════════════════════════
 
-let weaknessServiceInstance: WeaknessService | null = null;
+let _instance: WeaknessService | null = null;
 
 export const getWeaknessService = (): WeaknessService => {
-  if (!weaknessServiceInstance) {
-    weaknessServiceInstance = new WeaknessService();
-  }
-  return weaknessServiceInstance;
+  if (!_instance) _instance = new WeaknessService();
+  return _instance;
 };
 
 export default WeaknessService;

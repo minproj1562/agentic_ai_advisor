@@ -540,7 +540,10 @@ class AcademicService:
     ) -> int:
         """
         Automatically fetch and link pending marks based on
-        roll number or seat number.
+        roll number (primary key).
+
+        Roll number is the sole identifier used for matching.
+        Seat number is only kept as a legacy fallback.
 
         FIXED:
         - pending_marks_checked set to True after completion
@@ -551,6 +554,7 @@ class AcademicService:
         try:
             query_conditions = []
 
+            # PRIMARY: Match by roll_number
             if profile.roll_number:
                 query_conditions.append(
                     {"roll_number": profile.roll_number}
@@ -565,14 +569,10 @@ class AcademicService:
                     }
                 )
 
+            # LEGACY FALLBACK: Match by seat_number (for older data)
             if profile.current_seat_number:
                 query_conditions.append(
                     {"seat_number": profile.current_seat_number}
-                )
-
-            for seat_record in profile.seat_number_history:
-                query_conditions.append(
-                    {"seat_number": seat_record.seat_number}
                 )
 
             if not query_conditions:

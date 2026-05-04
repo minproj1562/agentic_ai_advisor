@@ -32,7 +32,7 @@ const studentSchema = z.object({
   identifier: z
     .string()
     .min(1, 'Roll number is required')
-    .regex(/^[0-9]{7}$/, 'Roll number must be exactly 7 digits'),
+    .regex(/^[0-9]{5,7}$/, 'Roll number must be 5-7 digits'),
   password: z.string().min(1, 'Password is required').min(8, 'Min 8 characters'),
   rememberMe: z.boolean().optional().default(false),
 });

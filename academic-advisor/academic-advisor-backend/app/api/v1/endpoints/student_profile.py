@@ -178,6 +178,21 @@ async def get_full_profile(
         previous_sgpa = sgpa_values[-2] if len(sgpa_values) >= 2 else latest_sgpa
         percentage_change = round(((latest_sgpa - previous_sgpa) / previous_sgpa) * 100, 2) if previous_sgpa > 0 else 0.0
 
+        # Calculate Rank and Percentile (Relative to branch and admission_year)
+        total_students = await StudentProfile.find(
+            StudentProfile.branch == profile.branch,
+            StudentProfile.admission_year == profile.admission_year
+        ).count()
+        
+        students_above = await StudentProfile.find(
+            StudentProfile.branch == profile.branch,
+            StudentProfile.admission_year == profile.admission_year,
+            StudentProfile.cgpa > profile.cgpa
+        ).count()
+        
+        rank = students_above + 1
+        percentile = round(((total_students - rank + 0.5) / total_students) * 100, 1) if total_students > 0 else 100.0
+
         # Weakness detection
         weaknesses = []
         for sem in completed_semesters:
@@ -202,6 +217,9 @@ async def get_full_profile(
             "current_semester": profile.current_semester,
             "current_academic_year": profile.current_academic_year,
             "cgpa": profile.cgpa,
+            "rank": rank,
+            "percentile": percentile,
+            "total_students": total_students,
             "total_credits_earned": profile.total_credits_earned,
             "total_credits_required": profile.total_credits_required,
             "interests": profile.interests or [],

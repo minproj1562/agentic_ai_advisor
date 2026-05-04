@@ -23,8 +23,12 @@ Sheet structure:
 
 Student identification columns:
   Col 0: Sr. No
-  Col 1: Seat No  ← used as roll number identifier
+  Col 1: Seat No  ← used as roll_number (primary identifier)
   Col 2: Name of Student
+
+Note: The value in "Seat No" column is treated as the student's
+roll_number (primary key). The seat_number is kept as an optional
+internal mapping but is NOT required for fetching marks.
 
 Subject column identification:
   Unnamed: 3 = row type indicator ('Subject Name', 'Max Marks', 'Min Marks',
@@ -251,8 +255,9 @@ def _parse_subject_header(text: str) -> Tuple[str, str]:
 
 @dataclass
 class UniversityStudentResult:
-    seat_number: str
+    seat_number: str                       # raw value from "Seat No" column
     student_name: str
+    roll_number: str = ""                  # primary identifier (= seat_number by default)
     serial_number: Optional[int] = None
     subjects: List[Dict[str, Any]] = dc_field(default_factory=list)
     """
@@ -585,6 +590,7 @@ class UniversitySheetParser:
         result = UniversityStudentResult(
             seat_number=seat,
             student_name=name,
+            roll_number=seat,   # roll_number = primary identifier (same as seat_number from Excel)
             serial_number=sr_no,
         )
 
@@ -813,6 +819,28 @@ class UniversityExcelParser:
 
         output = {}
 
+        # ── LOAD ROSTER MAPPING ──
+        roster_mapping = {}
+        try:
+            import os
+            roster_path = os.path.join(os.getcwd(), "exported_marks", "IT_Student_Roster.xlsx")
+            if os.path.exists(roster_path):
+                roster_df = pd.read_excel(roster_path)
+                for _, row in roster_df.iterrows():
+                    name = str(row.get('Name', '')).strip()
+                    if name.startswith('/'):
+                        name = name[1:].strip()
+                    name = " ".join(name.split())
+                    
+                    roll = str(row.get('Roll Number', '')).strip()
+                    if name and roll:
+                        roster_mapping[name.lower()] = roll
+                logger.info(f"Loaded {len(roster_mapping)} student mappings from roster.")
+            else:
+                logger.warning(f"Roster file not found at {roster_path}")
+        except Exception as e:
+            logger.warning(f"Failed to load roster mapping: {e}")
+
         for sheet_name in xl.sheet_names:
             try:
                 df = pd.read_excel(
@@ -824,6 +852,14 @@ class UniversityExcelParser:
 
                 parser = UniversitySheetParser(df, sheet_name)
                 results, meta = parser.parse()
+
+                # ── APPLY ROSTER MAPPING ──
+                for r in results:
+                    n_lower = " ".join(r.student_name.lower().split())
+                    if n_lower in roster_mapping:
+                        r.roll_number = roster_mapping[n_lower]
+                    else:
+                        logger.debug(f"Could not find roll number for {r.student_name} in roster. Keeping fallback {r.roll_number}")
 
                 self._all_results[sheet_name] = results
                 self._all_meta[sheet_name] = meta
@@ -879,7 +915,8 @@ class UniversityExcelParser:
     @staticmethod
     def _result_to_dict(r: UniversityStudentResult) -> Dict[str, Any]:
         return {
-            "seat_number": r.seat_number,
+            "roll_number": r.roll_number or r.seat_number,  # primary identifier
+            "seat_number": r.seat_number,                    # kept for internal mapping
             "student_name": r.student_name,
             "serial_number": r.serial_number,
             "subjects": r.subjects,

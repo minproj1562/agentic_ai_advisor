@@ -6,9 +6,14 @@ from pydantic import Field
 from app.models.student_profile import SubjectScore
 
 class PendingStudentMarks(Document):
-    """Marks data for students who haven't registered yet"""
-    roll_number: str = Field(..., index=True)
-    seat_number: Optional[str] = Field(None, index=True)  # Added seat number
+    """
+    Marks data for students who haven't registered yet.
+    
+    roll_number is the PRIMARY KEY for matching.
+    seat_number is optional and kept for legacy compatibility only.
+    """
+    roll_number: str = Field(..., index=True)                   # PRIMARY KEY
+    seat_number: Optional[str] = Field(None, index=True)        # Optional legacy mapping
     student_name: str
     branch: str
     admission_year: int
