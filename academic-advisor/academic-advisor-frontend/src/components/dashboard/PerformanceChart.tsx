@@ -49,7 +49,8 @@ const PerformanceChart: React.FC<Props> = ({ data }) => {
 
   // Calculate positions for line chart
   const points = sortedData.map((item, index) => {
-    const x = (index / (dataPoints - 1 || 1)) * 100;
+    // If only one data point, center it at 50%
+    const x = dataPoints === 1 ? 50 : (index / (dataPoints - 1)) * 100;
     const y = ((maxSGPI - item.sgpi) / (maxSGPI - minSGPI)) * 100;
     return { x, y, data: item };
   });
@@ -63,7 +64,11 @@ const PerformanceChart: React.FC<Props> = ({ data }) => {
     .join(' ');
 
   // Create area path (filled area under the line)
-  const areaPath = `${pathData} L 100 100 L 0 100 Z`;
+  // For single point, we don't draw an area or we draw a vertical line?
+  // Let's just make it a zero-width area if only 1 point.
+  const areaPath = dataPoints > 1 
+    ? `${pathData} L 100 100 L 0 100 Z`
+    : `M 50 ${points[0].y} L 50 100 Z`;
 
   // Get trend color
   const getTrendColor = () => {
@@ -208,7 +213,7 @@ const PerformanceChart: React.FC<Props> = ({ data }) => {
         </div>
 
         {/* X-axis labels */}
-        <div className="absolute bottom-0 left-0 w-full flex justify-between text-xs text-gray-500 mt-2 px-4">
+        <div className={`absolute bottom-0 left-0 w-full flex ${dataPoints === 1 ? 'justify-center' : 'justify-between'} text-xs text-gray-500 mt-2 px-4`}>
           {sortedData.map((item) => (
             <span key={item.semester} className="text-center">
               Sem {item.semester}

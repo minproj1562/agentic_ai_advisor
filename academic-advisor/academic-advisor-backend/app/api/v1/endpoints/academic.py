@@ -881,3 +881,91 @@ async def force_sync_marks(
     except Exception as e:
         logger.error(f"Force sync error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== PUBLIC ENDPOINT: Fetch marks by Roll Number ====================
+
+@router.get("/lookup/{roll_number}")
+async def lookup_marks_by_roll_number(
+    roll_number: str,
+    semester: Optional[int] = Query(None, ge=1, le=8),
+):
+    """
+    PUBLIC ENDPOINT — No login required.
+
+    Fetch marks directly by roll number.
+    Roll number is the primary key for all student identification.
+
+    - **roll_number**: Student roll number (e.g., "5023152")
+    - **semester**: Optional filter for a specific semester
+    """
+    try:
+        from app.models.student_profile import StudentProfile
+
+        # PRIMARY: Find by exact roll number
+        profile = await StudentProfile.find_one(
+            StudentProfile.roll_number == roll_number.strip()
+        )
+
+        if not profile:
+            # Fallback: case-insensitive
+            import re
+            profiles = await StudentProfile.find({
+                "roll_number": {"$regex": f"^{re.escape(roll_number.strip())}$", "$options": "i"}
+            }).to_list()
+            profile = profiles[0] if profiles else None
+
+        if not profile:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"No student found with roll number: {roll_number}"
+            )
+
+        # Build response
+        semesters_data = []
+        for sr in sorted(profile.semester_records, key=lambda x: x.semester_number):
+            if semester and sr.semester_number != semester:
+                continue
+            semesters_data.append({
+                "semester_number": sr.semester_number,
+                "academic_year": sr.academic_year,
+                "sgpa": sr.sgpa,
+                "total_credits": sr.total_credits,
+                "credits_earned": sr.credits_earned,
+                "is_complete": sr.is_complete,
+                "subjects": [
+                    {
+                        "subject_code": s.subject_code,
+                        "subject_name": s.subject_name,
+                        "credits": s.credits,
+                        "internal_marks": s.internal_marks,
+                        "external_marks": s.external_marks,
+                        "total_marks": s.total_marks,
+                        "grade": s.grade,
+                        "grade_points": s.grade_points,
+                        "is_elective": s.is_elective,
+                        "is_practical": s.is_practical,
+                    }
+                    for s in sr.subjects
+                ],
+            })
+
+        return {
+            "roll_number": profile.roll_number,
+            "name": profile.name,
+            "branch": profile.branch,
+            "admission_year": profile.admission_year,
+            "current_semester": profile.current_semester,
+            "cgpa": profile.cgpa,
+            "total_credits_earned": profile.total_credits_earned,
+            "semesters": semesters_data,
+            "marks_available": len(semesters_data) > 0,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Roll number lookup error for {roll_number}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to fetch marks"
+        )

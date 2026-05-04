@@ -36,3 +36,16 @@
 - [x] Enhance intent classifier with 20+ new career name keywords
 - [x] Add shortform expansions for new careers (sre, dba, de, xr, quant, etc.)
 - [x] Register Phase 3 models in `__init__.py` exports
+
+## Phase 5: Roll Number as Primary Key (Student Identification Refactor) ✅ COMPLETE
+
+- [x] Update `UniversityStudentResult` dataclass — add `roll_number` field
+- [x] Update `_result_to_dict` — export `roll_number` as primary identifier
+- [x] Fix `parse_multi_sheet_university` — use `roll_number` instead of `seat_number`
+- [x] Simplify `_find_profile` — prioritize roll_number, move seat_number to legacy fallback
+- [x] Simplify `_save_pending_marks` — remove seat_number-based query conditions
+- [x] Simplify `_auto_fetch_pending_marks` — prioritize roll_number, remove seat_number_history iteration
+- [x] Simplify `link_pending_marks_to_student` — same pattern
+- [x] Update `StudentProfile` model — document roll_number as PRIMARY KEY
+- [x] Update `PendingStudentMarks` model — document roll_number as PRIMARY KEY
+- [x] Add public endpoint `GET /academic/lookup/{roll_number}` — fetch marks without login

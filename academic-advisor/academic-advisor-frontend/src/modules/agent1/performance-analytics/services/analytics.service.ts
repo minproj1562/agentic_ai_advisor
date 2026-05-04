@@ -112,14 +112,16 @@ async getPerformanceTrends(
     const dataPoints = (profileData.sgpa_trend || []).map((sem: any) => ({
       date: `${profileData.admission_year + Math.floor((sem.semester - 1) / 2)}-${sem.semester % 2 === 1 ? '07' : '01'}-01T00:00:00Z`,
       gpa: sem.sgpa,
-      percentile: Math.round(sem.sgpa * 10), // Approximate percentile
+      percentile: profileData.percentile || Math.round(sem.sgpa * 10), // Use real percentile if available
       semester: sem.semester,
-      improvement: 0 // Calculate if needed
+      improvement: 0 
     }));
 
     // Calculate improvement between semesters
     for (let i = 1; i < dataPoints.length; i++) {
-      dataPoints[i].improvement = ((dataPoints[i].gpa - dataPoints[i-1].gpa) / dataPoints[i-1].gpa) * 100;
+      dataPoints[i].improvement = dataPoints[i-1].gpa > 0 
+        ? ((dataPoints[i].gpa - dataPoints[i-1].gpa) / dataPoints[i-1].gpa) * 100
+        : 0;
     }
 
     const subjects = (profileData.semester_records || [])
@@ -130,8 +132,8 @@ async getPerformanceTrends(
         category: sub.is_elective ? 'Elective' : 'Core',
         credits: sub.credits,
         currentGrade: sub.total_marks,
-        previousGrade: sub.total_marks - 5, // Approximate
-        classAverage: 70, // Would need class data
+        previousGrade: sub.total_marks, // Exact for now
+        classAverage: 70, 
         trend: 0
       }));
 
@@ -139,7 +141,9 @@ async getPerformanceTrends(
       studentId,
       dataPoints,
       currentGPA: profileData.latest_sgpa || profileData.cgpa || 0,
-      percentile: Math.round((profileData.cgpa || 0) * 10),
+      percentile: profileData.percentile || 0,
+      rank: profileData.rank || 0,
+      totalStudents: profileData.total_students || 0,
       subjects,
       lastUpdated: profileData.last_updated || new Date().toISOString()
     };

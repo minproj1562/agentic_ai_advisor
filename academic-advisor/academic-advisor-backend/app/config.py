@@ -64,12 +64,16 @@ class Settings(BaseSettings):
     # ============== YouTube API (Optional - FREE tier available) ==============
     YOUTUBE_API_KEY: Optional[str] = None
     
-    # CORS - Added port 5173 for Vite
+    # CORS - Added port 5173/5174/5175 for Vite
     CORS_ORIGINS: List[str] = [
         "http://localhost:3000", 
         "http://127.0.0.1:3000",
         "http://localhost:5173",
-        "http://127.0.0.1:5173"
+        "http://127.0.0.1:5173",
+        "http://localhost:5174",
+        "http://127.0.0.1:5174",
+        "http://localhost:5175",
+        "http://127.0.0.1:5175",
     ]
     ALLOWED_HOSTS: List[str] = ["localhost", "127.0.0.1", "0.0.0.0"]
     

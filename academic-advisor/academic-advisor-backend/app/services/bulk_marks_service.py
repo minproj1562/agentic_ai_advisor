@@ -830,7 +830,7 @@ class BulkMarksService:
             sheet_parsed: List[ParsedStudentMarks] = []
             for uni_stu in sheet_info.get("results", []):
                 stu = ParsedStudentMarks(
-                    roll_number=uni_stu["seat_number"],
+                    roll_number=uni_stu.get("roll_number", uni_stu["seat_number"]),
                     student_name=uni_stu["student_name"],
                     sgpa_from_sheet=uni_stu.get("sgpa"),
                     cgpa_from_sheet=uni_stu.get("cgpa"),
@@ -879,7 +879,7 @@ class BulkMarksService:
                 if stu.subjects:
                     sheet_parsed.append(stu)
                 else:
-                    logger.debug(f"No subjects matched for student {uni_stu['seat_number']} in sheet '{sheet_name}'")
+                    logger.debug(f"No subjects matched for student {uni_stu.get('roll_number', uni_stu['seat_number'])} in sheet '{sheet_name}'")
 
             combined_meta["sheets_processed"].append({
                 "sheet_name": sheet_name,
@@ -961,7 +961,7 @@ class BulkMarksService:
             if marker is not None and str(marker).strip() == "__STUDENTS_META__":
                 continue
 
-            roll_val = ws.cell(row=r, column=2).value  # Seat No column
+            roll_val = ws.cell(row=r, column=2).value  # Roll No / Seat No column → used as roll_number
             if roll_val is None or str(roll_val).strip() in ("", "nan", "None"):
                 continue
 
@@ -1753,14 +1753,10 @@ class BulkMarksService:
         if identifier and len(identifier) >= 5 and len(identifier) <= 6 and identifier.isdigit():
             detected_seat_number = identifier[-5:]
 
-        # ── Find existing pending marks ──
+        # ── Find existing pending marks by roll_number (primary key) ──
         or_conditions = [
             {"roll_number": stu.roll_number, "semester_number": semester}
         ]
-        if detected_seat_number:
-            or_conditions.append(
-                {"seat_number": detected_seat_number, "semester_number": semester}
-            )
 
         existing = await PendingStudentMarks.find_one({"$or": or_conditions})
 
@@ -1833,15 +1829,16 @@ class BulkMarksService:
     @staticmethod
     async def _find_profile(identifier: str) -> Optional[StudentProfile]:
         """
-        Find profile by roll number OR seat number.
-        FIXED: Prefer profiles with real Firebase UIDs over placeholders.
+        Find profile by roll number (primary key).
+        Roll number is the sole identifier for student lookup.
+        Seat number fallback is only used as a last resort for legacy data.
         """
         if not identifier or not identifier.strip():
             return None
 
         identifier = identifier.strip()
 
-        # ── 1. Exact roll number match ──
+        # ── 1. Exact roll number match (PRIMARY) ──
         profiles = await StudentProfile.find(
             StudentProfile.roll_number == identifier
         ).to_list()
@@ -1864,25 +1861,14 @@ class BulkMarksService:
                 return real[0]
             return profiles[0]
 
-        # ── 3. Seat number match (current) ──
-        p = await StudentProfile.find_one(
-            StudentProfile.current_seat_number == identifier
-        )
-        if p:
-            return p
-
-        # ── 4. Seat number match (history) ──
-        p = await StudentProfile.find_one({
-            "seat_number_history.seat_number": identifier
-        })
-        if p:
-            return p
-
-        # ── 5. Fuzzy roll number match (single result only) ──
+        # ── 3. Fuzzy roll number match (single result only) ──
         hits = await StudentProfile.find({
             "roll_number": {"$regex": re.escape(identifier), "$options": "i"}
         }).to_list()
-        return hits[0] if len(hits) == 1 else None
+        if len(hits) == 1:
+            return hits[0]
+
+        return None
 
     # ─────────────────────────────────────────────────
     # 5.7  TEMPLATE WITH PRE-FILLED STUDENTS (existing)
