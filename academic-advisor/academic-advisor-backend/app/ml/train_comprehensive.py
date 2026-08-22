@@ -210,14 +210,14 @@ def create_target_labels(X: pd.DataFrame) -> np.ndarray:
 
 # ============== SYNTHETIC DATA GENERATION ==============
 
-def generate_synthetic_data(X: pd.DataFrame, y: np.ndarray, ratio: float = 0.5) -> tuple:
-    """Generate synthetic data using SMOTE + Gaussian noise."""
+def generate_synthetic_data(X: pd.DataFrame, y: np.ndarray, ratio: float = 0.3) -> tuple:
+    """Generate synthetic data with MORE noise to prevent overfitting."""
     from sklearn.preprocessing import LabelEncoder
 
     le = LabelEncoder()
     y_enc = le.fit_transform(y)
 
-    n_synthetic = int(len(X) * ratio)
+    n_synthetic = int(len(X) * ratio)  # REDUCED ratio from 0.5 to 0.3
     if n_synthetic < 10:
         n_synthetic = 10
 
@@ -225,7 +225,6 @@ def generate_synthetic_data(X: pd.DataFrame, y: np.ndarray, ratio: float = 0.5) 
     synthetic_y = []
 
     classes, counts = np.unique(y_enc, return_counts=True)
-    min_count = max(counts.min(), 2)
 
     for cls in classes:
         cls_mask = y_enc == cls
@@ -233,17 +232,20 @@ def generate_synthetic_data(X: pd.DataFrame, y: np.ndarray, ratio: float = 0.5) 
         n_cls = max(n_synthetic // len(classes), 2)
 
         for _ in range(n_cls):
-            # Pick two random samples from same class and interpolate (SMOTE-like)
             if len(cls_data) >= 2:
                 idx1, idx2 = np.random.choice(len(cls_data), 2, replace=False)
-                lam = np.random.uniform(0.3, 0.7)
+                lam = np.random.uniform(0.2, 0.8)  # More varied interpolation
                 new_sample = cls_data[idx1] * lam + cls_data[idx2] * (1 - lam)
             else:
                 new_sample = cls_data[0].copy()
 
-            # Add small Gaussian noise (2-5% of feature std)
-            noise = np.random.normal(0, 0.03, new_sample.shape) * (np.std(cls_data, axis=0) + 1e-6)
+            # INCREASED noise from 3% to 8%
+            noise = np.random.normal(0, 0.08, new_sample.shape) * (np.std(cls_data, axis=0) + 1e-6)
             new_sample = new_sample + noise
+
+            # Add random dropout (zero out some features randomly)
+            dropout_mask = np.random.random(new_sample.shape) > 0.1
+            new_sample = new_sample * dropout_mask
 
             synthetic_X.append(new_sample)
             synthetic_y.append(cls)
@@ -261,7 +263,7 @@ def generate_synthetic_data(X: pd.DataFrame, y: np.ndarray, ratio: float = 0.5) 
 # ============== MODEL TRAINING ==============
 
 def train_all_models(X: pd.DataFrame, y: np.ndarray) -> dict:
-    """Train 12+ algorithms with anti-overfitting measures."""
+    """Train models with STRICTER overfitting detection."""
     from sklearn.model_selection import StratifiedKFold, cross_val_score
     from sklearn.preprocessing import LabelEncoder, StandardScaler
     from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
@@ -274,9 +276,9 @@ def train_all_models(X: pd.DataFrame, y: np.ndarray) -> dict:
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(X)
 
-    # Stratified split
+    # Stratified split with LARGER test set
     X_train, X_test, y_train, y_test = train_test_split(
-        X_scaled, y_enc, test_size=0.2, stratify=y_enc, random_state=42
+        X_scaled, y_enc, test_size=0.25, stratify=y_enc, random_state=42  # Increased from 0.2
     )
 
     # Define models with anti-overfitting parameters
@@ -319,8 +321,14 @@ def train_all_models(X: pd.DataFrame, y: np.ndarray) -> dict:
                 "overfit_gap": round(overfit_gap, 4),
             }
 
-            # Select best by F1 (with overfitting penalty)
-            adjusted_score = f1 - max(0, overfit_gap - 0.1) * 0.5
+            # STRICTER selection: heavily penalize overfitting
+            # Prefer models with lower gap even if slightly lower F1
+            adjusted_score = f1 - max(0, overfit_gap - 0.05) * 2.0  # Increased penalty
+            
+            # Also penalize perfect scores (likely overfitting)
+            if train_acc >= 0.99:
+                adjusted_score *= 0.8
+
             if adjusted_score > best_score:
                 best_score = adjusted_score
                 best_model = model
@@ -329,7 +337,15 @@ def train_all_models(X: pd.DataFrame, y: np.ndarray) -> dict:
             # Save each model
             model_path = SAVED_MODELS_DIR / f"model_{name.lower().replace(' ', '_')}.joblib"
             joblib.dump(model, model_path)
-            logger.info(f"  {name}: acc={acc:.3f} f1={f1:.3f} cv={cv_mean:.3f}±{cv_std:.3f} gap={overfit_gap:.3f}")
+            
+            # WARNING for suspicious results
+            warning = ""
+            if overfit_gap > 0.15:
+                warning = " ⚠️ HIGH OVERFIT"
+            elif train_acc >= 0.99:
+                warning = " ⚠️ PERFECT TRAIN"
+            
+            logger.info(f"  {name}: acc={acc:.3f} f1={f1:.3f} cv={cv_mean:.3f}±{cv_std:.3f} gap={overfit_gap:.3f}{warning}")
 
         except Exception as e:
             logger.warning(f"  {name}: FAILED - {e}")
@@ -352,13 +368,13 @@ def train_all_models(X: pd.DataFrame, y: np.ndarray) -> dict:
 
 
 def _get_model_dict() -> dict:
-    """Return dictionary of ML models with anti-overfitting configs."""
+    """Return dictionary of ML models with STRONG anti-overfitting configs."""
     from sklearn.ensemble import (
         RandomForestClassifier, GradientBoostingClassifier,
         ExtraTreesClassifier, AdaBoostClassifier,
         BaggingClassifier, VotingClassifier, StackingClassifier,
     )
-    from sklearn.linear_model import LogisticRegression
+    from sklearn.linear_model import LogisticRegression, RidgeClassifier
     from sklearn.svm import SVC
     from sklearn.neighbors import KNeighborsClassifier
     from sklearn.tree import DecisionTreeClassifier
@@ -379,87 +395,166 @@ def _get_model_dict() -> dict:
         pass
 
     models = {
+        # MUCH stronger regularization for tree-based models
         "RandomForest": RandomForestClassifier(
-            n_estimators=200, max_depth=10, min_samples_split=5,
-            min_samples_leaf=3, max_features="sqrt", random_state=42
+            n_estimators=100,          # Reduced from 200
+            max_depth=5,               # Reduced from 10
+            min_samples_split=10,      # Increased from 5
+            min_samples_leaf=5,        # Increased from 3
+            max_features="sqrt",
+            max_leaf_nodes=20,         # NEW: limit tree complexity
+            random_state=42,
+            class_weight='balanced'
         ),
         "GradientBoosting": GradientBoostingClassifier(
-            n_estimators=150, max_depth=5, learning_rate=0.1,
-            min_samples_split=5, min_samples_leaf=3,
-            subsample=0.8, random_state=42
+            n_estimators=50,           # Reduced from 150
+            max_depth=3,               # Reduced from 5
+            learning_rate=0.05,        # Reduced from 0.1
+            min_samples_split=10,      # Increased from 5
+            min_samples_leaf=5,        # Increased from 3
+            subsample=0.7,             # Reduced from 0.8
+            max_features='sqrt',       # NEW: limit features
+            random_state=42
         ),
         "ExtraTrees": ExtraTreesClassifier(
-            n_estimators=200, max_depth=10, min_samples_split=5,
-            min_samples_leaf=3, random_state=42
+            n_estimators=100,          # Reduced from 200
+            max_depth=5,               # Reduced from 10
+            min_samples_split=10,      # Increased from 5
+            min_samples_leaf=5,        # Increased from 3
+            max_features='sqrt',
+            max_leaf_nodes=20,         # NEW
+            random_state=42,
+            class_weight='balanced'
         ),
         "AdaBoost": AdaBoostClassifier(
-            n_estimators=100, learning_rate=0.1, random_state=42
+            n_estimators=50,           # Reduced from 100
+            learning_rate=0.05,        # Reduced from 0.1
+            random_state=42
         ),
         "LogisticRegression": LogisticRegression(
-            C=1.0, max_iter=1000, solver="lbfgs",
-            multi_class="multinomial", random_state=42
+            C=0.1,                     # Stronger regularization (was 1.0)
+            max_iter=1000,
+            solver="lbfgs",
+            penalty='l2',
+            random_state=42,
+            class_weight='balanced'
+        ),
+        "RidgeClassifier": RidgeClassifier(
+            alpha=1.0,
+            random_state=42,
+            class_weight='balanced'
         ),
         "SVM_RBF": SVC(
-            C=1.0, kernel="rbf", gamma="scale", random_state=42
+            C=0.5,                     # Reduced from 1.0
+            kernel="rbf",
+            gamma="scale",
+            random_state=42,
+            probability=True,
+            class_weight='balanced'
         ),
         "SVM_Linear": SVC(
-            C=1.0, kernel="linear", random_state=42
+            C=0.5,                     # Reduced from 1.0
+            kernel="linear",
+            random_state=42,
+            probability=True,
+            class_weight='balanced'
         ),
         "KNN": KNeighborsClassifier(
-            n_neighbors=5, weights="distance", metric="minkowski"
+            n_neighbors=7,             # Increased from 5 (smoother boundaries)
+            weights="distance",
+            metric="minkowski",
+            p=2
         ),
         "DecisionTree": DecisionTreeClassifier(
-            max_depth=8, min_samples_split=5,
-            min_samples_leaf=3, random_state=42
+            max_depth=4,               # Reduced from 8
+            min_samples_split=15,      # Increased from 5
+            min_samples_leaf=8,        # Increased from 3
+            max_leaf_nodes=15,         # NEW
+            random_state=42,
+            class_weight='balanced',
+            ccp_alpha=0.01             # NEW: cost complexity pruning
         ),
-        "NaiveBayes": GaussianNB(),
+        "NaiveBayes": GaussianNB(
+            var_smoothing=1e-8         # Added smoothing
+        ),
         "NeuralNetwork": MLPClassifier(
-            hidden_layer_sizes=(64, 32), max_iter=500,
-            early_stopping=True, validation_fraction=0.15,
-            alpha=0.01, random_state=42
+            hidden_layer_sizes=(32, 16),  # Reduced from (64, 32)
+            max_iter=300,              # Reduced from 500
+            early_stopping=True,
+            validation_fraction=0.2,   # Increased from 0.15
+            alpha=0.1,                 # Increased from 0.01 (stronger L2)
+            learning_rate_init=0.001,
+            random_state=42,
+            n_iter_no_change=10
         ),
     }
 
     if xgb_cls:
         models["XGBoost"] = xgb_cls(
-            n_estimators=150, max_depth=6, learning_rate=0.1,
-            subsample=0.8, colsample_bytree=0.8,
-            reg_alpha=0.1, reg_lambda=1.0,
-            random_state=42, eval_metric="mlogloss",
+            n_estimators=50,           # Reduced from 150
+            max_depth=3,               # Reduced from 6
+            learning_rate=0.05,        # Reduced from 0.1
+            subsample=0.7,             # Reduced from 0.8
+            colsample_bytree=0.7,      # Reduced from 0.8
+            reg_alpha=1.0,             # Increased from 0.1 (L1)
+            reg_lambda=2.0,            # Increased from 1.0 (L2)
+            min_child_weight=5,        # NEW: minimum samples per leaf
+            gamma=0.5,                 # NEW: minimum loss reduction
+            random_state=42,
+            eval_metric="mlogloss",
+            use_label_encoder=False
         )
 
     if lgb_cls:
         models["LightGBM"] = lgb_cls(
-            n_estimators=150, max_depth=6, learning_rate=0.1,
-            subsample=0.8, colsample_bytree=0.8,
-            reg_alpha=0.1, reg_lambda=1.0,
-            random_state=42, verbose=-1,
+            n_estimators=50,           # Reduced from 150
+            max_depth=3,               # Reduced from 6
+            learning_rate=0.05,        # Reduced from 0.1
+            subsample=0.7,             # Reduced from 0.8
+            colsample_bytree=0.7,      # Reduced from 0.8
+            reg_alpha=1.0,             # Increased from 0.1
+            reg_lambda=2.0,            # Increased from 1.0
+            min_child_samples=10,      # NEW
+            min_split_gain=0.1,        # NEW
+            random_state=42,
+            verbose=-1,
+            class_weight='balanced'
         )
 
-    # Ensemble: Bagging
+    # Ensemble: Bagging with simpler base estimator
     models["Bagging"] = BaggingClassifier(
-        n_estimators=50, max_samples=0.8,
-        max_features=0.8, random_state=42
+        estimator=DecisionTreeClassifier(
+            max_depth=3,               # Simple base estimator
+            min_samples_leaf=5,
+            class_weight='balanced'
+        ),
+        n_estimators=30,               # Reduced from 50
+        max_samples=0.7,               # Reduced from 0.8
+        max_features=0.7,              # Reduced from 0.8
+        random_state=42
     )
 
-    # Ensemble: Voting (top 3 base models)
+    # Ensemble: Voting (SIMPLER models only)
     base_estimators = [
+        ("lr", models["LogisticRegression"]),
         ("rf", models["RandomForest"]),
-        ("gb", models["GradientBoosting"]),
-        ("et", models["ExtraTrees"]),
+        ("svm", models["SVM_Linear"]),
     ]
-    if xgb_cls:
-        base_estimators.append(("xgb", models["XGBoost"]))
 
     models["VotingEnsemble"] = VotingClassifier(
-        estimators=base_estimators, voting="hard"
+        estimators=base_estimators,
+        voting="soft"                  # Changed from hard
     )
 
-    # Ensemble: Stacking
+    # Ensemble: Stacking with regularized meta-learner
     models["StackingEnsemble"] = StackingClassifier(
         estimators=base_estimators,
-        final_estimator=LogisticRegression(max_iter=1000, random_state=42),
-        cv=3
+        final_estimator=LogisticRegression(
+            C=0.1,                     # Strong regularization
+            max_iter=1000,
+            random_state=42
+        ),
+        cv=5                           # Increased from 3
     )
 
     return models
@@ -501,13 +596,17 @@ def save_metadata(train_info: dict, data_info: dict, synthetic_count: int):
         "model_ranking": ranking,
         "anti_overfitting_measures": [
             "StratifiedKFold 5-fold cross-validation",
-            "Max depth limits on tree-based models",
-            "Min samples split/leaf constraints",
-            "Subsample < 1.0 for boosting models",
-            "L1/L2 regularization (LogReg, XGB, LGBM)",
-            "Early stopping (Neural Network)",
-            "Overfit gap monitoring (train-CV gap penalty)",
-            "Synthetic data augmentation (SMOTE + Gaussian noise)",
+            "Max depth limits on tree-based models (3-5)",
+            "Strong min samples split/leaf constraints (5-15)",
+            "Reduced subsample (0.7) for boosting models",
+            "Strong L1/L2 regularization (alpha=1.0-2.0)",
+            "Early stopping with larger validation set (20%)",
+            "2x penalty for overfitting gap in model selection",
+            "Reduced synthetic data (30% vs 50%)",
+            "Increased noise in synthetic data (8% vs 3%)",
+            "Feature dropout in synthetic generation (10%)",
+            "Larger test set (25% vs 20%)",
+            "Cost complexity pruning for decision trees",
         ],
     }
 
@@ -524,6 +623,7 @@ def run_training_pipeline():
     """Run the complete training pipeline."""
     print("=" * 60)
     print("  COMPREHENSIVE ML TRAINING PIPELINE")
+    print("  (WITH STRONG ANTI-OVERFITTING MEASURES)")
     print("=" * 60)
 
     # Step 1: Load data
@@ -538,14 +638,14 @@ def run_training_pipeline():
     print(f"  Label distribution: {dict(zip(*np.unique(y, return_counts=True)))}")
 
     # Step 3: Synthetic augmentation
-    print("\n[3/5] Generating synthetic data...")
-    X_aug, y_aug, n_synth = generate_synthetic_data(X, y, ratio=0.5)
+    print("\n[3/5] Generating synthetic data (with increased noise)...")
+    X_aug, y_aug, n_synth = generate_synthetic_data(X, y, ratio=0.3)
     print(f"  Generated {n_synth} synthetic samples")
     print(f"  Total dataset: {len(X_aug)} samples")
     print(f"  Augmented distribution: {dict(zip(*np.unique(y_aug, return_counts=True)))}")
 
     # Step 4: Train models
-    print("\n[4/5] Training models...")
+    print("\n[4/5] Training models with regularization...")
     train_info = train_all_models(X_aug, y_aug)
     print(f"\n  Best model: {train_info['best_name']}")
     best_res = train_info["results"].get(train_info["best_name"], {})

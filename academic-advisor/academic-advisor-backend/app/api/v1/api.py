@@ -129,3 +129,4 @@ _safe_include("app.api.v1.endpoints.ml_insights",    "router", "/ml-insights",  
 _safe_include("app.api.v1.endpoints.faculty_profile", "router", "/faculty-profile", ["Faculty Profile"])
 _safe_include("app.api.v1.endpoints.publications",    "router", "/publications",    ["Publications"])
 _safe_include("app.api.v1.endpoints.research_area",   "router", "/research-areas", ["Research Areas"])
+_safe_include("app.api.v1.endpoints.subjects_game",   "router", "",                ["Subjects - Game"])

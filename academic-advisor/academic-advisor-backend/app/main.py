@@ -49,7 +49,7 @@ from app.models.chatbot import ChatSession, ChatMessage, ChatFeedback, ChatbotAn
 from app.models.career import CareerPath
 
 # Phase 3 models — Improvement, Faculty Resources, Remedial
-from app.models.improvement import ImprovementPlan, StudentProgress
+from app.models.improvement import ImprovementPlan, StudentProgress, LeaderboardEntry, FacultyQuest
 from app.models.faculty_resource import FacultyResource
 from app.models.remedial import RemedialEntry
 
@@ -126,6 +126,8 @@ document_models = [
     # Phase 3 — Improvement, Resources, Remedial
     ImprovementPlan,
     StudentProgress,
+    LeaderboardEntry,
+    FacultyQuest,
     FacultyResource,
     RemedialEntry,
 ]

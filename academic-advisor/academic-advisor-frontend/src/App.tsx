@@ -9,7 +9,8 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import HomePage from './pages/HomePage';
 import FacultyDashboard from './pages/Dashboard/FacultyDashboard';
-import StudentDashboard from './pages/Dashboard/StudentDashboard';
+// import StudentDashboard from './pages/Dashboard/StudentDashboard'; // Old dashboard — replaced by NEXUS
+import GameShell from './components/game/GameShell';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import AdminDashboard from './pages/Dashboard/AdminDashboard';
@@ -48,7 +49,7 @@ function App() {
                   path="/student/*"
                   element={
                     <ProtectedRoute allowedRoles={['student']}>
-                      <StudentDashboard />
+                      <GameShell />
                     </ProtectedRoute>
                   }
                 />
