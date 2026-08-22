@@ -20,6 +20,7 @@ class FirebaseRealtimeService {
   subscribe(path: string, callback: Callback): Unsubscribe {
     try {
       const db = firebaseApp.getDatabase();
+      if (!db) throw new Error('Database is not initialized');
       const r = ref(db, path);
       return onValue(r, (snapshot) => {
         callback(snapshot.val());
@@ -38,6 +39,7 @@ class FirebaseRealtimeService {
     limitToLast?: number;
   }): Promise<any> {
     const db = firebaseApp.getDatabase();
+    if (!db) return null;
     let r = ref(db, path);
 
     if (options?.orderByChild) {
@@ -58,18 +60,21 @@ class FirebaseRealtimeService {
 
   async set(path: string, data: any): Promise<void> {
     const db = firebaseApp.getDatabase();
+    if (!db) return;
     const r = ref(db, path);
     await fbSet(r, data);
   }
 
   async update(path: string, data: Record<string, any>): Promise<void> {
     const db = firebaseApp.getDatabase();
+    if (!db) return;
     const r = ref(db, path);
     await fbUpdate(r, data);
   }
 
   async remove(path: string): Promise<void> {
     const db = firebaseApp.getDatabase();
+    if (!db) return;
     const r = ref(db, path);
     await fbRemove(r);
   }

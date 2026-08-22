@@ -59,7 +59,7 @@ const [careerPredictions, setCareerPredictions] = useState<any>(null);
       const response = await mlService.analyzeWeaknesses(
         user.uid,
         subjectScores,
-        academicData.current_cgpa
+        academicData.current_cgpa ?? 0
       );
       setWeaknessAnalysis(response);
       return response;
@@ -77,7 +77,7 @@ const [careerPredictions, setCareerPredictions] = useState<any>(null);
         user.uid,
         skills,
         interests,
-        academicData.current_cgpa,
+        academicData.current_cgpa ?? 0,
         projects
       );
       setCareerPredictions(response);

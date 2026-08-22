@@ -145,7 +145,7 @@ class AuthService {
     try {
       const userCredential = await signInWithEmailAndPassword(
         auth,
-        credentials.email,
+        credentials.email || '',
         credentials.password
       );
 

@@ -49,6 +49,8 @@ import { WeaknessChart } from './WeaknessChart';
 import { SeverityLevel, AnalysisBasis } from '../../../../../services/weakness.service';
 import toast from 'react-hot-toast';
 
+const GridItem = Grid as any;
+
 interface WeaknessIndicatorProps {
   studentId: string;
   studentInterests?: string[];
@@ -308,30 +310,30 @@ export const WeaknessIndicator: React.FC<WeaknessIndicatorProps> = ({
 
             {/* Summary Stats */}
             <Grid container spacing={2} sx={{ mb: 2 }}>
-              <Grid item xs={6} sm={3}>
+              <GridItem item xs={6} sm={3}>
                 <Paper variant="outlined" sx={{ p: 1.5, textAlign: 'center' }}>
                   <Typography variant="h6" color="error.main">{weaknessData.critical_count}</Typography>
                   <Typography variant="caption">Critical</Typography>
                 </Paper>
-              </Grid>
-              <Grid item xs={6} sm={3}>
+              </GridItem>
+              <GridItem item xs={6} sm={3}>
                 <Paper variant="outlined" sx={{ p: 1.5, textAlign: 'center' }}>
                   <Typography variant="h6" color="warning.main">{weaknessData.high_count}</Typography>
                   <Typography variant="caption">High</Typography>
                 </Paper>
-              </Grid>
-              <Grid item xs={6} sm={3}>
+              </GridItem>
+              <GridItem item xs={6} sm={3}>
                 <Paper variant="outlined" sx={{ p: 1.5, textAlign: 'center' }}>
                   <Typography variant="h6" color="info.main">{weaknessData.medium_count}</Typography>
                   <Typography variant="caption">Medium</Typography>
                 </Paper>
-              </Grid>
-              <Grid item xs={6} sm={3}>
+              </GridItem>
+              <GridItem item xs={6} sm={3}>
                 <Paper variant="outlined" sx={{ p: 1.5, textAlign: 'center' }}>
                   <Typography variant="h6" color="success.main">{weaknessData.low_count}</Typography>
                   <Typography variant="caption">Low</Typography>
                 </Paper>
-              </Grid>
+              </GridItem>
             </Grid>
 
             {/* Priority Areas */}
@@ -552,7 +554,7 @@ export const WeaknessIndicator: React.FC<WeaknessIndicatorProps> = ({
                       <>
                         <Typography variant="subtitle2" sx={{ mt: 2, mb: 1 }}>Focus Areas:</Typography>
                         <List dense>
-                          {weaknessData.study_plan.focus_areas.map((area, idx) => (
+                          {weaknessData.study_plan.focus_areas.map((area: any, idx: number) => (
                             <ListItem key={idx}>
                               <ListItemText
                                 primary={`${area.priority}. ${area.topic}`}
@@ -571,7 +573,7 @@ export const WeaknessIndicator: React.FC<WeaknessIndicatorProps> = ({
                       <>
                         <Typography variant="subtitle2" sx={{ mt: 2, mb: 1 }}>Learning Phases:</Typography>
                         <List dense>
-                          {weaknessData.study_plan.phases.map((phase, idx) => (
+                          {weaknessData.study_plan.phases.map((phase: any, idx: number) => (
                             <ListItem key={idx}>
                               <ListItemText
                                 primary={`${phase.name || `Phase ${idx + 1}`} (Week ${phase.week || phase.weeks})`}
@@ -590,7 +592,7 @@ export const WeaknessIndicator: React.FC<WeaknessIndicatorProps> = ({
                       <>
                         <Typography variant="subtitle2" sx={{ mt: 2, mb: 1 }}>Milestones:</Typography>
                         <List dense>
-                          {weaknessData.study_plan.milestones.map((milestone, idx) => (
+                          {weaknessData.study_plan.milestones.map((milestone: any, idx: number) => (
                             <ListItem key={idx}>
                               <ListItemIcon sx={{ minWidth: 30 }}>
                                 <CheckIcon fontSize="small" color="success" />

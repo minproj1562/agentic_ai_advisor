@@ -52,7 +52,7 @@ class ApiService {
       // FIXED: Properly typed interceptor functions
       (config: InternalAxiosRequestConfig) => {
         if (authInterceptor.onFulfilled) {
-          return authInterceptor.onFulfilled(config) as InternalAxiosRequestConfig;
+          return (authInterceptor.onFulfilled(config) as unknown) as InternalAxiosRequestConfig;
         }
         return config;
       },

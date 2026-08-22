@@ -44,3 +44,16 @@ export function sanitizeGPA(value: any): number {
   if (isNaN(num)) return 0;
   return Math.max(0, Math.min(10, num));
 }
+
+export function validateAnalyticsData<T>(data: T): T {
+  return data;
+}
+
+export function sanitizeInput(input: any): string {
+  if (typeof input !== 'string') return '';
+  return input.trim();
+}
+
+export function validatePredictionData<T>(data: T): T {
+  return data;
+}

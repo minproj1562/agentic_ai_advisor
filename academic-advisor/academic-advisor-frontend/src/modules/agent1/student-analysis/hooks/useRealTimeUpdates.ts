@@ -13,6 +13,7 @@ export const useRealTimeUpdates = () => {
   const subscribeToUpdates = useCallback((path: string, callback: UpdateCallback) => {
     // Get the database instance from the Firebase service
     const database = firebaseApp.getDatabase();
+    if (!database) return '';
     const dbRef = ref(database, `student_analysis/${path}`);
     
     const unsubscribe = onValue(dbRef, (snapshot) => {

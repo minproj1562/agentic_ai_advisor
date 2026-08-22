@@ -85,7 +85,7 @@ export const MLInsights: React.FC<MLInsightsProps> = ({
       }),
       
       subjectScores.length > 0 
-        ? mlService.analyzeWeaknesses(user.uid, subjectScores, academicData.current_cgpa).catch(err => {
+        ? mlService.analyzeWeaknesses(user.uid, subjectScores, academicData.current_cgpa ?? 0).catch(err => {
             console.error('Weakness analysis error:', err);
             return null;
           })
@@ -96,7 +96,7 @@ export const MLInsights: React.FC<MLInsightsProps> = ({
             user.uid,
             skills,
             interests,
-            academicData.current_cgpa,
+            academicData.current_cgpa ?? 0,
             projects
           ).catch(err => {
             console.error('Career prediction error:', err);
@@ -552,7 +552,7 @@ export const MLInsights: React.FC<MLInsightsProps> = ({
                 <div>
                   <h3 className="font-semibold mb-4">Recommended Career Paths</h3>
                   <div className="space-y-4">
-                    {careerPredictions.recommended_careers.map((career, index) => (
+                    {careerPredictions.recommended_careers.map((career: any, index: number) => (
                       <div key={index} className="bg-white border rounded-lg p-5">
                         <div className="flex items-start justify-between mb-4">
                           <div>
@@ -583,7 +583,7 @@ export const MLInsights: React.FC<MLInsightsProps> = ({
                           <div>
                             <p className="text-xs font-medium text-gray-500 mb-2">TOP COMPANIES</p>
                             <div className="flex flex-wrap gap-2">
-                              {career.top_companies.map((company, cIndex) => (
+                              {career.top_companies.map((company: any, cIndex: number) => (
                                 <span
                                   key={cIndex}
                                   className="px-2 py-1 bg-blue-50 text-blue-700 rounded text-xs"
@@ -597,7 +597,7 @@ export const MLInsights: React.FC<MLInsightsProps> = ({
                           <div>
                             <p className="text-xs font-medium text-gray-500 mb-2">MISSING SKILLS</p>
                             <div className="flex flex-wrap gap-2">
-                              {career.missing_skills.slice(0, 4).map((skill, sIndex) => (
+                              {career.missing_skills.slice(0, 4).map((skill: any, sIndex: number) => (
                                 <span
                                   key={sIndex}
                                   className="px-2 py-1 bg-red-50 text-red-700 rounded text-xs"
@@ -612,7 +612,7 @@ export const MLInsights: React.FC<MLInsightsProps> = ({
                         <div>
                           <p className="text-xs font-medium text-gray-500 mb-2">PREPARATION PATH</p>
                           <ol className="space-y-1">
-                            {career.preparation_path.map((step, sIndex) => (
+                            {career.preparation_path.map((step: any, sIndex: number) => (
                               <li key={sIndex} className="text-sm text-gray-700 flex items-start">
                                 <span className="font-medium mr-2">{sIndex + 1}.</span>
                                 {step}
@@ -624,7 +624,7 @@ export const MLInsights: React.FC<MLInsightsProps> = ({
                         <div className="mt-4 pt-4 border-t">
                           <p className="text-xs font-medium text-gray-500 mb-2">CERTIFICATIONS</p>
                           <div className="flex flex-wrap gap-2">
-                            {career.required_certifications.map((cert, cIndex) => (
+                            {career.required_certifications.map((cert: any, cIndex: number) => (
                               <span
                                 key={cIndex}
                                 className="px-2 py-1 bg-purple-50 text-purple-700 rounded text-xs"
@@ -643,7 +643,7 @@ export const MLInsights: React.FC<MLInsightsProps> = ({
                 <div className="bg-yellow-50 rounded-lg p-4">
                   <h3 className="font-semibold text-yellow-900 mb-3">Priority Skills to Develop</h3>
                   <div className="flex flex-wrap gap-2">
-                    {careerPredictions.skill_development_priority.map((skill, index) => (
+                    {careerPredictions.skill_development_priority.map((skill: any, index: number) => (
                       <span
                         key={index}
                         className="px-3 py-1 bg-yellow-200 text-yellow-800 rounded-full text-sm font-medium"
@@ -658,7 +658,7 @@ export const MLInsights: React.FC<MLInsightsProps> = ({
                 <div className="bg-green-50 rounded-lg p-4">
                   <h3 className="font-semibold text-green-900 mb-3">Internship Opportunities</h3>
                   <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-3">
-                    {careerPredictions.internship_recommendations.map((internship, index) => (
+                    {careerPredictions.internship_recommendations.map((internship: any, index: number) => (
                       <div key={index} className="bg-white rounded-lg p-3">
                         <h4 className="font-medium text-green-900">{internship.role}</h4>
                         <p className="text-xs text-green-700 mt-1">{internship.duration}</p>

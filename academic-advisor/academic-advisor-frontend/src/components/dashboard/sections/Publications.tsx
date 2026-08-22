@@ -398,7 +398,7 @@ const Publications: React.FC<{ facultyId: string }> = ({ facultyId }) => {
                 outerRadius={90}
                 paddingAngle={2}
                 dataKey="count"
-                label={(entry) => entry.type}
+                label={(entry: any) => entry.type}
               >
                 {metrics?.typeDistribution.map((entry, index) => (
                   <Cell key={`cell-${index}`} fill={Object.values(chartColors)[index % 6]} />

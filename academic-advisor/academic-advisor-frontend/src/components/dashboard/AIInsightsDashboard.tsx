@@ -356,7 +356,7 @@ export const AIInsightsDashboard: React.FC<AIInsightsDashboardProps> = ({
                 <Activity className="w-6 h-6" />
                 <div>
                   <p className="text-sm text-purple-100">Analysis Score</p>
-                  <p className="text-2xl font-bold">{Math.round(performanceMetrics.cgpa * 10)}%</p>
+                  <p className="text-2xl font-bold">{Math.round((performanceMetrics.cgpa ?? 0) * 10)}%</p>
                 </div>
               </div>
             </div>
@@ -371,7 +371,7 @@ export const AIInsightsDashboard: React.FC<AIInsightsDashboardProps> = ({
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-purple-100 text-sm">Current CGPA</p>
-                  <p className="text-2xl font-bold">{performanceMetrics.cgpa.toFixed(2)}</p>
+                  <p className="text-2xl font-bold">{(performanceMetrics.cgpa ?? 0).toFixed(2)}</p>
                 </div>
                 <TrendingUp className="w-8 h-8 text-purple-200" />
               </div>
@@ -382,7 +382,7 @@ export const AIInsightsDashboard: React.FC<AIInsightsDashboardProps> = ({
                 <div className="w-full bg-white/20 rounded-full h-1 mt-1">
                   <div
                     className="bg-white h-1 rounded-full transition-all duration-500"
-                    style={{ width: `${(performanceMetrics.cgpa / 10) * 100}%` }}
+                    style={{ width: `${((performanceMetrics.cgpa ?? 0) / 10) * 100}%` }}
                   />
                 </div>
               </div>
@@ -432,13 +432,13 @@ export const AIInsightsDashboard: React.FC<AIInsightsDashboardProps> = ({
                 <div>
                   <p className="text-purple-100 text-sm">Peer Rank</p>
                   <p className="text-2xl font-bold">
-                    Top {peerComparison.percentile}%
+                    Top {peerComparison?.percentile ?? 0}%
                   </p>
                 </div>
                 <Trophy className="w-8 h-8 text-purple-200" />
               </div>
               <p className="text-xs text-purple-200 mt-2">
-                #{peerComparison.yourPosition} of {peerComparison.totalStudents}
+                #{peerComparison?.yourPosition ?? 0} of {peerComparison?.totalStudents ?? 0}
               </p>
             </motion.div>
           </div>
@@ -609,8 +609,8 @@ export const AIInsightsDashboard: React.FC<AIInsightsDashboardProps> = ({
                       <div className="flex items-center justify-between text-sm">
                         <span className="text-gray-600">Skill Gap</span>
                         <span className={`font-medium ${
-                          career.currentSkillGap < 30 ? 'text-green-600'
-                            : career.currentSkillGap < 60 ? 'text-yellow-600'
+                          (career.currentSkillGap ?? 0) < 30 ? 'text-green-600'
+                            : (career.currentSkillGap ?? 0) < 60 ? 'text-yellow-600'
                             : 'text-red-600'
                         }`}>
                           {career.currentSkillGap}%
@@ -621,8 +621,8 @@ export const AIInsightsDashboard: React.FC<AIInsightsDashboardProps> = ({
                         <span className="text-gray-600">Industry Demand</span>
                         <div className="flex items-center">
                           <TrendingUp className={`w-3 h-3 mr-1 ${
-                            career.industryDemand > 70 ? 'text-green-500'
-                              : career.industryDemand > 40 ? 'text-yellow-500'
+                            (career.industryDemand ?? 0) > 70 ? 'text-green-500'
+                              : (career.industryDemand ?? 0) > 40 ? 'text-yellow-500'
                               : 'text-red-500'
                           }`} />
                           <span className="font-medium">{career.industryDemand}%</span>
@@ -640,7 +640,7 @@ export const AIInsightsDashboard: React.FC<AIInsightsDashboardProps> = ({
                     <div className="mt-3 pt-3 border-t">
                       <p className="text-xs text-gray-600 mb-2">Top Skills Needed:</p>
                       <div className="flex flex-wrap gap-1">
-                        {career.requiredSkills.slice(0, 3).map((skill, idx) => (
+                        {career.requiredSkills?.slice(0, 3).map((skill: any, idx: number) => (
                           <span
                             key={idx}
                             className="px-2 py-1 bg-purple-100 text-purple-700 rounded text-xs"

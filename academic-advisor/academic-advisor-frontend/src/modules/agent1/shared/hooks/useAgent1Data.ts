@@ -1,6 +1,7 @@
 // modules/agent1/shared/hooks/useAgent1Data.ts
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { apiService } from '../../../shared/services/api.service';
+import { firebaseRealtime } from '../../../../core/integrations/firebase/realtime';
 
 // Local types
 interface PerformanceTrend {
@@ -150,9 +151,6 @@ export const useAgent1Data = (options: UseAgent1DataOptions): UseAgent1DataRetur
       }
 
       try {
-        // Lazy import to avoid crashes if RTDB is not configured
-        const { firebaseRealtime } = require('../../../../core/integrations/firebase/realtime');
-
         const fullChannel = `agent1/${studentId}/${channel}`;
 
         const unsubscribe = firebaseRealtime.subscribe(fullChannel, (snapshot: any) => {

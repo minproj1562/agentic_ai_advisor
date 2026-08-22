@@ -287,7 +287,7 @@ export class StudentAnalysisService extends SimpleEventEmitter {
   private readonly CACHE_TTL = 2 * 60 * 1000; // 2 minutes
   private readonly ANALYTICS_BATCH_SIZE = 10;
   private readonly ANALYTICS_FLUSH_INTERVAL = 30000; // 30 seconds
-  private analyticsFlushTimer: NodeJS.Timeout | null = null;
+  private analyticsFlushTimer: ReturnType<typeof setTimeout> | null = null;
   private sessionId: string;
 
   constructor() {

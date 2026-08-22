@@ -239,6 +239,7 @@ export interface StudyPlanMilestone {
 }
 
 export interface StudyPlan {
+  duration?: string | number;
   duration_weeks: number;
   weekly_hours: number;
   weekly_commitment: string;

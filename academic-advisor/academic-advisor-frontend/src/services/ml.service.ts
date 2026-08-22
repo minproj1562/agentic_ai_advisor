@@ -211,16 +211,31 @@ export interface AICareerInsight {
 }
 
 export interface ComprehensiveStudentAnalysis {
+  studentId?: string;
+  timestamp?: string;
   performanceMetrics: {
+    cgpa?: number;
+    sgpa?: number[];
+    attendanceRate?: number;
+    assignmentCompletionRate?: number;
+    subjectWisePerformance?: any[];
     predictedCGPA: number;
     performanceTrend: 'improving' | 'stable' | 'declining';
     strengthAreas: string[];
     weaknessAreas: string[];
+    riskLevel?: string;
   };
-  careerInsights: Array<{ domain: string; matchScore: number }>;
-  futureProjections: {
-    placementProbability: number;
-  };
+  careerInsights: Array<{
+    domain: string;
+    matchScore: number;
+    requiredSkills?: any[];
+    currentSkillGap?: number;
+    recommendedCourses?: any[];
+    industryDemand?: number;
+    salaryRange?: any;
+    topCompanies?: any[];
+    preparationRoadmap?: any[];
+  }>;
   personalizedRecommendations: {
     immediateActions: Array<{
       action: string;
@@ -229,6 +244,43 @@ export interface ComprehensiveStudentAnalysis {
       effort: number;
       deadline: string;
     }>;
+    shortTermGoals?: any[];
+    longTermGoals?: any[];
+    skillDevelopmentPlan?: any[];
+    mentorshipSuggestions?: any[];
+    networkingOpportunities?: any[];
+  };
+  projectAnalysis?: {
+    totalProjects?: number;
+    domainDistribution?: Record<string, number>;
+    skillCoverage?: number;
+    innovationScore?: number;
+    industryRelevance?: number;
+    portfolioStrength?: number;
+    missingAreas?: string[];
+    suggestedProjects?: any[];
+  };
+  peerComparison?: {
+    percentile?: number;
+    averageCGPA?: number;
+    yourPosition?: number;
+    totalStudents?: number;
+    strengths?: string[];
+    areasToImprove?: string[];
+    topPerformers?: any[];
+  };
+  futureProjections: {
+    expectedGraduation?: {
+      expectedCGPA?: number;
+      confidence?: number;
+      risks?: string[];
+      opportunities?: string[];
+    };
+    placementProbability: number;
+    expectedPackageRange?: { min: number; max: number };
+    topMatchingCompanies?: any[];
+    preparednessScore?: number;
+    timeToReadiness?: number;
   };
 }
 
@@ -250,15 +302,19 @@ export interface SubjectScore {
 }
 
 export interface StudentAcademicData {
-  student_id: string;
-  name: string;
-  roll_number: string;
-  branch: string;
-  admission_year: number;
-  current_semester: number;
-  current_cgpa: number;
-  total_credits_earned: number;
-  semesters: SemesterData[];
+  student_id?: string;
+  name?: string;
+  roll_number?: string;
+  branch?: string;
+  admission_year?: number;
+  current_semester?: number;
+  current_cgpa?: number;
+  total_credits_earned?: number;
+  semesters?: SemesterData[];
+  attendance_percentage?: number;
+  assignment_completion_ratio?: number;
+  study_hours_per_week?: number;
+  extracurricular_activities?: string[];
 }
 
 export interface SemesterData {
@@ -313,6 +369,7 @@ export interface WeaknessData {
 export interface StudyPlan {
   weekly_hours: number;
   daily_hours: number;
+  duration?: string | number;
   focus_distribution: Record<string, string>;
   recommended_resources: string[];
   milestones: Array<{

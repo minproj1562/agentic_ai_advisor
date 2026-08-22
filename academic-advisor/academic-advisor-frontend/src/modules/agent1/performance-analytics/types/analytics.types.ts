@@ -195,16 +195,22 @@ export interface AnalyticsConfig {
 
 // Metrics Types
 export interface PerformanceMetrics {
-  overallGPA: number;
-  gpaChange: number;
-  strongSubjects: number;
-  needsAttention: number;
-  totalCredits: number;
-  averageGrade: number;
-  medianGrade: number;
-  standardDeviation: number;
-  distribution: GradeDistribution;
-  trends: SubjectTrends;
+  overallGPA?: number;
+  gpaChange?: number;
+  strongSubjects?: number;
+  needsAttention?: number;
+  totalCredits?: number;
+  averageGrade?: number;
+  medianGrade?: number;
+  standardDeviation?: number;
+  distribution?: GradeDistribution;
+  trends?: SubjectTrends;
+  avg?: number;
+  max?: number;
+  min?: number;
+  count?: number;
+  sum?: number;
+  stdDev?: number;
 }
 
 export interface GradeDistribution {

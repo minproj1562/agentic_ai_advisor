@@ -107,7 +107,7 @@ export class PDFParser {
     const pdfjsLib = await this.loadPDFJS();
     
     try {
-      const pdf = await pdfjsLib.getDocument(url).promise;
+      const pdf = await pdfjsLib.getDocument({ url }).promise;
       
       let fullText = '';
       const metadata: any = {
